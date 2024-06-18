@@ -1,41 +1,41 @@
-import logo from './logo.svg';
+import React from 'react';
+import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import './App.css';
+import About from '../pages/About';
+import Home from '../pages/Home';
+import Certifications from '../pages/Certifications';
+import Gaming from '../pages/Gaming';
+import NotFound from '../pages/NotFound';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <h2>Welcome to my portfolio!</h2>
-        <p>
-          Muhammad Basit Zaheer
-        </p>
-        <a
-          className="App-link"
-          href="https://www.linkedin.com/in/muhammad-basit-zaheer/"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          LinkedIn
-        </a>
-        <a
-          className="App-link"
-          href="https://github.com/basit3000"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          GitHub
-        </a>
-        <a
-          className="App-link"
-          href="https://leetcode.com/u/basit3000/"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Leetcode
-        </a>
-      </header>
-    </div>
+    <Router>
+      <div className="Home">
+        <nav className="horizontal-nav">
+          <ul>
+            <li>
+              <Link to="/">Home</Link>
+            </li>
+            <li>
+              <Link to="/about">About</Link>
+            </li>
+            <li>
+              <Link to="/certifications">Certifications</Link>
+            </li>
+            <li>
+              <Link to="/gaming">Gaming</Link>
+            </li>
+          </ul>
+        </nav>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/about" element={<About />} />
+          <Route path="/certifications" element={<Certifications />} />
+          <Route path="/gaming" element={<Gaming />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </div>
+    </Router>
   );
 }
 

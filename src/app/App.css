@@ -28,6 +28,23 @@
   color: #61dafb;
 }
 
+.no-underline-app-header {
+  font-size: calc(10px + 1.2vmin);
+  text-decoration: none;
+  display: inline-block;
+  padding: 10px 20px;
+  margin: 10px;
+  border: 2px solid #007BFF;
+  border-radius: 5px;
+  text-decoration: none;
+  color: #007BFF;
+  text-align: center;
+  background-color: #f0f0f0;
+  width: 900px;
+  height: 50px;
+  line-height: 25px;
+}
+
 @keyframes App-logo-spin {
   from {
     transform: rotate(0deg);
@@ -35,4 +52,46 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.vertical-nav ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+}
+
+.vertical-nav ul li {
+  margin: 10px 0;
+}
+
+.vertical-nav ul li a {
+  text-decoration: none;
+  color: #000;
+  padding: 10px;
+  display: block;
+}
+
+.vertical-nav ul li a:hover {
+  background-color: #ddd;
+}
+
+.horizontal-nav ul {
+  list-style-type: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+}
+
+.horizontal-nav ul li {
+  margin: 0 10px;
+}
+
+.horizontal-nav ul li a {
+  text-decoration: none;
+  color: #000;
+  padding: 10px;
+}
+
+.horizontal-nav ul li a:hover {
+  background-color: #ddd;
 }

@@ -10,6 +10,10 @@ function Home() {
           My name is Muhammad Basit Zaheer and I am currently a student at Technische Universität Ilmenau doing my masters.
         </p>
         <p>Here are some links to some of my socials:</p>
+        <a 
+          className= "no-underline-app-header"
+          href="mailto:basitzaheer02@gmail.com">Email: basitzaheer02@gmail.com
+        </a>
         <a
           className="no-underline-app-header"
           href="https://www.linkedin.com/in/muhammad-basit-zaheer/"

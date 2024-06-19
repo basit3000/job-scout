@@ -43,6 +43,14 @@ function Gaming() {
                 </a>
                 <a
                 className="no-underline-app-header"
+                href="https://tracker.gg/valorant/profile/riot/butterfly%238080/overview"
+                target="_blank"
+                rel="noopener noreferrer"
+                >
+                Valorant (smurf): butterfly #8080
+                </a>
+                <a
+                className="no-underline-app-header"
                 href="https://www.twitch.tv/meyramax"
                 target="_blank"
                 rel="noopener noreferrer"

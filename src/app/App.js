@@ -6,6 +6,7 @@ import Home from '../pages/Home';
 import Certifications from '../pages/Certifications';
 import Gaming from '../pages/Gaming';
 import NotFound from '../pages/NotFound';
+import Books from '../pages/Books';
 
 function App() {
   return (
@@ -25,6 +26,9 @@ function App() {
             <li>
               <Link to="/gaming">Gaming</Link>
             </li>
+            <li>
+              <Link to="/books">Books</Link>
+            </li>
           </ul>
         </nav>
         <Routes>
@@ -32,6 +36,7 @@ function App() {
           <Route path="/about" element={<About />} />
           <Route path="/certifications" element={<Certifications />} />
           <Route path="/gaming" element={<Gaming />} />
+          <Route path="/books" element={<Books />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>

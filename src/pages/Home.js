@@ -1,10 +1,13 @@
 import React from 'react';
-import './Home.css';
+import basitImage from '../app/basit.jpg';
 
 function Home() {
   return (
     <div className="Home">
       <header className="Home-header">
+      <div>
+      <img src={basitImage} alt="Basit" className="profile-image" />
+    </div>
         <h2>Welcome to my portfolio!</h2>
         <p>
           My name is Muhammad Basit Zaheer and I am currently a student at Technische Universität Ilmenau doing my masters.

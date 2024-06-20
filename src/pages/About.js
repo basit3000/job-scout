@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import basitImage from '../app/basit.jpg';
 
 const AboutContainer = styled.div`
   padding: 20px;
@@ -39,13 +40,16 @@ const AboutDescription = styled.p`
 function About() {
   return (
     <header className="Home-header">
+      <div>
+      <img src={basitImage} alt="Basit" className="profile-image" />
+    </div>
     <AboutContainer>
       <AboutTitle>About me</AboutTitle>
       <AboutDescription>
         Welcome to about me page. This is where you can learn more about me.
         <p>My name is Muhammad Basit Zaheer. I am currently a student in Technische Universität Ilmenau. I like a lot of things and 
-          would like to do a lot. I like to travel, read books, watch anime, watch TV shows, play video games, code random stuff,
-          and try new food recipes. 
+          I am curious about a lot of different topics. I like to travel, read books, watch anime, watch TV shows, play video games 
+          casually and competitively both, code random stuff, and try new food recipes. 
         </p>
       </AboutDescription>
     </AboutContainer>

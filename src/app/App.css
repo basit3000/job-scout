@@ -1,3 +1,37 @@
+body {
+  font-size: 16px;
+  margin: 0;
+  padding: 0;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-around;
+  background-color: #333;
+  padding: 10px;
+  position: fixed;
+  width: 100%;
+  top: 0;
+  z-index: 1000;
+}
+
+.navbar a {
+  color: white;
+  text-decoration: none;
+  padding: 10px;
+  display: block;
+}
+
+.content-container {
+  margin-top: 50px; 
+  padding: 20px;
+}
+
+.container {
+  padding: 20px;
+  text-align: center;
+}
+
 .App {
   text-align: center;
 }
@@ -40,9 +74,38 @@
   color: #007BFF;
   text-align: center;
   background-color: #f0f0f0;
-  width: 900px;
-  height: 50px;
-  line-height: 25px;
+  width: 90%;
+  width: 700px;
+  height: auto;
+  line-height: 1.5;
+}
+
+@media (max-width: 600px) {
+  .navbar {
+      flex-direction: column;
+      align-items: flex-start;
+  }
+
+  .navbar a {
+      width: 100%;
+      text-align: center;
+  }
+
+  .no-underline-app-header {
+      font-size: calc(10px + 2vmin);
+      padding: 8px 15px;
+      margin: 5px;
+      width: 100%;
+  }
+}
+
+@media (max-width: 400px) {
+  .no-underline-app-header {
+      font-size: calc(10px + 3vmin);
+      padding: 5px 10px;
+      margin: 5px 0;
+      width: 100%;
+  }
 }
 
 @keyframes App-logo-spin {
@@ -94,4 +157,84 @@
 
 .horizontal-nav ul li a:hover {
   background-color: #ddd;
+}
+
+@media (max-width: 600px) {
+  body {
+      font-size: 14px;
+  }
+
+  .container {
+      padding: 10px;
+  }
+
+  .navbar {
+      flex-direction: column;
+      align-items: flex-start;
+  }
+
+  .navbar a {
+      display: block;
+      margin-bottom: 10px;
+  }
+}
+
+@media (max-width: 400px) {
+  body {
+      font-size: 12px;
+  }
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+.text-container {
+  width: 100%;
+  padding: 10px;
+}
+
+/*Specific css for main pages like background color, taking elements to middle, etc*/
+.Home {
+  text-align: center;
+}
+
+.Home-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+.Home-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.Home-link {
+  color: #61dafb;
+}
+
+.profile-image {
+  width: 100%;
+  max-width: 180px; 
+  height: auto;
+  /*border-radius: 10px;*/ 
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2); 
 }

@@ -8,12 +8,12 @@ function Home() {
       <h1>Welcome to my portfolio!</h1>
       <p>My name is Muhammad Basit Zaheer and I am currently a student at Technische Universität Ilmenau doing my masters.</p>
       <p>Here are some links to some of my socials:</p>
-      <a className="btn" href="mailto:basitzaheer02@gmail.com">Email: basitzaheer02@gmail.com</a>
-      <a className="btn" href="https://www.linkedin.com/in/muhammad-basit-zaheer/">LinkedIn</a>
-      <a className="btn" href="https://github.com/basit3000">GitHub</a>
-      <a className="btn" href="https://leetcode.com/u/basit3000/">Leetcode</a>
-      <a className="btn" href="https://discord.com/users/297442450623037441">Discord</a>
-      <a className="btn" href="https://www.coursera.org/learner/muhammad-basit">Coursera</a>
+      <a className="btn" href="mailto:basitzaheer02@gmail.com"><i className="fas fa-envelope"></i>Email: basitzaheer02@gmail.com</a>
+      <a className="btn" href="https://www.linkedin.com/in/muhammad-basit-zaheer/"><i className="fab fa-linkedin"></i>LinkedIn</a>
+      <a className="btn" href="https://github.com/basit3000"><i className="fab fa-github"></i>GitHub</a>
+      <a className="btn" href="https://leetcode.com/u/basit3000/"><i className="fas fa-code"></i>Leetcode</a>
+      <a className="btn" href="https://discord.com/users/297442450623037441"><i className="fab fa-discord"></i>Discord</a>
+      <a className="btn" href="https://www.coursera.org/learner/muhammad-basit"><i className="fas fa-graduation-cap"></i>Coursera</a>
     </div>
     
   );

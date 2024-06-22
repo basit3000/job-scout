@@ -1,27 +1,61 @@
+:root {
+  /* Light mode colors */
+  --background-color: #fbfafa;
+  --text-color: #000000;
+  --link-color: #4d61ea;
+  --btn-background-color: #4d61ea;
+  --btn-hover-background-color: #357ab7;
+  --navbar-background-color: #343a40;
+  --navbar-text-color: #fff;
+  --navbar-link-color: #bbb;
+  --navbar-link-hover-color: #fff;
+  --navbar-bg: #4d61ea;
+  --primary-text-color: #000000;
+  --secondary-text-color: #4d61ea;
+  --section-bg: #fbfafa;
+
+  /* Dark mode colors */
+  --background-color-dark: #1a1a1a;
+  --text-color-dark: #f1f1f1;
+  --link-color-dark: #c1c1c1;
+  --btn-background-color-dark: #4d61ea;
+  --btn-hover-background-color-dark: #6200ea;
+  --navbar-background-color-dark: #1f1f1f;
+  --navbar-text-color-dark: #e0e0e0;
+  --navbar-link-color-dark: #bbb;
+  --navbar-link-hover-color-dark: #fff;
+  --navbar-bg-dark: #222222;
+  --primary-text-color-dark: #ffffff;
+  --secondary-text-color-dark: #c1c1c1;
+  --section-bg-dark: #2a2a2a;
+}
+
+/* Light mode */
 body {
   margin: 0;
   padding: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  background-color: #2c2f33;
-  color: #fff;
+  background-color: var(--background-color);
+  color: var(--text-color);
 }
 
 .navbar {
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  background-color: var(--navbar-background-color);
 }
 
 .navbar-brand {
   font-size: 1.25rem;
-  color: #fff !important;
+  color: var(--navbar-text-color) !important;
 }
 
 .nav-link {
-  color: #bbb !important;
+  color: var(--navbar-link-color) !important;
   transition: color 0.3s;
 }
 
 .nav-link:hover {
-  color: #fff !important;
+  color: var(--navbar-link-hover-color) !important;
 }
 
 .main-content {
@@ -29,22 +63,16 @@ body {
   padding: 20px;
 }
 
-h1 {
-  color: #ffffff;
-  font-size: 2.5rem;
-  margin-top: 1rem;
-  text-align: center;
-}
 
 p {
-  color: #d1d1d1;
+  color: var(--link-color);
   font-size: 1.1rem;
   text-align: center;
 }
 
 .about-section {
-  background-color: #ffffff;
-  color: #333333; /* Updated */
+  background-color: var(--background-color);
+  color: var(--text-color); 
   padding: 20px;
   border-radius: 8px;
   margin: 20px auto;
@@ -53,12 +81,12 @@ p {
 }
 
 .about-section h2 {
-  color: #2c2f33;
+  color: var(--text-color);
   font-size: 1.8rem;
 }
 
 .about-section p {
-  color: #4a4a4a; 
+  color: var(--link-color);
 }
 
 .btn {
@@ -67,7 +95,7 @@ p {
   max-width: 90%; /* Updated for responsiveness */
   margin: 15px auto;
   padding: 15px;
-  background-color: #4a90e2;
+  background-color: var(--btn-background-color);
   color: #fff;
   text-align: center;
   border-radius: 8px;
@@ -81,7 +109,7 @@ p {
   max-width: 90%; /* Updated for responsiveness */
   margin: 15px auto;
   padding: 15px;
-  background-color: #4a90e2;
+  background-color: var(--btn-background-color);
   color: #fff;
   text-align: center;
   border-radius: 8px;
@@ -91,13 +119,21 @@ p {
 }
 
 .btn:hover {
-  background-color: #357ab7;
+  background-color: var(--btn-hover-background-color);
   transform: scale(1.05);
 }
 
 .btn2:hover {
-  background-color: #357ab7;
+  background-color: var(--btn-hover-background-color);
   transform: scale(1.05);
+}
+
+.btn i {
+  margin-right: 10px;
+}
+
+.btn2 i {
+  margin-right: 10px;
 }
 
 .container-xxl {
@@ -191,27 +227,142 @@ img {
   padding: 10px;
 }
 
-/*Specific css for main pages like background color, taking elements to middle, etc*/
-.Home {
+.navbar-nav.ml-auto {
+  margin-left: auto;
+}
+
+.navbar-nav.mr-auto {
+  margin-right: auto;
+}
+
+/* Dark mode */
+body.dark-mode {
+  background-color: var(--background-color-dark);
+  color: var(--text-color-dark);
+}
+
+.navbar.dark-mode {
+  background-color: var(--navbar-background-color-dark);
+}
+
+.navbar-brand.dark-mode {
+  color: var(--navbar-text-color-dark) !important;
+}
+
+.nav-link.dark-mode {
+  color: var(--navbar-link-color-dark) !important;
+  transition: color 0.3s;
+}
+
+.nav-link.dark-mode:hover {
+  color: var(--navbar-link-hover-color-dark) !important;
+}
+
+.main-content.dark-mode {
+  margin-top: 70px; /* Adjust this value to the height of your navbar */
+  padding: 20px;
+}
+
+
+p.dark-mode {
+  color: var(--link-color-dark);
+  font-size: 1.1rem;
   text-align: center;
 }
 
-.Home-logo {
-  height: 40vmin;
-  pointer-events: none;
+.about-section.dark-mode {
+  background-color: var(--background-color-dark);
+  color: var(--text-color-dark); 
+  padding: 20px;
+  border-radius: 8px;
+  margin: 20px auto;
+  max-width: 800px;
+  text-align: center;
 }
 
-.Home-header {
-  background-color: #282c34;
-  min-height: 100vh;
+.about-section.dark-mode h2 {
+  color: var(--text-color-dark);
+  font-size: 1.8rem;
+}
+
+.about-section.dark-mode p {
+  color: var(--link-color-dark);
+}
+
+.btn.dark-mode {
+  background-color: var(--btn-background-color-dark);
+}
+
+.btn2.dark-mode {
+  background-color: var(--btn-background-color-dark);
+}
+
+.btn.dark-mode:hover {
+  background-color: var(--btn-hover-background-color-dark);
+}
+
+.btn2.dark-mode:hover {
+  background-color: var(--btn-hover-background-color-dark);
+}
+
+.switch-container {
   display: flex;
-  flex-direction: column;
-  align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
+  align-items: center;
+  flex-grow: 1;
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
 }
 
-.Home-link {
-  color: #61dafb;
+.navbar .container-xxl {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+}
+
+.switch-text {
+  margin-right: 10px;
+  font-size: 1rem;
+  color: #fff;
+}
+
+.switch input {
+  display: none;
+}
+
+.slider {
+  position: relative;
+  width: 50px;
+  height: 24px;
+  background-color: #ccc;
+  border-radius: 34px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  background-color: white;
+  border-radius: 50%;
+  top: 3px;
+  left: 3px;
+  transition: transform 0.3s;
+}
+
+input:checked + .slider {
+  background-color: #4d61ea;
+}
+
+input:checked + .slider::before {
+  transform: translateX(26px);
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import './App.css';
 import About from '../pages/About';
@@ -12,15 +12,17 @@ import '@fortawesome/fontawesome-free/css/all.min.css';
 function App() {
   const [isNavCollapsed, setIsNavCollapsed] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const navRef = useRef(null);
 
   const handleNavCollapse = () => setIsNavCollapsed(!isNavCollapsed);
 
   const handleNavLinkClick = () => {
-    const navbar = document.getElementById('main-nav');
-    const bsCollapse = new window.bootstrap.Collapse(navbar, {
-      toggle: false,
-    });
-    bsCollapse.hide();
+    if (navRef.current && window.bootstrap?.Collapse) {
+      const bsCollapse = new window.bootstrap.Collapse(navRef.current, {
+        toggle: false,
+      });
+      bsCollapse.hide();
+    }
     setIsNavCollapsed(true);
   };
 
@@ -57,7 +59,7 @@ function App() {
               <span className="navbar-toggler-icon"></span>
             </button>
             
-            <div className={`${isNavCollapsed ? 'collapse' : 'collapse show'} navbar-collapse`} id="main-nav">
+            <div className={`${isNavCollapsed ? 'collapse' : 'collapse show'} navbar-collapse`} id="main-nav" ref={navRef}>
               <ul className="navbar-nav ml-auto">
                 <li className="nav-item">
                   <Link className="nav-link" to="/about" onClick={handleNavLinkClick}>About</Link>

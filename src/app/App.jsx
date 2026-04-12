@@ -33,11 +33,11 @@ function App() {
 
   return (
     <Router>
-      <div className={darkMode ? 'dark-mode' : 'light-mode'}>
-        <nav className={`navbar navbar-expand-md navbar-dark fixed-top ${darkMode ? 'dark-mode' : 'light-mode'}`}>
+      <div>
+        <nav className="navbar navbar-expand-md fixed-top">
           <div className="container-xxl">
             <Link className="navbar-brand" to="/" onClick={handleNavLinkClick}>
-              <span className="text-light fw-bold">Home</span>
+              <span className="fw-bold">Home</span>
             </Link>
             <div className="switch-container">
             <div className="switch">
@@ -77,7 +77,7 @@ function App() {
             </div>
           </div>
         </nav>
-        <div className="main-content container" style={{ paddingTop: '56px' }}>
+        <div className="main-content">
           
           <Routes>
             <Route path="/" element={<Home />} />

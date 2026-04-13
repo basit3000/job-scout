@@ -6,10 +6,12 @@ A modern personal portfolio website built with React and Vite, featuring dark mo
 
 - **Animated Typing Hero** — Cycles through roles (Software Developer, Master's Student, etc.) with a typewriter effect
 - **Projects Showcase** — Card grid of GitHub projects with tags, descriptions, and links
+- **View Counter** — Live visit counter powered by Upstash Redis via Vercel serverless functions
 - **Active Nav Indicator** — Highlights the current page in the navbar with an accent underline
 - **Animated Gradient Background** — Subtle shifting gradient for visual depth
 - **Dark Mode** — Full light/dark theme toggle with CSS custom properties
 - **Glassmorphism Navbar** — Blurred, translucent fixed navbar
+- **Site Footer** — Social icon links + copyright on every page
 - **Responsive Design** — Mobile-first layout with collapsible navigation
 
 ## Tech Stack
@@ -19,21 +21,26 @@ A modern personal portfolio website built with React and Vite, featuring dark mo
 - **Bootstrap 5.3** (CDN — CSS + JS bundle)
 - **Font Awesome 6** (icons)
 - **CSS Custom Properties** for theming
+- **Upstash Redis** (view counter persistence)
+- **Vercel Serverless Functions** (API backend)
 
 ## Project Structure
 
 ```
 index.html              # Vite entry point (root)
+vercel.json             # Vercel config (rewrites, build settings)
 vite.config.js          # Vite configuration
+api/
+  views.js              # Serverless function — view counter (Upstash Redis)
 public/                 # Static assets (favicon, manifest, robots.txt)
 src/
   index.jsx             # React entry point
   index.css             # Global styles
   app/
-    App.jsx             # Main layout, navbar, routing, active link logic
+    App.jsx             # Main layout, navbar, footer, routing, active link logic
     App.css             # Design tokens, components, animations
   pages/
-    Home.jsx            # Landing page with typing hero + social links
+    Home.jsx            # Landing page with typing hero, social links, view counter
     About.jsx           # About page
     Projects.jsx        # Project cards grid (from GitHub repos)
     Certifications.jsx  # Certifications list
@@ -70,6 +77,19 @@ npm run dev
 | `/gaming` | Gaming | Gaming profiles and accounts |
 | `/books` | Books | Reading list (completed + currently reading) |
 
+## Environment Variables
+
+Required in Vercel dashboard (Settings → Environment Variables):
+
+| Variable | Description |
+|----------|-------------|
+| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
+| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST auth token |
+
 ## Deployment
 
-Run `npm run build` — output goes to the `build/` directory, ready for static hosting (Netlify, Vercel, GitHub Pages, etc.).
+Deployed on **Vercel** with automatic Git-based deploys.
+
+- `npm run build` outputs to `build/`
+- `api/` directory contains serverless functions auto-deployed by Vercel
+- `vercel.json` handles SPA rewrites and build configuration

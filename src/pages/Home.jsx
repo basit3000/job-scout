@@ -57,11 +57,6 @@ function Home() {
           <span className="typing-role">{typedText}</span>
           <span className="typing-cursor">|</span>
         </p>
-        {views !== null && (
-          <p className="view-counter">
-            <i className="fas fa-eye"></i> {views.toLocaleString()} {views === 1 ? 'visit' : 'visits'}
-          </p>
-        )}
       </div>
       <div className="section-title">Connect</div>
       <a className="link-card" href="mailto:basitzaheer02@gmail.com"><i className="fas fa-envelope"></i>basitzaheer02@gmail.com</a>
@@ -69,6 +64,11 @@ function Home() {
       <a className="link-card" href="https://github.com/basit3000" target="_blank" rel="noopener noreferrer"><i className="fab fa-github"></i>GitHub</a>
       <a className="link-card" href="https://leetcode.com/u/basit3000/" target="_blank" rel="noopener noreferrer"><i className="fas fa-code"></i>Leetcode</a>
       <a className="link-card" href="https://www.coursera.org/learner/muhammad-basit" target="_blank" rel="noopener noreferrer"><i className="fas fa-graduation-cap"></i>Coursera</a>
+      {views !== null && (
+        <p className="view-counter">
+          <i className="fas fa-eye"></i> {views.toLocaleString()} {views === 1 ? 'visit' : 'visits'}
+        </p>
+      )}
     </div>
   );
 }

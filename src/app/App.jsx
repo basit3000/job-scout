@@ -95,6 +95,19 @@ function AppContent() {
           <Route path="*" element={<NotFound />} />
         </Routes>
       </div>
+      <footer className="site-footer">
+        <div className="footer-content">
+          <div className="footer-links">
+            <a href="mailto:basitzaheer02@gmail.com" aria-label="Email"><i className="fas fa-envelope"></i></a>
+            <a href="https://www.linkedin.com/in/muhammad-basit-zaheer/" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"><i className="fab fa-linkedin"></i></a>
+            <a href="https://github.com/basit3000" target="_blank" rel="noopener noreferrer" aria-label="GitHub"><i className="fab fa-github"></i></a>
+            <a href="https://leetcode.com/u/basit3000/" target="_blank" rel="noopener noreferrer" aria-label="LeetCode"><i className="fas fa-code"></i></a>
+          </div>
+          <p className="footer-text">
+            &copy; {new Date().getFullYear()} Muhammad Basit Zaheer. Built with React &amp; Vite.
+          </p>
+        </div>
+      </footer>
     </div>
   );
 }

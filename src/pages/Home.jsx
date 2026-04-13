@@ -37,6 +37,14 @@ function useTypingEffect(strings, typingSpeed = 80, deletingSpeed = 40, pauseTim
 
 function Home() {
   const typedText = useTypingEffect(roles);
+  const [views, setViews] = useState(null);
+
+  useEffect(() => {
+    fetch('/api/views', { method: 'POST' })
+      .then(res => res.json())
+      .then(data => setViews(data.views))
+      .catch(() => setViews(null));
+  }, []);
 
   return (
     <div className="page-enter">
@@ -49,6 +57,11 @@ function Home() {
           <span className="typing-role">{typedText}</span>
           <span className="typing-cursor">|</span>
         </p>
+        {views !== null && (
+          <p className="view-counter">
+            <i className="fas fa-eye"></i> {views.toLocaleString()} {views === 1 ? 'visit' : 'visits'}
+          </p>
+        )}
       </div>
       <div className="section-title">Connect</div>
       <a className="link-card" href="mailto:basitzaheer02@gmail.com"><i className="fas fa-envelope"></i>basitzaheer02@gmail.com</a>

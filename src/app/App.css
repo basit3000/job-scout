@@ -304,6 +304,27 @@ input:checked + .slider::before {
 }
 
 /* ============================================
+   View Counter
+   ============================================ */
+.view-counter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0.75rem;
+  padding: 6px 14px;
+  background: var(--accent-light);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border-radius: 20px;
+}
+
+.view-counter i {
+  color: var(--accent);
+  font-size: 0.8rem;
+}
+
+/* ============================================
    Link Cards (replaces .btn / .btn2)
    ============================================ */
 .link-card {

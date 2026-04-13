@@ -17,7 +17,11 @@ function Books() {
       <a className="link-card" href="https://www.amazon.de/-/en/John-Lees/dp/1292463309" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>How to Get a Job You Love by John Lees</a>
       <a className="link-card" href="https://www.amazon.de/-/en/Michiko-Aoyama/dp/0857529129" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>What You Are Looking for Is in the Library by Michiko Aoyama</a>
       <a className="link-card" href="https://www.amazon.de/Art-War-Sun-Tzu/dp/1721195092" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>The Art of War by Sun Tzu</a>
-      </div>
+      <div className="section-title">Plan to Read (Already bought - In shelf)</div>
+      <a className="link-card" href="https://amzn.eu/d/0fG3Jdys" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>How to raise a Healthy Gamer by Dr Alok Kanojia</a>
+      <a className="link-card" href="https://amzn.eu/d/00QE8H8B" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>Midnight Library by Matt Haig</a>
+      <a className="link-card" href="https://amzn.eu/d/0fvqxCtk" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>Setting Boundaries, Finding Peace by Nedra Glover Tawwab</a>
+    </div>
   );
 }
 

@@ -437,6 +437,97 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 /* ============================================
+   Live Status (Spotify + Steam)
+   ============================================ */
+.live-status-section {
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+}
+
+.live-status-intro {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: -0.25rem 0 1rem;
+}
+
+.live-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.live-status-item {
+  background: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+}
+
+.live-status-spotify {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem;
+}
+
+.live-status-spotify-img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: calc(var(--radius-lg) - 4px);
+}
+
+.live-status-steam {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 120px;
+  padding: 1.25rem 1.5rem;
+}
+
+.live-status-steam-icon {
+  font-size: 2.5rem;
+  color: #66c0f4;
+  flex-shrink: 0;
+}
+
+.live-status-steam-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.live-status-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #66c0f4;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.live-status-value {
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.live-status-footnote {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.live-status-steam--loading .live-status-value,
+.live-status-steam--error .live-status-value {
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+/* ============================================
    404 Page
    ============================================ */
 .not-found {

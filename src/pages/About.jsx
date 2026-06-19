@@ -1,5 +1,6 @@
 import React from 'react';
 import basitImage from '../app/basit.jpg';
+import LiveStatus from '../components/LiveStatus';
 
 function About() {
   return (
@@ -9,6 +10,7 @@ function About() {
         <h2>About me</h2>
         <p>My name is Muhammad Basit Zaheer. I am currently a student at Technische Universität Ilmenau. I like a lot of things and I am curious about a lot of different topics. I like to travel, read books, watch anime, watch TV shows, play video games casually and competitively both, code random stuff, and try new food recipes.</p>
       </div>
+      <LiveStatus />
     </div>
   );
 }

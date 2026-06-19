@@ -167,61 +167,101 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 /* ============================================
-   Dark Mode Toggle
+   Navbar Actions (theme toggle + hamburger)
    ============================================ */
-.switch-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  position: absolute;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.switch {
+.navbar-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  order: 3;
 }
 
-.switch-text {
-  font-size: 0.82rem;
-  font-weight: 500;
-  color: var(--text-secondary);
-}
-
-.switch input {
-  display: none;
-}
-
-.slider {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  background-color: var(--text-muted);
-  border-radius: 24px;
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  background: var(--accent-light);
+  border: 1px solid var(--card-border);
+  border-radius: 10px;
+  color: var(--accent);
+  font-size: 1rem;
   cursor: pointer;
-  transition: background-color var(--transition);
+  transition: background var(--transition), color var(--transition), transform var(--transition);
 }
 
-.slider::before {
-  content: "";
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  background-color: white;
-  border-radius: 50%;
-  top: 3px;
-  left: 3px;
+.theme-toggle:hover {
+  background: var(--accent);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+/* ============================================
+   Nav Dropdown ("More")
+   ============================================ */
+.nav-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.nav-caret {
+  font-size: 0.7rem;
   transition: transform var(--transition);
 }
 
-input:checked + .slider {
-  background-color: var(--accent);
+.nav-caret.open {
+  transform: rotate(180deg);
 }
 
-input:checked + .slider::before {
-  transform: translateX(20px);
+.nav-dropdown-menu {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0.4rem;
+  background: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow-hover);
+  animation: fadeSlideUp 0.2s ease-out;
+}
+
+.nav-dropdown-item {
+  display: block;
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--transition), background var(--transition);
+}
+
+.nav-dropdown-item:hover,
+.nav-dropdown-item.active {
+  color: var(--accent);
+  background: var(--accent-light);
+  text-decoration: none;
+}
+
+@media (min-width: 768px) {
+  .nav-dropdown-menu {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 180px;
+    z-index: 1000;
+  }
 }
 
 /* ============================================
@@ -463,13 +503,6 @@ input:checked + .slider::before {
    Responsive
    ============================================ */
 @media (max-width: 767px) {
-  .switch-container {
-    position: static;
-    transform: none;
-    margin-right: auto;
-    margin-left: 1rem;
-  }
-
   .main-content {
     padding: 1.5rem 1rem;
   }
@@ -615,6 +648,139 @@ input:checked + .slider::before {
   .projects-grid {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+/* ============================================
+   Blog
+   ============================================ */
+.blog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.blog-item {
+  position: relative;
+  display: block;
+  padding: 1.25rem 3rem 1.25rem 1.25rem;
+  background: var(--bg-card);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  box-shadow: var(--card-shadow);
+  text-decoration: none;
+  transition: box-shadow var(--transition), transform var(--transition), border-color var(--transition);
+}
+
+.blog-item:hover {
+  box-shadow: var(--card-shadow-hover);
+  transform: translateY(-2px);
+  border-color: var(--accent);
+  text-decoration: none;
+}
+
+.blog-item-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 0.5rem;
+}
+
+.blog-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--accent-light);
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 20px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.blog-category i {
+  font-size: 0.72rem;
+}
+
+.blog-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.blog-item-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 0.35rem;
+  letter-spacing: -0.02em;
+}
+
+.blog-item-excerpt {
+  color: var(--text-secondary);
+  font-size: 0.92rem;
+  line-height: 1.55;
+  margin: 0;
+}
+
+.blog-item-arrow {
+  position: absolute;
+  top: 50%;
+  right: 1.25rem;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  transition: color var(--transition), right var(--transition);
+}
+
+.blog-item:hover .blog-item-arrow {
+  color: var(--accent);
+  right: 1rem;
+}
+
+/* Blog post (detail page) */
+.blog-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 1.5rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: gap var(--transition), color var(--transition);
+}
+
+.blog-back:hover {
+  color: var(--accent);
+  gap: 12px;
+  text-decoration: none;
+}
+
+.blog-post-title {
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: 0.75rem 0 1.5rem;
+  line-height: 1.2;
+}
+
+.blog-post-body p {
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  line-height: 1.8;
+  margin: 0 0 1.25rem;
+}
+
+.blog-post-body p:last-child {
+  margin-bottom: 0;
 }
 
 /* ============================================

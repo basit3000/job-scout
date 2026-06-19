@@ -1,44 +1,59 @@
 /* ============================================
-   Design Tokens
+   Design Tokens — Dota 2 inspired (gold / Radiant / Dire)
    ============================================ */
 :root {
-  --bg-primary: #f8f9fc;
-  --bg-secondary: #ffffff;
-  --bg-card: #ffffff;
-  --text-primary: #1a1a2e;
-  --text-secondary: #555770;
-  --text-muted: #8888a0;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-light: rgba(99, 102, 241, 0.08);
-  --accent-glow: rgba(99, 102, 241, 0.25);
-  --navbar-bg: rgba(255, 255, 255, 0.8);
-  --navbar-border: rgba(0, 0, 0, 0.06);
-  --card-border: rgba(0, 0, 0, 0.06);
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
-  --card-shadow-hover: 0 4px 16px rgba(99, 102, 241, 0.12), 0 8px 32px rgba(0, 0, 0, 0.06);
+  --bg-primary: #f3ede3;
+  --bg-secondary: #faf5ec;
+  --bg-card: #fffdf8;
+  --text-primary: #1a1510;
+  --text-secondary: #5a4f42;
+  --text-muted: #8a7d6e;
+  --accent: #b8922a;
+  --accent-hover: #9a7820;
+  --accent-light: rgba(184, 146, 42, 0.1);
+  --accent-glow: rgba(184, 146, 42, 0.28);
+  --radiant: #7a9e58;
+  --radiant-light: rgba(122, 158, 88, 0.1);
+  --dire: #a84432;
+  --dire-light: rgba(168, 68, 50, 0.1);
+  --navbar-bg: rgba(250, 245, 236, 0.88);
+  --navbar-border: rgba(184, 146, 42, 0.15);
+  --card-border: rgba(90, 79, 66, 0.1);
+  --card-accent-border: rgba(184, 146, 42, 0.35);
+  --card-shadow: 0 1px 3px rgba(26, 21, 16, 0.05), 0 4px 14px rgba(26, 21, 16, 0.04);
+  --card-shadow-hover: 0 4px 18px rgba(184, 146, 42, 0.14), 0 8px 32px rgba(26, 21, 16, 0.07);
   --radius: 12px;
   --radius-lg: 16px;
   --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   --page-max-width: 720px;
+  --font-display: 'Rajdhani', 'Inter', sans-serif;
+  --gold-text: linear-gradient(135deg, #8a6d1f 0%, #b8922a 45%, #d4b45a 70%, #b8922a 100%);
+  --gold-bar: linear-gradient(90deg, rgba(122, 158, 88, 0.55) 0%, var(--accent) 18%, var(--accent) 82%, rgba(168, 68, 50, 0.55) 100%);
 }
 
 body.dark-mode {
-  --bg-primary: #0f0f1a;
-  --bg-secondary: #1a1a2e;
-  --bg-card: #1e1e32;
-  --text-primary: #e8e8f0;
-  --text-secondary: #a0a0b8;
-  --text-muted: #6a6a80;
-  --accent: #818cf8;
-  --accent-hover: #6366f1;
-  --accent-light: rgba(129, 140, 248, 0.1);
-  --accent-glow: rgba(129, 140, 248, 0.2);
-  --navbar-bg: rgba(15, 15, 26, 0.85);
-  --navbar-border: rgba(255, 255, 255, 0.06);
-  --card-border: rgba(255, 255, 255, 0.06);
-  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.15);
-  --card-shadow-hover: 0 4px 16px rgba(129, 140, 248, 0.15), 0 8px 32px rgba(0, 0, 0, 0.2);
+  --bg-primary: #0c0b09;
+  --bg-secondary: #161310;
+  --bg-card: #1c1915;
+  --text-primary: #ebe3d6;
+  --text-secondary: #b5a898;
+  --text-muted: #7a7064;
+  --accent: #ddb852;
+  --accent-hover: #f0cb65;
+  --accent-light: rgba(221, 184, 82, 0.12);
+  --accent-glow: rgba(221, 184, 82, 0.22);
+  --radiant: #93b86a;
+  --radiant-light: rgba(147, 184, 106, 0.12);
+  --dire: #c45a48;
+  --dire-light: rgba(196, 90, 72, 0.12);
+  --navbar-bg: rgba(12, 11, 9, 0.9);
+  --navbar-border: rgba(221, 184, 82, 0.12);
+  --card-border: rgba(235, 227, 214, 0.07);
+  --card-accent-border: rgba(221, 184, 82, 0.25);
+  --card-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.25);
+  --card-shadow-hover: 0 4px 18px rgba(221, 184, 82, 0.12), 0 8px 32px rgba(0, 0, 0, 0.35);
+  --gold-text: linear-gradient(135deg, #c9a43a 0%, #ddb852 40%, #f2e2a8 65%, #ddb852 100%);
+  --gold-bar: linear-gradient(90deg, rgba(147, 184, 106, 0.45) 0%, var(--accent) 18%, var(--accent) 82%, rgba(196, 90, 72, 0.45) 100%);
 }
 
 /* ============================================
@@ -66,38 +81,101 @@ body::before {
   left: 0;
   width: 100%;
   height: 100%;
-  z-index: -1;
-  opacity: 0.4;
-  background: linear-gradient(
-    135deg,
-    var(--bg-primary) 0%,
-    rgba(99, 102, 241, 0.06) 25%,
-    var(--bg-primary) 50%,
-    rgba(168, 85, 247, 0.06) 75%,
-    var(--bg-primary) 100%
-  );
-  background-size: 400% 400%;
-  animation: gradientShift 15s ease infinite;
+  z-index: -2;
+  opacity: 0.7;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 40%, rgba(184, 146, 42, 0.1), transparent 70%),
+    var(--bg-primary);
+  pointer-events: none;
+}
+
+body::after {
+  content: none;
 }
 
 body.dark-mode::before {
-  opacity: 0.6;
-  background: linear-gradient(
-    135deg,
-    var(--bg-primary) 0%,
-    rgba(129, 140, 248, 0.08) 25%,
-    var(--bg-primary) 50%,
-    rgba(168, 85, 247, 0.08) 75%,
-    var(--bg-primary) 100%
-  );
-  background-size: 400% 400%;
-  animation: gradientShift 15s ease infinite;
+  opacity: 1;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% 38%, rgba(221, 184, 82, 0.07), transparent 72%),
+    var(--bg-primary);
 }
 
-@keyframes gradientShift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+/* ============================================
+   Accent utilities
+   ============================================ */
+.text-gold-accent {
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ============================================
+   Minimap backdrop & widget
+   ============================================ */
+.minimap-backdrop {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -42%);
+  width: min(88vw, 640px);
+  aspect-ratio: 1;
+  pointer-events: none;
+  z-index: -1;
+  color: var(--accent);
+  opacity: 0.07;
+}
+
+body.dark-mode .minimap-backdrop {
+  opacity: 0.09;
+}
+
+.minimap-widget {
+  max-width: 260px;
+  margin: 0 auto 1.75rem;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
+  background: var(--bg-card);
+}
+
+.minimap-widget svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.minimap-widget-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.35rem;
+  padding: 0.45rem 0.65rem;
+  font-family: var(--font-display);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  border-top: 1px solid var(--card-border);
+  background: var(--bg-secondary);
+}
+
+.minimap-label-radiant {
+  color: var(--radiant);
+}
+
+.minimap-label-dire {
+  color: var(--dire);
+}
+
+.minimap-label-gold {
+  color: var(--accent);
+}
+
+.minimap-widget-caption i {
+  font-size: 0.62rem;
+  margin: 0 0.15rem;
 }
 
 /* ============================================
@@ -107,17 +185,39 @@ body.dark-mode::before {
   background: var(--navbar-bg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--navbar-border);
+  border-bottom: none;
   box-shadow: none;
   padding: 0.6rem 0;
   transition: background 0.3s, border-color 0.3s;
 }
 
+.navbar-faction-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gold-bar);
+}
+
 .navbar-brand span {
   color: var(--text-primary) !important;
+  font-family: var(--font-display);
   font-weight: 700;
-  font-size: 1.15rem;
-  letter-spacing: -0.02em;
+  font-size: 1.2rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.navbar-brand-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.navbar-brand-icon {
+  color: var(--accent);
+  font-size: 1.05rem;
 }
 
 .nav-link {
@@ -146,7 +246,7 @@ body.dark-mode::before {
   bottom: 2px;
   left: 50%;
   transform: translateX(-50%);
-  width: 20px;
+  width: 22px;
   height: 3px;
   background: var(--accent);
   border-radius: 2px;
@@ -193,9 +293,29 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .theme-toggle:hover {
-  background: var(--accent);
-  color: #fff;
   transform: translateY(-1px);
+}
+
+.theme-toggle-radiant {
+  background: var(--radiant-light);
+  color: var(--radiant);
+  border-color: rgba(107, 158, 62, 0.25);
+}
+
+.theme-toggle-radiant:hover {
+  background: var(--radiant);
+  color: #fff;
+}
+
+.theme-toggle-dire {
+  background: var(--dire-light);
+  color: var(--dire);
+  border-color: rgba(191, 46, 26, 0.25);
+}
+
+.theme-toggle-dire:hover {
+  background: var(--dire);
+  color: #fff;
 }
 
 /* ============================================
@@ -300,11 +420,23 @@ body.dark-mode .navbar-toggler-icon {
 
 .page-header h1,
 .page-header h2 {
-  font-size: 1.75rem;
+  font-family: var(--font-display);
+  font-size: 1.85rem;
   font-weight: 700;
-  letter-spacing: -0.03em;
-  color: var(--text-primary);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
   margin-bottom: 0.5rem;
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.about-section h2 {
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .page-header p,
@@ -319,28 +451,53 @@ body.dark-mode .navbar-toggler-icon {
    Section Title (used mid-page)
    ============================================ */
 .section-title {
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--accent);
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.1em;
   margin: 2.5rem 0 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--card-border);
+  padding-bottom: 0.55rem;
+  border-bottom: 1px solid var(--card-accent-border);
+}
+
+.section-title::before {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  background: var(--accent);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+  box-shadow: 0 0 8px var(--accent-glow);
 }
 
 /* ============================================
    Profile Image
    ============================================ */
+.profile-image-wrap {
+  width: 136px;
+  height: 136px;
+  margin: 0 auto 1.5rem;
+  padding: 3px;
+  border-radius: 50%;
+  background: var(--gold-text);
+  box-shadow: 0 0 28px var(--accent-glow);
+}
+
 .profile-image {
   display: block;
-  margin: 0 auto 1.5rem;
-  width: 130px;
-  height: 130px;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   border-radius: 50%;
   object-fit: cover;
-  border: 3px solid var(--accent);
-  box-shadow: 0 0 0 6px var(--accent-light);
+  border: none;
+  box-shadow: none;
 }
 
 /* ============================================
@@ -357,6 +514,7 @@ body.dark-mode .navbar-toggler-icon {
   font-size: 0.85rem;
   font-weight: 500;
   border-radius: 20px;
+  border: 1px solid var(--card-accent-border);
   text-align: center;
   width: fit-content;
   margin-left: auto;
@@ -372,6 +530,7 @@ body.dark-mode .navbar-toggler-icon {
    Link Cards (replaces .btn / .btn2)
    ============================================ */
 .link-card {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -379,6 +538,7 @@ body.dark-mode .navbar-toggler-icon {
   margin-bottom: 10px;
   background: var(--bg-card);
   border: 1px solid var(--card-border);
+  border-top: none;
   border-radius: var(--radius);
   box-shadow: var(--card-shadow);
   color: var(--text-primary);
@@ -391,22 +551,54 @@ body.dark-mode .navbar-toggler-icon {
 .link-card:hover {
   box-shadow: var(--card-shadow-hover);
   transform: translateY(-2px);
-  border-color: var(--accent);
+  border-color: var(--card-accent-border);
   color: var(--text-primary);
   text-decoration: none;
+}
+
+.link-card i,
+.link-card .link-card-icon {
+  color: var(--accent);
 }
 
 .link-card i {
   font-size: 1.25rem;
   width: 28px;
   text-align: center;
-  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.link-card-icon {
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
 }
 
 .link-card-wide {
-  composes: link-card;
   max-width: 100%;
+}
+
+.link-card::before,
+.project-card::before,
+.blog-item::before,
+.about-section::before,
+.live-status-item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gold-bar);
+}
+
+.link-card,
+.project-card,
+.blog-item,
+.about-section,
+.live-status-item {
+  position: relative;
+  overflow: hidden;
 }
 
 /* ============================================
@@ -415,6 +607,7 @@ body.dark-mode .navbar-toggler-icon {
 .about-section {
   background: var(--bg-card);
   border: 1px solid var(--card-border);
+  border-top: none;
   border-radius: var(--radius-lg);
   padding: 2rem;
   box-shadow: var(--card-shadow);
@@ -423,9 +616,11 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .about-section h2 {
-  font-size: 1.5rem;
+  font-family: var(--font-display);
+  font-size: 1.55rem;
   font-weight: 700;
-  color: var(--text-primary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   margin-bottom: 1rem;
 }
 
@@ -549,11 +744,13 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .not-found h1 {
+  font-family: var(--font-display);
   font-size: 5rem;
   font-weight: 800;
-  color: var(--accent);
+  color: var(--dire);
   margin-bottom: 0.5rem;
-  letter-spacing: -0.04em;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 40px rgba(191, 46, 26, 0.25);
 }
 
 .not-found p {
@@ -612,9 +809,9 @@ body.dark-mode .navbar-toggler-icon {
     font-size: 1.5rem;
   }
 
-  .profile-image {
-    width: 110px;
-    height: 110px;
+  .profile-image-wrap {
+    width: 116px;
+    height: 116px;
   }
 
   .about-section {
@@ -644,8 +841,8 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .typing-role {
-  color: var(--accent);
   font-weight: 600;
+  color: var(--accent);
 }
 
 .typing-cursor {
@@ -672,6 +869,7 @@ body.dark-mode .navbar-toggler-icon {
 .project-card {
   background: var(--bg-card);
   border: 1px solid var(--card-border);
+  border-top: none;
   border-radius: var(--radius-lg);
   padding: 1.5rem;
   box-shadow: var(--card-shadow);
@@ -681,7 +879,7 @@ body.dark-mode .navbar-toggler-icon {
 .project-card:hover {
   box-shadow: var(--card-shadow-hover);
   transform: translateY(-3px);
-  border-color: var(--accent);
+  border-color: var(--card-accent-border);
 }
 
 .project-card-header {
@@ -697,8 +895,10 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .project-card-header h3 {
-  font-size: 1.15rem;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: var(--text-primary);
   margin: 0;
 }
@@ -736,7 +936,7 @@ body.dark-mode .navbar-toggler-icon {
   font-weight: 600;
   font-size: 0.9rem;
   text-decoration: none;
-  transition: gap var(--transition);
+  transition: gap var(--transition), color var(--transition);
 }
 
 .project-card-link:hover {
@@ -761,11 +961,11 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .blog-item {
-  position: relative;
   display: block;
   padding: 1.25rem 3rem 1.25rem 1.25rem;
   background: var(--bg-card);
   border: 1px solid var(--card-border);
+  border-top: none;
   border-radius: var(--radius);
   box-shadow: var(--card-shadow);
   text-decoration: none;
@@ -775,7 +975,7 @@ body.dark-mode .navbar-toggler-icon {
 .blog-item:hover {
   box-shadow: var(--card-shadow-hover);
   transform: translateY(-2px);
-  border-color: var(--accent);
+  border-color: var(--card-accent-border);
   text-decoration: none;
 }
 
@@ -864,12 +1064,16 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .blog-post-title {
-  font-size: 1.9rem;
+  font-family: var(--font-display);
+  font-size: 2rem;
   font-weight: 700;
-  letter-spacing: -0.03em;
-  color: var(--text-primary);
+  letter-spacing: 0.02em;
   margin: 0.75rem 0 1.5rem;
   line-height: 1.2;
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 .blog-post-body p {
@@ -894,8 +1098,19 @@ body.dark-mode .navbar-toggler-icon {
 .site-footer {
   margin-top: 4rem;
   padding: 2rem 1rem;
-  border-top: 1px solid var(--card-border);
+  border-top: none;
   text-align: center;
+  position: relative;
+}
+
+.site-footer::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--gold-bar);
 }
 
 .footer-content {

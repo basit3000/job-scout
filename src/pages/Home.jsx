@@ -4,6 +4,7 @@ import basitImage from '../app/basit.jpg';
 const roles = [
   "Software Developer",
   "Master's Student",
+  "Dota 2 Enthusiast",
   "Problem Solver",
   "Tech Enthusiast",
   "Lifelong Learner",
@@ -48,7 +49,9 @@ function Home() {
 
   return (
     <div className="page-enter">
-      <img src={basitImage} alt="Profile" className="profile-image" />
+      <div className="profile-image-wrap">
+        <img src={basitImage} alt="Profile" className="profile-image" />
+      </div>
       <div className="page-header">
         <h1>Muhammad Basit Zaheer</h1>
         <p className="page-subtitle">Master's student at Technische Universität Ilmenau</p>
@@ -66,7 +69,7 @@ function Home() {
       <a className="link-card" href="https://www.coursera.org/learner/muhammad-basit" target="_blank" rel="noopener noreferrer"><i className="fas fa-graduation-cap"></i>Coursera</a>
       {views !== null && (
         <p className="view-counter">
-          <i className="fas fa-eye"></i> {views.toLocaleString()} {views === 1 ? 'visit' : 'visits'}
+          <i className="fas fa-chess-rook"></i> {views.toLocaleString()} {views === 1 ? 'visit' : 'visits'}
         </p>
       )}
     </div>

@@ -10,6 +10,7 @@ import Books from '../pages/Books';
 import Projects from '../pages/Projects';
 import Blog from '../pages/Blog';
 import BlogPost from '../pages/BlogPost';
+import MinimapArt from '../components/MinimapArt';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 
 const moreLinks = [
@@ -80,10 +81,14 @@ function AppContent() {
 
   return (
     <div>
+      <MinimapArt className="minimap-backdrop" variant="backdrop" />
       <nav className="navbar navbar-expand-md fixed-top">
         <div className="container-xxl">
           <Link className="navbar-brand" to="/" onClick={handleNavLinkClick}>
-            <span className="fw-bold">Home</span>
+            <span className="navbar-brand-inner">
+              <i className="fas fa-map navbar-brand-icon" aria-hidden="true"></i>
+              <span className="fw-bold">Home</span>
+            </span>
           </Link>
 
           <div className={`${isNavCollapsed ? 'collapse' : 'collapse show'} navbar-collapse`} id="main-nav" ref={navRef}>
@@ -129,10 +134,10 @@ function AppContent() {
           <div className="navbar-actions">
             <button
               type="button"
-              className="theme-toggle"
+              className={`theme-toggle ${darkMode ? 'theme-toggle-radiant' : 'theme-toggle-dire'}`}
               onClick={toggleDarkMode}
-              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-              title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+              aria-label={darkMode ? 'Switch to Radiant (light mode)' : 'Switch to Dire (dark mode)'}
+              title={darkMode ? 'Radiant mode' : 'Dire mode'}
             >
               <i className={darkMode ? 'fas fa-sun' : 'fas fa-moon'}></i>
             </button>
@@ -150,6 +155,7 @@ function AppContent() {
             </button>
           </div>
         </div>
+        <div className="navbar-faction-bar" aria-hidden="true"></div>
       </nav>
       <div className="main-content">
         

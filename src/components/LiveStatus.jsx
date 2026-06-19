@@ -5,13 +5,12 @@ const REFRESH_MS = 5 * 60 * 1000;
 
 const spotifyParams = new URLSearchParams({
   uid: SPOTIFY_UID,
-  cover_image: 'true',
-  theme: 'default',
-  show_offline: 'false',
+  cover_image: 'false',
+  theme: 'novatorem',
+  show_offline: 'true',
   background_color: '121212',
-  interchange: 'false',
-  profanity: 'false',
-  hide_remaster: 'false',
+  bar_color: '1DB954',
+  bar_color_cover: 'false',
 });
 
 function SpotifyNowPlaying() {

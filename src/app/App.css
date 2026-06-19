@@ -783,6 +783,11 @@ body.dark-mode .navbar-toggler-icon {
   margin-bottom: 0;
 }
 
+.blog-post-link {
+  display: inline-flex;
+  margin-top: 0.5rem;
+}
+
 /* ============================================
    Footer
    ============================================ */

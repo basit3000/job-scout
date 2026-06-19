@@ -61,6 +61,16 @@ function BlogPost() {
             <p key={i}>{para}</p>
           ))}
         </div>
+        {post.link && (
+          <a
+            className="project-card-link blog-post-link"
+            href={post.link}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            View on GitHub <i className="fas fa-arrow-right"></i>
+          </a>
+        )}
       </article>
     </div>
   );

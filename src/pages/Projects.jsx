@@ -2,6 +2,14 @@ import React from 'react';
 
 const projects = [
   {
+    title: "Spotify True Random",
+    description:
+      "A small tool for when Spotify shuffle isn't random enough.",
+    tags: ["Python", "Kotlin", "Spotify API", "Android"],
+    icon: "fas fa-shuffle",
+    link: "https://github.com/basit3000/Spotify-True-Random",
+  },
+  {
     title: "Job Tracker",
     description: "A job application tracking tool to organize and monitor your job search progress.",
     tags: ["HTML", "CSS", "JavaScript"],

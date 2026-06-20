@@ -1,31 +1,99 @@
 import React, { useEffect, useState } from 'react';
 
-const SPOTIFY_UID = import.meta.env.VITE_SPOTIFY_UID || 'ic9zxmbzknyeuiza6yh988k8n';
 const REFRESH_MS = 5 * 60 * 1000;
+const EQ_BAR_COUNT = 70;
 
-const spotifyParams = new URLSearchParams({
-  uid: SPOTIFY_UID,
-  cover_image: 'false',
-  theme: 'novatorem',
-  show_offline: 'true',
-  background_color: '121212',
-  bar_color: '1DB954',
-  bar_color_cover: 'false',
-});
+function SpotifyEqualizer({ active }) {
+  if (!active) return null;
+
+  return (
+    <div className="live-status-eq" aria-hidden="true">
+      {Array.from({ length: EQ_BAR_COUNT }, (_, i) => (
+        <span
+          key={i}
+          className="live-status-eq-bar"
+          style={{
+            animationDuration: `${350 + (i * 13) % 150}ms`,
+            animationDelay: `${(i * 41) % 280}ms`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
 
 function SpotifyNowPlaying() {
-  const [cacheKey, setCacheKey] = useState(() => Date.now());
+  const [track, setTrack] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const timer = setInterval(() => setCacheKey(Date.now()), REFRESH_MS);
-    return () => clearInterval(timer);
+    let active = true;
+
+    const loadTrack = async () => {
+      try {
+        const response = await fetch('/api/spotify-status');
+        if (!response.ok) throw new Error('Spotify status unavailable');
+        const data = await response.json();
+        if (active) setTrack(data);
+      } catch {
+        if (active) setTrack(null);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    loadTrack();
+    const timer = setInterval(loadTrack, REFRESH_MS);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
   }, []);
 
-  const src = `https://spotify-github-profile.kittinanx.com/api/view?${spotifyParams.toString()}&_=${cacheKey}`;
+  if (loading) {
+    return (
+      <div className="live-status-item live-status-spotify">
+        <div className="live-status-spotify-body">
+          <div className="live-status-spotify-copy">
+            <i className="fab fa-spotify live-status-spotify-icon" aria-hidden="true"></i>
+            <div className="live-status-spotify-text">
+              <span className="live-status-spotify-artist">Spotify</span>
+              <span className="live-status-spotify-song">Loading...</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!track) {
+    return (
+      <div className="live-status-item live-status-spotify">
+        <div className="live-status-spotify-body">
+          <div className="live-status-spotify-copy">
+            <i className="fab fa-spotify live-status-spotify-icon" aria-hidden="true"></i>
+            <div className="live-status-spotify-text">
+              <span className="live-status-spotify-artist">Spotify</span>
+              <span className="live-status-spotify-song">Status unavailable</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="live-status-item live-status-spotify">
-      <img src={src} alt="Spotify now playing" className="live-status-spotify-img" loading="lazy" />
+      <div className="live-status-spotify-body">
+        <div className="live-status-spotify-copy">
+          <i className="fab fa-spotify live-status-spotify-icon" aria-hidden="true"></i>
+          <div className="live-status-spotify-text">
+            <span className="live-status-spotify-artist">{track.artist}</span>
+            <span className="live-status-spotify-song">{track.song}</span>
+          </div>
+        </div>
+        <SpotifyEqualizer active={track.isPlaying} />
+      </div>
     </div>
   );
 }
@@ -99,8 +167,7 @@ function SteamNowPlaying() {
 function LiveStatus() {
   return (
     <section className="live-status-section" aria-label="Current listening and gaming status">
-      <div className="section-title">Right now</div>
-      <p className="live-status-intro">What I&apos;m listening to and playing — no profile links, just the vibe.</p>
+      <div className="section-title">ACTIVITY</div>
       <div className="live-status-grid">
         <SpotifyNowPlaying />
         <SteamNowPlaying />

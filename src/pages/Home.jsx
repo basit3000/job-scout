@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import basitImage from '../app/basit.jpg';
+import LiveStatus from '../components/LiveStatus';
 
 const roles = [
   "Software Developer",
@@ -61,6 +62,7 @@ function Home() {
           <span className="typing-cursor">|</span>
         </p>
       </div>
+      <LiveStatus />
       <div className="section-title">Connect</div>
       <a className="link-card" href="mailto:basitzaheer02@gmail.com"><i className="fas fa-envelope"></i>basitzaheer02@gmail.com</a>
       <a className="link-card" href="https://www.linkedin.com/in/muhammad-basit-zaheer/" target="_blank" rel="noopener noreferrer"><i className="fab fa-linkedin"></i>LinkedIn</a>

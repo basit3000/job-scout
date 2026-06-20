@@ -636,7 +636,7 @@ body.dark-mode .navbar-toggler-icon {
    ============================================ */
 .live-status-section {
   max-width: var(--page-max-width);
-  margin: 0 auto;
+  margin: 0 auto 2rem;
 }
 
 .live-status-intro {
@@ -647,20 +647,16 @@ body.dark-mode .navbar-toggler-icon {
 }
 
 .live-status-grid {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: stretch;
-  gap: 0.85rem;
-  max-width: calc(340px * 2 + 0.85rem);
-  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  width: 100%;
 }
 
 .live-status-item {
-  flex: 0 1 340px;
-  width: 340px;
-  max-width: 340px;
+  box-sizing: border-box;
+  width: auto;
+  max-width: none;
   background: var(--bg-card);
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
@@ -668,23 +664,113 @@ body.dark-mode .navbar-toggler-icon {
   overflow: hidden;
 }
 
-.live-status-spotify {
-  display: flex;
-  justify-content: center;
-  padding: 0.5rem;
+.live-status-grid .live-status-item:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
 }
 
-.live-status-spotify-img {
-  display: block;
+.live-status-grid .live-status-item:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: none;
+}
+
+.live-status-spotify {
+  display: flex;
+  height: 100%;
+  min-height: 112px;
+  padding: 0;
+}
+
+.live-status-spotify-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 1;
+  min-width: 0;
+  background: #121212;
+  overflow: hidden;
+}
+
+.live-status-spotify-copy {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.5rem;
+  min-height: 76px;
+}
+
+.live-status-spotify-icon {
+  font-size: 1.75rem;
+  line-height: 1;
+  color: #1db954;
+  flex-shrink: 0;
+}
+
+.live-status-spotify-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.live-status-spotify-artist {
+  color: #fff;
+  font-weight: 700;
+  font-size: 1.15rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-status-spotify-song {
+  color: #b3b3b3;
+  font-size: 1rem;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-status-eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
   width: 100%;
-  max-width: 340px;
-  height: auto;
-  border-radius: calc(var(--radius-lg) - 4px);
+  box-sizing: border-box;
+  height: 18px;
+  padding: 0 0 8px;
+  background: #121212;
+}
+
+.live-status-eq-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
+  height: 3px;
+  background: #1db954;
+  border-radius: 1px;
+  animation: live-status-eq-pulse ease-in-out infinite alternate;
+}
+
+@keyframes live-status-eq-pulse {
+  0% {
+    height: 3px;
+    opacity: 0.35;
+  }
+
+  100% {
+    height: 14px;
+    opacity: 1;
+  }
 }
 
 .live-status-steam {
   display: flex;
   align-items: center;
+  height: 100%;
   gap: 1rem;
   min-height: 112px;
   padding: 1.1rem 1.25rem;
@@ -729,6 +815,22 @@ body.dark-mode .navbar-toggler-icon {
   font-size: 1rem;
   font-weight: 500;
   color: var(--text-muted);
+}
+
+@media (max-width: 520px) {
+  .live-status-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .live-status-grid .live-status-item:first-child,
+  .live-status-grid .live-status-item:last-child {
+    border-radius: var(--radius-lg);
+  }
+
+  .live-status-grid .live-status-item:last-child {
+    border-left: 1px solid var(--card-border);
+  }
 }
 
 /* ============================================

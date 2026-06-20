@@ -19,22 +19,43 @@ const moreLinks = [
   { path: '/books', label: 'Books' },
 ];
 
+const getSystemDark = () => window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
+
+const readThemeOverride = () => {
+  const saved = localStorage.getItem('themeOverride');
+  if (saved === 'light' || saved === 'dark') return saved;
+  return null;
+};
+
 function AppContent() {
   const [isNavCollapsed, setIsNavCollapsed] = useState(true);
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [darkMode, setDarkMode] = useState(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved !== null) return saved === 'true';
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ?? false;
-  });
+  const [themeOverride, setThemeOverride] = useState(readThemeOverride);
+  const [systemDark, setSystemDark] = useState(getSystemDark);
   const navRef = useRef(null);
   const dropdownRef = useRef(null);
   const location = useLocation();
+  const darkMode = themeOverride === 'dark' || (themeOverride !== 'light' && systemDark);
+
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = (event) => setSystemDark(event.matches);
+
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     document.body.classList.toggle('dark-mode', darkMode);
-    localStorage.setItem('darkMode', String(darkMode));
-  }, [darkMode]);
+
+    if (themeOverride === null) {
+      localStorage.removeItem('themeOverride');
+      localStorage.removeItem('darkMode');
+    } else {
+      localStorage.setItem('themeOverride', themeOverride);
+      localStorage.removeItem('darkMode');
+    }
+  }, [darkMode, themeOverride]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -74,7 +95,12 @@ function AppContent() {
     setDropdownOpen(false);
   };
 
-  const toggleDarkMode = () => setDarkMode((prev) => !prev);
+  const toggleDarkMode = () => {
+    setThemeOverride((prev) => {
+      const isDark = prev === 'dark' || (prev !== 'light' && systemDark);
+      return isDark ? 'light' : 'dark';
+    });
+  };
 
   const isActive = (path) => location.pathname === path;
   const isMoreActive = moreLinks.some((link) => isActive(link.path));

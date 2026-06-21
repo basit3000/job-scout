@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { BrowserRouter as Router, Route, Routes, Link, useLocation } from 'react-router-dom';
 import './App.css';
 import About from '../pages/About';
@@ -11,6 +11,9 @@ import Projects from '../pages/Projects';
 import Blog from '../pages/Blog';
 import BlogPost from '../pages/BlogPost';
 import MinimapArt from '../components/MinimapArt';
+import DotaTip from '../components/DotaTip';
+import VictoryOverlay from '../components/VictoryOverlay';
+import useSecretCodes from '../hooks/useSecretCodes';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 
 const moreLinks = [
@@ -104,9 +107,32 @@ function AppContent() {
 
   const isActive = (path) => location.pathname === path;
   const isMoreActive = moreLinks.some((link) => isActive(link.path));
+  const [victory, setVictory] = useState(null);
+
+  const showVictory = useCallback((message, subtext) => {
+    setVictory({ message, subtext });
+  }, []);
+
+  const handleGg = useCallback(() => {
+    showVictory('GG WP!', 'Well played, visitor.');
+  }, [showVictory]);
+
+  const handleKonami = useCallback(() => {
+    showVictory('Cheat activated!', 'Ancient powers unlocked.');
+  }, [showVictory]);
+
+  useSecretCodes({ onGg: handleGg, onKonami: handleKonami });
 
   return (
     <div>
+      <DotaTip />
+      {victory && (
+        <VictoryOverlay
+          message={victory.message}
+          subtext={victory.subtext}
+          onDone={() => setVictory(null)}
+        />
+      )}
       <MinimapArt className="minimap-backdrop" variant="backdrop" />
       <nav className="navbar navbar-expand-md fixed-top">
         <div className="container-xxl">

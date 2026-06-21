@@ -1,16 +1,44 @@
 import React from 'react';
 
+const MINIMAP_REGIONS = {
+  radiant: { label: 'About', title: 'Radiant base — About' },
+  dire: { label: 'Gaming', title: 'Dire base — Gaming' },
+  river: { label: 'Blogs', title: 'River — Blogs' },
+  roshan: { label: 'Projects', title: 'Roshan pit — Projects' },
+};
+
 /* Stylised Dota-inspired minimap (original art — not Valve assets). */
-function MinimapArt({ className = '', variant = 'backdrop' }) {
+function MinimapArt({ className = '', variant = 'backdrop', interactive = false, onRegionClick, onRegionHover, activeRegion = null }) {
   const vivid = variant === 'widget';
+
+  const handleRegionClick = (region) => {
+    onRegionClick?.(region);
+  };
+
+  const handleRegionKeyDown = (event, region) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleRegionClick(region);
+    }
+  };
+
+  const regionHandlers = (region) => ({
+    onClick: () => handleRegionClick(region),
+    onKeyDown: (event) => handleRegionKeyDown(event, region),
+    onMouseEnter: () => onRegionHover?.(region),
+    onMouseLeave: () => onRegionHover?.(null),
+    onFocus: () => onRegionHover?.(region),
+    onBlur: () => onRegionHover?.(null),
+  });
 
   return (
     <svg
       className={className}
       viewBox="0 0 256 256"
       xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
-      role="img"
+      aria-hidden={!interactive}
+      role={interactive ? 'img' : 'img'}
+      aria-label={interactive ? 'Interactive minimap navigation' : undefined}
     >
       <rect width="256" height="256" rx="6" fill="currentColor" opacity={vivid ? 0.06 : 0.04} />
 
@@ -77,6 +105,56 @@ function MinimapArt({ className = '', variant = 'backdrop' }) {
 
       {/* Map frame ticks — HUD feel */}
       <rect x="4" y="4" width="248" height="248" rx="4" fill="none" stroke="#b8922a" strokeWidth="1.5" opacity={vivid ? 0.35 : 0.15} />
+
+      {interactive && (
+        <g className="minimap-hit-areas">
+          <path
+            className={`minimap-hit minimap-hit-radiant${activeRegion === 'radiant' ? ' minimap-hit-active' : ''}`}
+            d="M 0 256 L 0 96 L 148 256 Z"
+            role="button"
+            tabIndex={0}
+            aria-label={MINIMAP_REGIONS.radiant.title}
+            {...regionHandlers('radiant')}
+          >
+            <title>{MINIMAP_REGIONS.radiant.title}</title>
+          </path>
+          <path
+            className={`minimap-hit minimap-hit-dire${activeRegion === 'dire' ? ' minimap-hit-active' : ''}`}
+            d="M 256 0 L 108 0 L 256 148 Z"
+            role="button"
+            tabIndex={0}
+            aria-label={MINIMAP_REGIONS.dire.title}
+            {...regionHandlers('dire')}
+          >
+            <title>{MINIMAP_REGIONS.dire.title}</title>
+          </path>
+          <path
+            className={`minimap-hit minimap-hit-river${activeRegion === 'river' ? ' minimap-hit-active' : ''}`}
+            d="M 196 28 C 168 72, 148 108, 132 132 C 116 156, 92 196, 60 228"
+            strokeWidth="22"
+            strokeLinecap="round"
+            fill="none"
+            role="button"
+            tabIndex={0}
+            aria-label={MINIMAP_REGIONS.river.title}
+            {...regionHandlers('river')}
+          >
+            <title>{MINIMAP_REGIONS.river.title}</title>
+          </path>
+          <circle
+            className={`minimap-hit minimap-hit-roshan${activeRegion === 'roshan' ? ' minimap-hit-active' : ''}`}
+            cx="118"
+            cy="162"
+            r="20"
+            role="button"
+            tabIndex={0}
+            aria-label={MINIMAP_REGIONS.roshan.title}
+            {...regionHandlers('roshan')}
+          >
+            <title>{MINIMAP_REGIONS.roshan.title}</title>
+          </circle>
+        </g>
+      )}
     </svg>
   );
 }

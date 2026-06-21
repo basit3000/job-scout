@@ -178,6 +178,289 @@ body.dark-mode .minimap-backdrop {
   margin: 0 0.15rem;
 }
 
+.minimap-widget-interactive {
+  position: relative;
+}
+
+.minimap-widget-interactive svg {
+  cursor: crosshair;
+}
+
+.minimap-hit {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+
+.minimap-hit-river {
+  pointer-events: stroke;
+}
+
+.minimap-hit-radiant:hover,
+.minimap-hit-radiant:focus {
+  fill: rgba(122, 158, 88, 0.35);
+  outline: none;
+}
+
+.minimap-hit-dire:hover,
+.minimap-hit-dire:focus {
+  fill: rgba(168, 68, 50, 0.35);
+  outline: none;
+}
+
+.minimap-hit-river:hover,
+.minimap-hit-river:focus {
+  stroke: rgba(90, 122, 138, 0.45);
+  outline: none;
+}
+
+.minimap-hit-roshan:hover,
+.minimap-hit-roshan:focus,
+.minimap-hit-roshan.minimap-hit-active {
+  fill: rgba(184, 146, 42, 0.4);
+  outline: none;
+}
+
+.minimap-hit-radiant.minimap-hit-active {
+  fill: rgba(122, 158, 88, 0.35);
+}
+
+.minimap-hit-dire.minimap-hit-active {
+  fill: rgba(168, 68, 50, 0.35);
+}
+
+.minimap-hit-river.minimap-hit-active {
+  stroke: rgba(90, 122, 138, 0.45);
+}
+
+.minimap-widget-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0.55rem 0.65rem 0.7rem;
+  border-top: 1px solid var(--card-border);
+  background: var(--bg-card);
+}
+
+.minimap-legend-btn {
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-family: var(--font-display);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: border-color var(--transition), color var(--transition), background var(--transition);
+}
+
+.minimap-legend-radiant:hover,
+.minimap-legend-radiant.active {
+  color: var(--radiant);
+  border-color: var(--radiant);
+  background: var(--radiant-light);
+}
+
+.minimap-legend-dire:hover,
+.minimap-legend-dire.active {
+  color: var(--dire);
+  border-color: var(--dire);
+  background: var(--dire-light);
+}
+
+.minimap-legend-river:hover,
+.minimap-legend-river.active {
+  color: #5a7a8a;
+  border-color: #5a7a8a;
+  background: rgba(90, 122, 138, 0.12);
+}
+
+.minimap-legend-roshan:hover,
+.minimap-legend-roshan.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+/* ============================================
+   Dota 2 loading tips
+   ============================================ */
+.dota-tip {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  z-index: 1025;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(calc(-100% - 8px));
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+}
+
+.dota-tip-visible {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.dota-tip-inner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  max-width: var(--page-max-width);
+  margin: 0 auto;
+  padding: 0.55rem 2.25rem 0.55rem 1rem;
+  border-bottom: 1px solid var(--card-accent-border);
+  background: var(--navbar-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 4px 16px rgba(26, 21, 16, 0.06);
+}
+
+body.dark-mode .dota-tip-inner {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+
+.dota-tip-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  padding-right: 0.85rem;
+  border-right: 1px solid var(--card-border);
+}
+
+.dota-tip-icon {
+  width: 1.1rem;
+  height: 1.1rem;
+  color: var(--accent);
+}
+
+.dota-tip-label {
+  font-family: var(--font-display);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.dota-tip-text {
+  flex: 1;
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.dota-tip-dismiss {
+  position: absolute;
+  top: 50%;
+  right: 0.65rem;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+  transition: color var(--transition);
+}
+
+.dota-tip-dismiss:hover {
+  color: var(--text-primary);
+}
+
+@media (max-width: 576px) {
+  .dota-tip-inner {
+    flex-wrap: wrap;
+    gap: 0.35rem 0.65rem;
+    padding-top: 0.65rem;
+    padding-bottom: 0.65rem;
+  }
+
+  .dota-tip-brand {
+    border-right: none;
+    padding-right: 0;
+  }
+
+  .dota-tip-text {
+    flex-basis: 100%;
+    padding-left: 1.55rem;
+    font-size: 0.84rem;
+  }
+}
+
+/* ============================================
+   Victory easter egg overlay
+   ============================================ */
+.victory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(12, 11, 9, 0.72);
+  backdrop-filter: blur(4px);
+  animation: victoryFadeIn 0.25s ease-out;
+}
+
+.victory-overlay-inner {
+  text-align: center;
+  animation: victoryPop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.victory-overlay-icon {
+  font-size: 3rem;
+  color: var(--accent);
+  margin-bottom: 0.75rem;
+  filter: drop-shadow(0 0 18px var(--accent-glow));
+}
+
+.victory-overlay-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: var(--gold-text);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.victory-overlay-subtext {
+  margin: 0.65rem 0 0;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+@keyframes victoryFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes victoryPop {
+  from {
+    opacity: 0;
+    transform: scale(0.85) translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
 /* ============================================
    Navbar
    ============================================ */
@@ -447,6 +730,18 @@ body.dark-mode .navbar-toggler-icon {
   margin: 0;
 }
 
+.text-link {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid rgba(184, 146, 42, 0.35);
+  transition: color var(--transition), border-color var(--transition);
+}
+
+.text-link:hover {
+  color: var(--accent-hover);
+  border-bottom-color: var(--accent-hover);
+}
+
 /* ============================================
    Section Title (used mid-page)
    ============================================ */
@@ -696,7 +991,7 @@ body.dark-mode .navbar-toggler-icon {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 1rem 1rem 0.5rem;
+  padding: 1.1rem 1.25rem 0.5rem;
   min-height: 76px;
 }
 
@@ -741,7 +1036,7 @@ body.dark-mode .navbar-toggler-icon {
   width: 100%;
   box-sizing: border-box;
   height: 18px;
-  padding: 0 0 8px;
+  padding: 0 1.25rem 10px;
   background: #121212;
 }
 

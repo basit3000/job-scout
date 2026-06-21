@@ -55,7 +55,17 @@ function Home() {
       </div>
       <div className="page-header">
         <h1>Muhammad Basit Zaheer</h1>
-        <p className="page-subtitle">Master's student at Technische Universität Ilmenau</p>
+        <p className="page-subtitle">
+          Master's student at{' '}
+          <a
+            className="text-link"
+            href="https://www.tu-ilmenau.de/en"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Technische Universität Ilmenau
+          </a>
+        </p>
         <p className="typing-text">
           <span className="typing-prefix">I'm a </span>
           <span className="typing-role">{typedText}</span>

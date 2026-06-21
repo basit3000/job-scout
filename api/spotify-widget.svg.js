@@ -1,4 +1,4 @@
-import { fetchSpotifyTrack } from './lib/spotify.js';
+import { buildSpotifyWidgetSvg, fetchSpotifyTrack } from './lib/spotify.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,8 +15,11 @@ export default async function handler(req, res) {
 
   try {
     const track = await fetchSpotifyTrack();
-    return res.status(200).json(track);
+    const svg = buildSpotifyWidgetSvg(track);
+
+    res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
+    return res.status(200).send(svg);
   } catch {
-    return res.status(500).json({ error: 'Failed to fetch Spotify status' });
+    return res.status(502).json({ error: 'Failed to fetch Spotify status' });
   }
 }

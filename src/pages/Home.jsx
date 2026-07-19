@@ -77,7 +77,7 @@ function Home() {
             </a>
           </p>
           <p className="typing-text">
-            <span className="typing-prefix">I'm a </span>
+            <span className="typing-prefix">I'm a</span>
             <span className="typing-role">{typedText}</span>
             <span className="typing-cursor">|</span>
           </p>

@@ -1250,6 +1250,7 @@ body.dark-mode .navbar-toggler-icon {
 
 .typing-prefix {
   color: var(--text-secondary);
+  margin-right: 0.35em;
 }
 
 .typing-role {

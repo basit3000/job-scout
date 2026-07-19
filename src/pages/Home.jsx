@@ -63,7 +63,6 @@ function Home() {
           <img src={basitImage} alt="Muhammad Basit Zaheer" className="profile-image" />
         </div>
         <div className="page-header">
-          <p className="faction-badge">Personal atlas · Radiant / Dire</p>
           <h1>Muhammad Basit Zaheer</h1>
           <p className="page-subtitle">
             Master's student at{' '}

@@ -8,7 +8,7 @@ const techStack = [
   "JavaScript",
   "Kotlin",
   "PostgreSQL",
-  "Discord.py",
+  "Discord",
   "Docker",
   "Vercel",
   "Spotify API",
@@ -22,7 +22,7 @@ const projects = [
     title: "PD-League",
     description:
       "A custom Dota 2 league platform: register, queue, ready-check, captain snake draft, match rooms, ratings, and Discord bot — one FastAPI backend for web, API, and bot.",
-    tags: ["Python", "FastAPI", "PostgreSQL", "Discord.py", "Docker", "Steam"],
+    tags: ["Python", "FastAPI", "PostgreSQL", "Discord", "Docker", "Steam"],
     icon: "fas fa-trophy",
   },
   {

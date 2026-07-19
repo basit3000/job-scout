@@ -17,7 +17,7 @@ function Blog() {
     <div className="page-enter">
       <div className="page-header">
         <h1>Blogs</h1>
-        <p className="page-subtitle">Things I've built, learned, and want to share</p>
+        <p className="page-subtitle">Build logs and notes from the lane.</p>
       </div>
       <div className="blog-list">
         {posts.map((post) => (

@@ -167,7 +167,7 @@ function SteamNowPlaying() {
 function LiveStatus() {
   return (
     <section className="live-status-section" aria-label="Current listening and gaming status">
-      <div className="section-title">ACTIVITY</div>
+      <div className="section-title">Now playing</div>
       <div className="live-status-grid">
         <SpotifyNowPlaying />
         <SteamNowPlaying />

@@ -7,7 +7,7 @@ function Gaming() {
     <div className="page-enter">
       <div className="page-header">
         <h2>Gaming</h2>
-        <p className="page-subtitle">Dota 2 main — click the minimap to warp around the site.</p>
+        <p className="page-subtitle">Dota 2 main. Click the minimap to warp across the site.</p>
       </div>
       <MinimapWidget />
       <div className="section-title">Dota 2</div>

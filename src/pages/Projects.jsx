@@ -100,7 +100,7 @@ function Projects() {
     <div className="page-enter">
       <div className="page-header">
         <h1>Projects</h1>
-        <p className="page-subtitle">Things I've built and worked on</p>
+        <p className="page-subtitle">A roster of tools and experiments — from Spotify shuffle to Notion syncs.</p>
       </div>
       <div className="projects-grid">
         {projects.map((project, i) => (

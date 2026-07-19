@@ -5,7 +5,7 @@ function Books() {
     <div className="page-enter">
       <div className="page-header">
         <h2>Books</h2>
-        <p className="page-subtitle">Books I've read and would recommend</p>
+        <p className="page-subtitle">Shelf notes — finished, in progress, and waiting.</p>
       </div>
       <div className="section-title">Completed</div>
       <a className="link-card" href="https://www.amazon.de/-/en/Anders-Ericsson-ebook/dp/B011H56MKS" target="_blank" rel="noopener noreferrer"><i className="fas fa-book"></i>Peak: Secrets from the New Science of Expertise</a>

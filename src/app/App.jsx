@@ -139,7 +139,7 @@ function AppContent() {
           <Link className="navbar-brand" to="/" onClick={handleNavLinkClick}>
             <span className="navbar-brand-inner">
               <i className="fas fa-map navbar-brand-icon" aria-hidden="true"></i>
-              <span className="fw-bold">Home</span>
+              <span className="fw-bold">Basit</span>
             </span>
           </Link>
 

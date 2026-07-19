@@ -5,7 +5,7 @@ function Certifications() {
     <div className="page-enter">
       <div className="page-header">
         <h2>Certifications</h2>
-        <p className="page-subtitle">Professional certificates and courses I've completed</p>
+        <p className="page-subtitle">Courses and certificates that shaped how I build.</p>
       </div>
       <a className="link-card" href="https://www.linkedin.com/learning/certificates/aa96278558f910c703cbe95f6bc17dbfe239c404f82fa31a86e1a2687ee23d9c" target="_blank" rel="noopener noreferrer"><i className="fas fa-award"></i>Career Essentials in Software Development — Microsoft &amp; LinkedIn</a>
       <a className="link-card" href="https://www.linkedin.com/in/muhammad-basit-zaheer/" target="_blank" rel="noopener noreferrer"><i className="fab fa-linkedin"></i>Learning Docker — LinkedIn</a>

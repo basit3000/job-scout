@@ -1272,6 +1272,33 @@ body.dark-mode .navbar-toggler-icon {
 /* ============================================
    Projects
    ============================================ */
+.tech-stack {
+  margin: 1.5rem 0 0.5rem;
+}
+
+.tech-stack .section-title {
+  margin-bottom: 0.75rem;
+}
+
+.tech-stack-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  justify-content: center;
+}
+
+.tech-stack-chip {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--card-border);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

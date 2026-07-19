@@ -3,7 +3,26 @@
 // `content` is an array of plain-text paragraph strings (no HTML, rendered as <p> text).
 // Optional `link` is an external URL rendered as a button below the post (e.g. GitHub repo).
 export const posts = [
-    {
+  {
+    slug: "building-in-public-summer-2026",
+    title: "What I built lately (and how Cursor fits in)",
+    date: "2026-07-19",
+    category: "Built",
+    icon: "fas fa-hammer",
+    excerpt:
+      "PD-League, Spotify True Random upgrades, a FIFA cup tracker, small utilities, and another pass on this site — plus honest notes on using Cursor and automating the boring parts.",
+    content: [
+      "The last stretch of side projects has been busy in a good way. Most of it started from a real annoyance or a league need, not from a tutorial checklist.",
+      "PD-League is the big one. It is a custom Dota 2 league stack: website, REST API, and Discord bot on one FastAPI backend, with PostgreSQL underneath. Players register, get approved, link Steam, queue, ready-check, run a captain snake draft, play the match, and see ratings move. Optional Steam lobby automation ties the match room to an actual Dota lobby. A lot of the hard work is the boring glue — cooldowns, staff tools, deploy paths, and keeping Discord and the site in sync.",
+      "Spotify True Random kept growing. Shuffle on large playlists still frustrates me, so I kept the Fisher–Yates approach and added a local web UI next to the Python CLI and Android app. Same idea: turn Spotify shuffle off and play a true random order so every track shows up before repeats.",
+      "Smaller tools filled the gaps. FIFA Cup is a quick tournament tracker with persisted multi-tournament state for casual cups with friends. Work Hours is a one-page calculator for start time, breaks, and when the shift actually ends. Neither is fancy. Both get used.",
+      "This portfolio got another rebuild too. Radiant light and Dire dark instead of a generic purple theme, live Spotify and Steam status, a now-playing SVG widget I can embed elsewhere, Dota tips, minimap navigation, a blog, and a tiny serverless view counter on Vercel plus Upstash Redis.",
+      "I do use AI tools, mainly Cursor. Worth saying out loud: it does not replace knowing what you want. It is fast at boilerplate, refactors, CSS passes, API wiring, and turning a rough idea into something I can click. I still decide the product shape, review the diffs, and own the bugs. When the model drifts into purple SaaS defaults, I push back — that is how this site ended up Dota-themed instead of looking like every other AI landing page.",
+      "Automations are the other habit. Some are old scripts I still run: IMDB and MyAnimeList into Notion, dynamic IP updates into Google Sheets, Django setup helpers. Newer ones sit closer to the products — Discord panels and Steam lobby workers for the league, playlist caching and rate-limit handling for Spotify, and agent-assisted passes in Cursor when I want to redesign a page or chase a layout bug without losing a weekend to CSS.",
+      "If you only look at one thing from this batch, look at PD-League for systems work, or Spotify True Random if you just want a tool that scratches a daily itch. The rest is me keeping the workshop tidy.",
+    ],
+  },
+  {
     slug: "spotify-true-random",
     title: "Building Spotify True Random (when shuffle is not random)",
     date: "2026-06-19",

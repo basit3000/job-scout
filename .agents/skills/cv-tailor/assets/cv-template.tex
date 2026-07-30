@@ -1,0 +1,102 @@
+% One-page CV bootstrap. Only use this when the Overleaf project has no usable CV to
+% preserve -- otherwise edit the existing document surgically instead.
+%
+% Content below is drawn from verified evidence (portfolio data + public GitHub).
+% Lines marked CONFIRM need facts only Basit can supply; replace or delete them before
+% pushing. Never leave a CONFIRM marker in a CV that gets sent anywhere.
+%
+% Spacing knobs for the one-page fit live in the "fit controls" block. Floors:
+% fontsize >= 10pt, margin >= 0.5in, linespread >= 0.95.
+
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.6in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% --- fit controls --------------------------------------------------------
+\linespread{1.0}
+\setlist[itemize]{leftmargin=1.1em, itemsep=1pt, parsep=0pt, topsep=2pt}
+\titlespacing{\section}{0pt}{6pt}{3pt}
+% -------------------------------------------------------------------------
+
+\definecolor{rule}{gray}{0.55}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}[\vspace{1pt}\color{rule}\hrule]
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\newcommand{\entry}[2]{\textbf{#1}\hfill\textit{#2}\\}
+
+\begin{document}
+
+% --- header --------------------------------------------------------------
+\begin{center}
+  {\LARGE\bfseries Muhammad Basit Zaheer}\\[3pt]
+  Software developer and Master's student --- backend services, web apps, and automation\\[3pt]
+  \href{mailto:basitzaheer02@gmail.com}{basitzaheer02@gmail.com} $\cdot$
+  \href{https://basitzaheer.de}{basitzaheer.de} $\cdot$
+  \href{https://github.com/basit3000}{github.com/basit3000} $\cdot$
+  \href{https://www.linkedin.com/in/muhammad-basit-zaheer/}{linkedin.com/in/muhammad-basit-zaheer}
+\end{center}
+
+\vspace{-4pt}
+
+% --- education -----------------------------------------------------------
+\section*{Education}
+\entry{Technische Universit\"at Ilmenau}{CONFIRM: dates}
+Master's student, CONFIRM: exact programme name.
+
+% CONFIRM: bachelor's degree, institution, and dates -- not present in the evidence pack.
+
+% --- projects ------------------------------------------------------------
+\section*{Projects}
+
+\entry{PD-League --- Dota 2 league platform}{Python, FastAPI, PostgreSQL, Docker}
+\begin{itemize}
+  \item Built a league platform where a single FastAPI service backs the website, REST API,
+        and Discord bot, keeping bot and web state in sync.
+  \item Implemented registration with Steam linking, queueing with ready-checks, a captain
+        snake draft, match rooms, and rating updates on PostgreSQL.
+  \item Added optional Steam lobby automation that ties a match room to a real Dota lobby.
+\end{itemize}
+
+\entry{Spotify True Random}{Python, Kotlin, Spotify Web API}
+\begin{itemize}
+  \item Replaced Spotify's repeat-prone shuffle with a Fisher--Yates implementation that
+        plays every track once before any repeat.
+  \item Shipped the same tool three ways --- Python CLI, local web UI, and a Kotlin Android
+        app --- against the Spotify Web API.
+\end{itemize}
+
+\entry{Personal portfolio --- basitzaheer.de}{React, Vite, Vercel, Upstash Redis}
+\begin{itemize}
+  \item Built and maintain a React/Vite site with live Spotify and Steam status, an
+        embeddable now-playing SVG widget, and a blog.
+  \item Added a serverless view counter on Vercel and Upstash Redis that fails silently
+        rather than blocking the page.
+\end{itemize}
+
+% --- skills --------------------------------------------------------------
+\section*{Skills}
+\textbf{Languages:} Python, JavaScript, Kotlin, Java, SQL\\
+\textbf{Frameworks:} FastAPI, Django, React, Vite, Express\\
+\textbf{Infrastructure:} PostgreSQL, Docker, Vercel, Redis, Git\\
+\textbf{APIs:} Spotify, Steam, Notion, Discord
+
+% --- experience ----------------------------------------------------------
+% CONFIRM: employment history. Nothing in the portfolio or GitHub evidence establishes
+% job titles, employers, or dates -- take these from the existing CV or ask Basit.
+% Delete this section entirely rather than shipping an empty heading.
+
+% --- certifications ------------------------------------------------------
+\section*{Certifications}
+Career Essentials in Software Development (Microsoft \& LinkedIn) $\cdot$
+Learning Docker (LinkedIn) $\cdot$
+Python: Data Structures (Coursera) $\cdot$
+Git and GitHub (Coursera)
+
+\end{document}

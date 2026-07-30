@@ -41,6 +41,9 @@ Desktop.ini
 .cursor/
 AGENTS.md
 
+# cv-tailor scratch space: evidence packs and the Overleaf clone (never commit)
+.cv-workspace/
+
 # impeccable-ignore-start
 # Ephemeral Impeccable output & per-dev overrides.
 # Keep tracked if present: .impeccable/config.json, design.json, critique/*.md

@@ -1,15 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import basitImage from '../app/basit.jpg';
 import LiveStatus from '../components/LiveStatus';
-
-const roles = [
-  "Software Developer",
-  "Master's Student",
-  "Dota 2 Enthusiast",
-  "Problem Solver",
-  "Tech Enthusiast",
-  "Lifelong Learner",
-];
+import { profile, roles, connectLinks } from '../data/profile';
 
 function useTypingEffect(strings, typingSpeed = 80, deletingSpeed = 40, pauseTime = 1500) {
   const [text, setText] = useState('');
@@ -37,14 +29,6 @@ function useTypingEffect(strings, typingSpeed = 80, deletingSpeed = 40, pauseTim
   return text;
 }
 
-const connectLinks = [
-  { href: 'mailto:basitzaheer02@gmail.com', icon: 'fas fa-envelope', label: 'Email' },
-  { href: 'https://www.linkedin.com/in/muhammad-basit-zaheer/', icon: 'fab fa-linkedin', label: 'LinkedIn', external: true },
-  { href: 'https://github.com/basit3000', icon: 'fab fa-github', label: 'GitHub', external: true },
-  { href: 'https://leetcode.com/u/basit3000/', icon: 'fas fa-code', label: 'LeetCode', external: true },
-  { href: 'https://www.coursera.org/learner/muhammad-basit', icon: 'fas fa-graduation-cap', label: 'Coursera', external: true },
-];
-
 function Home() {
   const typedText = useTypingEffect(roles);
   const [views, setViews] = useState(null);
@@ -60,19 +44,19 @@ function Home() {
     <div className="page-enter">
       <section className="home-hero" aria-label="Introduction">
         <div className="profile-image-wrap">
-          <img src={basitImage} alt="Muhammad Basit Zaheer" className="profile-image" />
+          <img src={basitImage} alt={profile.name} className="profile-image" />
         </div>
         <div className="page-header">
-          <h1>Muhammad Basit Zaheer</h1>
+          <h1>{profile.name}</h1>
           <p className="page-subtitle">
-            Master's student at{' '}
+            {profile.status} at{' '}
             <a
               className="text-link"
-              href="https://www.tu-ilmenau.de/en"
+              href={profile.universityUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
-              Technische Universität Ilmenau
+              {profile.university}
             </a>
           </p>
           <p className="typing-text">

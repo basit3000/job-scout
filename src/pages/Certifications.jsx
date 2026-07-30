@@ -1,4 +1,5 @@
 import React from 'react';
+import { certifications } from '../data/certifications';
 
 function Certifications() {
   return (
@@ -7,12 +8,18 @@ function Certifications() {
         <h2>Certifications</h2>
         <p className="page-subtitle">Courses and certificates that shaped how I build.</p>
       </div>
-      <a className="link-card" href="https://www.linkedin.com/learning/certificates/aa96278558f910c703cbe95f6bc17dbfe239c404f82fa31a86e1a2687ee23d9c" target="_blank" rel="noopener noreferrer"><i className="fas fa-award"></i>Career Essentials in Software Development — Microsoft &amp; LinkedIn</a>
-      <a className="link-card" href="https://www.linkedin.com/in/muhammad-basit-zaheer/" target="_blank" rel="noopener noreferrer"><i className="fab fa-linkedin"></i>Learning Docker — LinkedIn</a>
-      <a className="link-card" href="https://coursera.org/share/c6780f8dc7972828454321f44cdb9c2d" target="_blank" rel="noopener noreferrer"><i className="fab fa-github"></i>Getting Started with Git and GitHub — Coursera</a>
-      <a className="link-card" href="https://coursera.org/share/88956b73021a12cd7c4149cfbffd8d09" target="_blank" rel="noopener noreferrer"><i className="fab fa-python"></i>Python - Data Structures — Coursera</a>
-      <a className="link-card" href="https://coursera.org/share/ce30da779d1f6d8d8b1cd8c707586fe6" target="_blank" rel="noopener noreferrer"><i className="fab fa-python"></i>Python - Basics — Coursera</a>
-      <a className="link-card" href="https://coursera.org/share/46e53b2435f279d8735a2ecad9984401" target="_blank" rel="noopener noreferrer"><i className="fas fa-code"></i>Programming for Everybody (Getting Started with Python)</a>
+      {certifications.map((cert) => (
+        <a
+          className="link-card"
+          key={cert.title}
+          href={cert.href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <i className={cert.icon}></i>
+          {cert.title} — {cert.issuer}
+        </a>
+      ))}
     </div>
   );
 }

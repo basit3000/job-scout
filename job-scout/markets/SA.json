@@ -1,0 +1,39 @@
+{
+  "id": "SA",
+  "name": "Saudi Arabia",
+  "shortName": "KSA",
+  "indeedCountryCode": "SA",
+  "jobspyCountryIndeed": "saudi arabia",
+  "currency": "SAR",
+  "defaultLocation": "Riyadh",
+  "defaultRadiusKm": 50,
+  "cities": [
+    { "where": "Riyadh", "radiusKm": 50 },
+    { "where": "Jeddah", "radiusKm": 50 },
+    { "where": "Saudi Arabia", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "saudi arabia",
+    "ksa",
+    "riyadh",
+    "jeddah",
+    "dammam",
+    "khobar",
+    "neom",
+    "\\bsa\\b"
+  ],
+  "boards": ["bayt", "indeed", "linkedin"],
+  "baytCountry": "Saudi Arabia",
+  "nationalsOnlyPatterns": [
+    "saudi nationals?\\s*only",
+    "saudis?\\s*only",
+    "for saudi nationals",
+    "saudization"
+  ],
+  "localExperiencePatterns": [
+    "saudi experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?(saudi|ksa) experience"
+  ],
+  "dropNationalsOnlyDefault": true,
+  "_notes": "Bayt is relevant for KSA. Saudization / nationals-only is a real hard gate."
+}

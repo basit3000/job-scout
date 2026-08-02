@@ -1,5 +1,5 @@
 {
-  "_README": "Copy to profile.json and replace every YOUR_* value. An agent reading this file should treat any string starting with YOUR_ as unset — do not invent answers; ask the user.",
+  "_README": "Copy to profile.json and replace every YOUR_* value. An agent reading this file should treat any string starting with YOUR_ as unset — do not invent answers; ask the user. Country/market is set in search-profile.json (\"market\": \"AE\"|\"GB\"|\"US\"|…).",
 
   "name": "YOUR_FULL_NAME",
   "headline": "YOUR_ONE_LINE_HEADLINE",
@@ -8,8 +8,9 @@
 
   "location": {
     "current": "YOUR_CURRENT_CITY_COUNTRY",
-    "targets": ["Dubai", "Abu Dhabi", "YOUR_OTHER_UAE_CITY_OR_REMOVE"],
-    "openToRemoteUae": "YOUR_TRUE_OR_FALSE",
+    "targets": ["YOUR_CITY_1", "YOUR_CITY_2", "YOUR_CITY_OR_REMOVE"],
+    "_targets": "Optional city overrides for this person. If set, used when search-profile cities is null and you want person-specific cities. Otherwise the market preset cities are used.",
+    "openToRemote": "YOUR_TRUE_OR_FALSE",
     "willingToRelocate": "YOUR_TRUE_OR_FALSE"
   },
 

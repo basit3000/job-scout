@@ -1,6 +1,7 @@
-# UAE shortlist — <date>
+# <Market> shortlist — <date>
 
-Candidate: **YOUR_FULL_NAME** (replace from profile) — target: **YOUR_TARGET_ROLE**
+Candidate: **YOUR_FULL_NAME** (replace from profile) — target: **YOUR_TARGET_ROLE**  
+Market: **YOUR_MARKET** (from search-profile / jobs.json)
 
 <n> fetched · <n> ruled out · <n> worth their time  
 Boards: <bayt/indeed/linkedin — via apify or jobspy>
@@ -16,7 +17,7 @@ Boards: <bayt/indeed/linkedin — via apify or jobspy>
 - **Link** · **ID** `<id>`
 
 **Why it fits.** <Cite evidence from their pack.>  
-**Gaps.** <Including UAE-experience / visa / license if relevant.>
+**Gaps.** <Including local-experience / visa / license if relevant.>
 
 ---
 
@@ -30,18 +31,19 @@ Boards: <bayt/indeed/linkedin — via apify or jobspy>
 
 Common reasons this run:
 
-- <n> UAE Nationals Only  
-- <n> UAE experience / license gap  
+- <n> Nationals only  
+- <n> Local experience / license gap  
 - <n> wrong field / seniority  
+- <n> wrong country  
 
 ---
 
 ## Open questions for the candidate
 
-1. Work authorisation / visa for the UAE?  
-2. Dubai vs Abu Dhabi vs either?  
+1. Work, authorisation / visa for this market?  
+2. Preferred cities within the market?  
 3. Earliest join date?  
-4. Licenses/registrations required in this field (e.g. DHA, CPA)?  
+4. Licenses/registrations required in this field?  
 
 ---
 

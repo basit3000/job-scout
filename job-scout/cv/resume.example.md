@@ -3,7 +3,7 @@
 YOUR_CITY · YOUR_EMAIL@example.com · YOUR_PHONE  
 YOUR_LINKEDIN_URL · YOUR_OTHER_LINK
 
-YOUR_ONE_PARAGRAPH_SUMMARY — who you are, what you do, what you want in the UAE.
+YOUR_ONE_PARAGRAPH_SUMMARY — who you are, what you do, what you want in YOUR_TARGET_COUNTRY.
 
 ## Experience
 

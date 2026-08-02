@@ -98,7 +98,8 @@ function toMarkdown({ profile, cv, github, generatedAt }) {
   if (profile.location) {
     push(`- Current: ${profile.location.current ?? '_'}`);
     push(`- Target cities: ${(profile.location.targets ?? []).join(', ') || '_'}`);
-    push(`- Open to UAE-remote: ${profile.location.openToRemoteUae ?? '_'}`);
+    const openRemote = profile.location.openToRemote ?? profile.location.openToRemoteUae;
+    push(`- Open to remote: ${openRemote ?? '_'}`);
     push(`- Willing to relocate: ${profile.location.willingToRelocate ?? '_'}`);
   }
   push(`- Seniority target: ${profile.seniority ?? '_'}`);
@@ -136,7 +137,7 @@ function toMarkdown({ profile, cv, github, generatedAt }) {
   if (profile.constraints) {
     push('## Constraints [profile]');
     push();
-    push(`- Drop UAE-nationals-only postings: ${profile.constraints.dropNationalsOnly ?? true}`);
+    push(`- Drop nationals-only postings: ${profile.constraints.dropNationalsOnly ?? true}`);
     for (const n of profile.constraints.notes ?? []) push(`- ${n}`);
     push();
   }
@@ -169,9 +170,10 @@ function toMarkdown({ profile, cv, github, generatedAt }) {
 
   push('## How to use this pack');
   push();
-  push('When judging a UAE job posting, only claim skills/experience that appear above.');
+  push('When judging a job posting, only claim skills/experience that appear above.');
   push('If a requirement is missing, it is a gap — not a stretch of the imagination.');
-  push('Visa, nationality, and UAE-years-of-experience are never inferred.');
+  push('Visa, nationality, and local-years-of-experience are never inferred.');
+  push('The target country comes from search-profile.json → market (or --market).');
 
   return lines.join('\n');
 }

@@ -5,14 +5,14 @@
 #   gh auth login
 #
 # Usage:
-#   ./publish-to-github.sh                 # creates basit3000/uae-job-scout (public)
+#   ./publish-to-github.sh                 # creates basit3000/job-scout (public)
 #   ./publish-to-github.sh myuser my-repo  # custom owner/name
 
 set -euo pipefail
 cd "$(dirname "$0")"
 
 OWNER="${1:-basit3000}"
-NAME="${2:-uae-job-scout}"
+NAME="${2:-job-scout}"
 FULL="$OWNER/$NAME"
 
 if ! command -v gh >/dev/null; then
@@ -28,9 +28,9 @@ if gh repo view "$FULL" >/dev/null 2>&1; then
 else
   echo "Creating public repo $FULL and pushing…"
   gh repo create "$FULL" --public --source=. --remote=origin --push \
-    --description "Portable UAE-only job scout for any profession (Apify + JobSpy)"
+    --description "Portable multi-country job scout for any profession (Apify + JobSpy)"
 fi
 
 echo
 echo "Done: https://github.com/$FULL"
-echo "Friend setup: clone that URL, then cp profile.example.json profile.json"
+echo "Friend setup: clone that URL, set market in search-profile.json, then cp profile.example.json profile.json"

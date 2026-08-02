@@ -1,12 +1,14 @@
 export function renderJobs(jobs, meta) {
   const lines = [];
   const push = (s = '') => lines.push(s);
+  const marketLabel = meta.marketName || meta.market || 'target market';
 
-  push('# UAE job candidates');
+  push(`# ${meta.market || 'Job'} candidates`);
   push();
   push(`Fetched ${meta.generatedAt}. Strategy: ${meta.strategy}.`);
   if (meta.candidate) push(`Candidate: **${meta.candidate}**${meta.targetRole ? ` — target: ${meta.targetRole}` : ''}.`);
-  push(`${jobs.length} posting(s) survived the UAE filters.`);
+  push(`Market: **${marketLabel}**${meta.marketId ? ` (${meta.marketId})` : ''}.`);
+  push(`${jobs.length} posting(s) survived the country filters.`);
   push();
   push('These are **candidates, not recommendations**. Rank them against `.workspace/evidence.md` next.');
   push();
@@ -34,7 +36,7 @@ export function renderJobs(jobs, meta) {
   push('## Postings');
   push();
   if (!jobs.length) {
-    push('_None. Check board status (Bayt needs Apify). Or widen profile.search.includeTitlePatterns._');
+    push('_None. Check board status (Bayt needs Apify where enabled). Or widen profile.search.includeTitlePatterns._');
     return lines.join('\n');
   }
 

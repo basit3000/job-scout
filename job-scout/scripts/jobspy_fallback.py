@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""JobSpy fallback for UAE boards (Indeed.ae + LinkedIn).
+"""JobSpy fallback for Indeed + LinkedIn (any supported country).
 
 Reads JSON config from --config or stdin; writes JSON jobs to stdout.
 Bayt is excluded by default — it 403s from cloud IPs via JobSpy.
@@ -33,9 +33,9 @@ def clean_cell(value):
     return value
 
 
-def salary_text(row):
+def salary_text(row, default_currency="USD"):
     lo, hi = row.get("min_amount"), row.get("max_amount")
-    currency = row.get("currency") or "AED"
+    currency = row.get("currency") or default_currency
     interval = row.get("interval") or ""
     if lo is None and hi is None:
         return None
@@ -54,7 +54,10 @@ def main() -> int:
 
     boards = [b for b in (cfg.get("boards") or ["indeed", "linkedin"]) if b != "bayt" or cfg.get("forceBayt")]
     search_term = cfg.get("what")
-    location = cfg.get("where") or "Dubai"
+    location = cfg.get("where") or "Remote"
+    country_label = cfg.get("country") or "Unknown"
+    country_indeed = cfg.get("countryIndeed") or cfg.get("country_indeed") or "usa"
+    default_currency = cfg.get("currency") or "USD"
     if not search_term or str(search_term).startswith("YOUR_"):
         print("JobSpy config missing a real search term (what).", file=sys.stderr)
         json.dump({"ok": False, "error": "missing search term", "jobs": []}, sys.stdout)
@@ -76,7 +79,7 @@ def main() -> int:
             location=location,
             results_wanted=results_wanted,
             hours_old=hours_old,
-            country_indeed="United Arab Emirates",
+            country_indeed=country_indeed,
             linkedin_fetch_description=bool(cfg.get("linkedinFetchDescription", True)),
         )
     except Exception as exc:  # noqa: BLE001
@@ -102,12 +105,12 @@ def main() -> int:
                     "title": cleaned.get("title"),
                     "company": cleaned.get("company"),
                     "location": cleaned.get("location"),
-                    "country": "UAE",
+                    "country": country_label,
                     "remote": bool(remote) if remote is not None else None,
                     "url": url,
                     "postedAt": iso(cleaned.get("date_posted")),
                     "employmentType": cleaned.get("job_type"),
-                    "salary": salary_text(cleaned),
+                    "salary": salary_text(cleaned, default_currency),
                     "seniority": cleaned.get("job_level"),
                     "description": cleaned.get("description"),
                     "scrapedAt": datetime.now(timezone.utc).isoformat(),
@@ -118,7 +121,11 @@ def main() -> int:
         {
             "ok": True,
             "boards": boards,
-            "query": {"what": search_term, "where": location},
+            "query": {
+                "what": search_term,
+                "where": location,
+                "countryIndeed": country_indeed,
+            },
             "count": len(jobs),
             "jobs": jobs,
         },

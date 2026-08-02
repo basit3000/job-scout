@@ -31,21 +31,21 @@ npm install
 npm run dev
 ```
 
-## Portable tool: UAE Job Scout
+## Portable tool: Job Scout
 
-`uae-job-scout/` is a **standalone, profession-agnostic** UAE job finder you can hand to a friend. It is not tied to this portfolio's owner or to software roles.
+`job-scout/` is a **standalone, profession-agnostic, multi-country** job finder you can hand to a friend. Default market is UAE; switch via `search-profile.json` → `"market"` (or `--market`). It is not tied to this portfolio's owner or to software roles.
 
 ```bash
-cd uae-job-scout
+cd job-scout
 cp profile.example.json profile.json
 cp cv/resume.example.md cv/resume.md
-# replace every YOUR_* placeholder, then:
+# set "market" in search-profile.json (AE, GB, US, …), replace YOUR_* placeholders, then:
 pip install -U -r requirements.txt
 node scripts/build-evidence.mjs
 node scripts/fetch-jobs.mjs
 ```
 
-See [`uae-job-scout/README.md`](uae-job-scout/README.md). Symlinked for agents as `.agents/skills/uae-job-scout` and `.claude/skills/uae-job-scout`.
+See [`job-scout/README.md`](job-scout/README.md). Symlinked for agents as `.agents/skills/job-scout` and `.claude/skills/job-scout`.
 
 ## Scripts
 

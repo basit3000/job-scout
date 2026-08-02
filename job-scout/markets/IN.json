@@ -1,0 +1,42 @@
+{
+  "id": "IN",
+  "name": "India",
+  "shortName": "India",
+  "indeedCountryCode": "IN",
+  "jobspyCountryIndeed": "india",
+  "currency": "INR",
+  "defaultLocation": "Bengaluru",
+  "defaultRadiusKm": 50,
+  "cities": [
+    { "where": "Bengaluru", "radiusKm": 50 },
+    { "where": "Mumbai", "radiusKm": 50 },
+    { "where": "India", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "\\bindia\\b",
+    "bengaluru",
+    "bangalore",
+    "mumbai",
+    "delhi",
+    "new delhi",
+    "hyderabad",
+    "chennai",
+    "pune",
+    "gurgaon",
+    "gurugram",
+    "noida",
+    "\\bin\\b"
+  ],
+  "boards": ["indeed", "linkedin"],
+  "baytCountry": null,
+  "nationalsOnlyPatterns": [
+    "indian nationals?\\s*only",
+    "for indian citizens"
+  ],
+  "localExperiencePatterns": [
+    "india experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?india experience"
+  ],
+  "dropNationalsOnlyDefault": false,
+  "_notes": "Indeed + LinkedIn. Override cities for your metro."
+}

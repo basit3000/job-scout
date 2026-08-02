@@ -2,6 +2,7 @@
 // Record a ruling so the next run does not resurface the same posting.
 //
 //   node scripts/record-decision.mjs --id uae:indeed:abc123 --decision skipped --note "…"
+//   node scripts/record-decision.mjs --id uk:linkedin:abc123 --decision skipped --note "…"
 
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';

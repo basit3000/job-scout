@@ -101,16 +101,26 @@ This folder is an Agent Skill (`SKILL.md`). In a repo that symlinks it under `.a
 
 Or run the scripts yourself and ask the agent to shortlist `.workspace/jobs.md` against `.workspace/evidence.md`.
 
-## Share as its own repo
+## This folder is its own git repo
+
+`git init` is already done here. To put it on GitHub under your account:
 
 ```bash
+# on your machine, with YOUR GitHub login:
 cd uae-job-scout
-git init
-git add -A && git commit -m "UAE job scout"
-# create empty GitHub repo, then push
+gh auth login          # if needed
+./publish-to-github.sh
+# → https://github.com/basit3000/uae-job-scout
 ```
 
-Your friend never needs anyone else's portfolio — only this folder plus their own CV.
+Or create an empty repo at https://github.com/new?name=uae-job-scout then:
+
+```bash
+git remote add origin https://github.com/basit3000/uae-job-scout.git
+git push -u origin main
+```
+
+Your friend clones that URL — they never need the portfolio, only this repo plus their own CV.
 
 ## Safety
 

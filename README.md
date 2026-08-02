@@ -24,38 +24,28 @@ A modern personal portfolio website built with React and Vite, featuring dark mo
 - **Upstash Redis** (view counter persistence)
 - **Vercel Serverless Functions** (API backend)
 
-## Project Structure
-
-```
-index.html              # Vite entry point (root)
-vercel.json             # Vercel config (rewrites, build settings)
-vite.config.js          # Vite configuration
-api/
-  views.js              # Serverless function — view counter (Upstash Redis)
-public/                 # Static assets (favicon, manifest, robots.txt)
-src/
-  index.jsx             # React entry point
-  index.css             # Global styles
-  app/
-    App.jsx             # Main layout, navbar, footer, routing, active link logic
-    App.css             # Design tokens, components, animations
-  pages/
-    Home.jsx            # Landing page with typing hero, social links, view counter
-    About.jsx           # About page
-    Projects.jsx        # Project cards grid (from GitHub repos)
-    Certifications.jsx  # Certifications list
-    Gaming.jsx          # Gaming profiles
-    Books.jsx           # Book recommendations
-    NotFound.jsx        # 404 page
-  services/             # Service layer (currently empty)
-```
-
 ## Getting Started
 
 ```bash
 npm install
 npm run dev
 ```
+
+## Portable tool: UAE Job Scout
+
+`uae-job-scout/` is a **standalone, profession-agnostic** UAE job finder you can hand to a friend. It is not tied to this portfolio's owner or to software roles.
+
+```bash
+cd uae-job-scout
+cp profile.example.json profile.json
+cp cv/resume.example.md cv/resume.md
+# replace every YOUR_* placeholder, then:
+pip install -U -r requirements.txt
+node scripts/build-evidence.mjs
+node scripts/fetch-jobs.mjs
+```
+
+See [`uae-job-scout/README.md`](uae-job-scout/README.md). Symlinked for agents as `.agents/skills/uae-job-scout` and `.claude/skills/uae-job-scout`.
 
 ## Scripts
 
@@ -65,17 +55,6 @@ npm run dev
 | `npm start` | Alias for `npm run dev` |
 | `npm run build` | Production build to `build/` |
 | `npm run preview` | Preview production build locally |
-
-## Pages
-
-| Route | Page | Description |
-|-------|------|-------------|
-| `/` | Home | Profile image, typing hero, social/contact links |
-| `/about` | About | Personal bio and interests |
-| `/projects` | Projects | GitHub project cards with tags and links |
-| `/certifications` | Certifications | Professional certificates list |
-| `/gaming` | Gaming | Gaming profiles and accounts |
-| `/books` | Books | Reading list (completed + currently reading) |
 
 ## Environment Variables
 
@@ -89,7 +68,3 @@ Required in Vercel dashboard (Settings → Environment Variables):
 ## Deployment
 
 Deployed on **Vercel** with automatic Git-based deploys.
-
-- `npm run build` outputs to `build/`
-- `api/` directory contains serverless functions auto-deployed by Vercel
-- `vercel.json` handles SPA rewrites and build configuration

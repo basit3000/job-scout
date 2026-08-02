@@ -1,0 +1,39 @@
+{
+  "_README": "Default UAE board wiring. Job TITLES and title filters are loaded from profile.json → search.* so this file stays profession-agnostic. Only edit boards/actors here if you know you need to.",
+
+  "boards": [
+    {
+      "board": "bayt",
+      "_note": "Main UAE/MENA board. Apify only — JobSpy gets 403 from cloud IPs.",
+      "queriesFromProfile": true
+    },
+    {
+      "board": "indeed",
+      "_note": "Indeed.ae — JobSpy fallback works well.",
+      "queriesFromProfile": true
+    },
+    {
+      "board": "linkedin",
+      "_note": "Apify preferred; JobSpy is the free fallback.",
+      "queriesFromProfile": true,
+      "input": {
+        "datePosted": "pastMonth"
+      }
+    }
+  ],
+
+  "limitPerQuery": 25,
+
+  "cities": [
+    { "where": "Dubai", "radiusKm": 50 },
+    { "where": "Abu Dhabi", "radiusKm": 50 },
+    { "where": "United Arab Emirates", "radiusKm": 100 }
+  ],
+
+  "filters": {
+    "maxAgeDays": 30,
+    "uaeOnly": true,
+    "dropNationalsOnly": true,
+    "_titlePatterns": "Pulled from profile.search.includeTitlePatterns / excludeTitlePatterns at runtime. Do not hardcode a profession here."
+  }
+}

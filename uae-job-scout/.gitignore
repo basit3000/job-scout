@@ -1,0 +1,17 @@
+# Per-user secrets and personal data — keep the examples, ignore the real ones
+profile.json
+cv/*
+!cv/.gitkeep
+!cv/README.md
+!cv/resume.example.md
+
+# Scratch output
+.workspace/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env
+.env
+.env.*

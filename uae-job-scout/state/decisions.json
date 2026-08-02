@@ -1,0 +1,4 @@
+{
+  "_comment": "Postings already ruled on. Committed only if you want shared memory across clones. Append with scripts/record-decision.mjs.",
+  "decisions": []
+}

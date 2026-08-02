@@ -1,0 +1,85 @@
+{
+  "_README": "Copy to profile.json and replace every YOUR_* value. An agent reading this file should treat any string starting with YOUR_ as unset — do not invent answers; ask the user.",
+
+  "name": "YOUR_FULL_NAME",
+  "headline": "YOUR_ONE_LINE_HEADLINE",
+  "targetRole": "YOUR_TARGET_ROLE",
+  "_targetRole": "Examples: Staff Nurse, Digital Marketing Specialist, Civil Engineer, Accountant, Product Designer — any profession.",
+
+  "location": {
+    "current": "YOUR_CURRENT_CITY_COUNTRY",
+    "targets": ["Dubai", "Abu Dhabi", "YOUR_OTHER_UAE_CITY_OR_REMOVE"],
+    "openToRemoteUae": "YOUR_TRUE_OR_FALSE",
+    "willingToRelocate": "YOUR_TRUE_OR_FALSE"
+  },
+
+  "seniority": "YOUR_SENIORITY",
+  "_seniority": "Pick one: internship | entry | junior | mid | senior | lead | executive | any",
+
+  "skills": {
+    "strong": ["YOUR_CORE_SKILL_1", "YOUR_CORE_SKILL_2", "YOUR_CORE_SKILL_3"],
+    "familiar": ["YOUR_SECONDARY_SKILL_1", "YOUR_SECONDARY_SKILL_2"],
+    "learning": ["YOUR_SKILL_YOU_ARE_LEARNING"]
+  },
+
+  "experience": [
+    {
+      "title": "YOUR_JOB_OR_PROJECT_TITLE",
+      "org": "YOUR_EMPLOYER_OR_PERSONAL",
+      "from": "YOUR_START_YEAR",
+      "to": "YOUR_END_YEAR_OR_present",
+      "bullets": [
+        "YOUR_ACHIEVEMENT_OR_RESPONSIBILITY_1",
+        "YOUR_ACHIEVEMENT_OR_RESPONSIBILITY_2"
+      ]
+    }
+  ],
+
+  "education": [
+    {
+      "degree": "YOUR_DEGREE",
+      "school": "YOUR_UNIVERSITY_OR_SCHOOL",
+      "from": "YOUR_START_YEAR",
+      "to": "YOUR_END_YEAR_OR_present"
+    }
+  ],
+
+  "links": {
+    "email": "YOUR_EMAIL@example.com",
+    "linkedin": "https://www.linkedin.com/in/YOUR_HANDLE/",
+    "github": "YOUR_GITHUB_URL_OR_null",
+    "portfolio": "YOUR_PORTFOLIO_URL_OR_null",
+    "site": "YOUR_WEBSITE_OR_null"
+  },
+
+  "search": {
+    "_README": "These drive the job-board queries. Replace with titles and keywords for YOUR field — not software unless that is the field.",
+    "titles": [
+      "YOUR_JOB_TITLE_QUERY_1",
+      "YOUR_JOB_TITLE_QUERY_2",
+      "YOUR_JOB_TITLE_QUERY_3"
+    ],
+    "includeTitlePatterns": [
+      "YOUR_REGEX_THAT_MUST_MATCH_TITLE_1",
+      "YOUR_REGEX_THAT_MUST_MATCH_TITLE_2"
+    ],
+    "excludeTitlePatterns": [
+      "YOUR_REGEX_TO_DROP_IRRELEVANT_TITLES"
+    ]
+  },
+
+  "constraints": {
+    "dropNationalsOnly": true,
+    "maxAgeDays": 30,
+    "excludeCompanies": [],
+    "notes": [
+      "YOUR_VISA_OR_WORK_AUTH_NOTE",
+      "YOUR_EARLIEST_JOIN_DATE",
+      "YOUR_LANGUAGE_REQUIREMENTS",
+      "YOUR_SALARY_FLOOR_OR_OTHER_CONSTRAINT"
+    ]
+  },
+
+  "githubUsername": null,
+  "_githubUsername": "Optional public GitHub login if relevant to the role. Leave null otherwise."
+}

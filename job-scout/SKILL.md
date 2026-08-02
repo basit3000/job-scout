@@ -1,6 +1,6 @@
 ---
 name: job-scout
-description: Portable multi-country job scout for any profession. Loads a user's profile.json and CV (markdown, text, LaTeX, or Overleaf), fetches jobs from Bayt (MENA)/Indeed/LinkedIn via Apify (primary) with JobSpy fallback for a chosen market (default UAE), and returns a shortlist ranked against that person's real evidence. Use when asked to find jobs in a country (UAE, UK, US, Germany, India, KSA, …), set up the job scout for a friend, change the search country, or fill in YOUR_* profile placeholders.
+description: Portable multi-country job scout for any profession. Loads a user's profile.json and CV (markdown, text, LaTeX, PDF, or Overleaf), fetches jobs from Bayt (MENA)/Indeed/LinkedIn via Apify (primary) with JobSpy fallback for a chosen market (default UAE), ranks them with short blurbs, and offers a web UI for CV upload plus one-click Apply (opens the posting — never auto-submits). Use when asked to find jobs in a country, set up the job scout UI, change the search country, or fill in YOUR_* profile placeholders.
 ---
 
 # Job scout (any profession, any country)
@@ -28,12 +28,20 @@ do not invent a profession, name, or skill list.
 4. Is there a CV in `cv/resume.md` (or `.txt` / `.tex` / `cv/overleaf/`)?  
    If not: ask them to paste a CV, drop a file, or run `scripts/pull-overleaf.sh`
    with their `OVERLEAF_GIT_TOKEN` + `OVERLEAF_PROJECT_ID`.
-5. Build evidence, then fetch:
+5. Prefer the **web UI** when the user wants upload + ranked blurbs:
+
+```bash
+npm install
+npm run dev          # UI http://localhost:5173 · API :8787
+```
+
+Or CLI: build evidence, fetch, then rank:
 
 ```bash
 node scripts/build-evidence.mjs
 node scripts/fetch-jobs.mjs                  # free: Indeed + LinkedIn
 node scripts/fetch-jobs.mjs --market GB      # one-off country override
+node scripts/rank-jobs.mjs                   # short blurbs + fit labels
 # or, for Bayt (MENA markets):
 export APIFY_TOKEN=...
 node scripts/fetch-jobs.mjs --allow-paid

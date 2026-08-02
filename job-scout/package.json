@@ -1,0 +1,27 @@
+{
+  "name": "job-scout",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:server\" \"npm:dev:ui\"",
+    "dev:server": "node --watch server/index.mjs",
+    "dev:ui": "vite --config ui/vite.config.js",
+    "build": "vite build --config ui/vite.config.js",
+    "start": "NODE_ENV=production node server/index.mjs",
+    "rank": "node scripts/rank-jobs.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "multer": "^2.2.0",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.2.0"
+  }
+}

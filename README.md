@@ -37,15 +37,12 @@ npm run dev
 
 ```bash
 cd job-scout
-cp profile.example.json profile.json
-cp cv/resume.example.md cv/resume.md
-# set "market" in search-profile.json (AE, GB, US, …), replace YOUR_* placeholders, then:
 pip install -U -r requirements.txt
-node scripts/build-evidence.mjs
-node scripts/fetch-jobs.mjs
+npm install
+npm run dev   # UI at http://localhost:5173 — upload CV, pick market, ranked shortlist + Apply
 ```
 
-See [`job-scout/README.md`](job-scout/README.md). Symlinked for agents as `.agents/skills/job-scout` and `.claude/skills/job-scout`.
+Or use the CLI (`profile.json` + `cv/`). See [`job-scout/README.md`](job-scout/README.md). Symlinked for agents as `.agents/skills/job-scout` and `.claude/skills/job-scout`.
 
 ## Scripts
 

@@ -1,9 +1,7 @@
 {
   "_README": "Pick a market (country), then leave titles/filters to profile.json. Change \"market\" to any id in markets/ (AE, GB, US, DE, IN, SA, …) or pass --market XX at fetch time. Cities/boards here override the market defaults when set.",
-
   "market": "AE",
   "_market": "AE = UAE (default). Also: GB, US, DE, IN, SA. See markets/README.md to add more.",
-
   "boards": [
     {
       "board": "bayt",
@@ -24,11 +22,8 @@
       }
     }
   ],
-
   "limitPerQuery": 25,
-
   "_cities": "Omit this key to use markets/<id>.json cities. To override, set e.g. \"cities\": [{ \"where\": \"London\", \"radiusKm\": 40 }]",
-
   "filters": {
     "maxAgeDays": 30,
     "countryOnly": true,

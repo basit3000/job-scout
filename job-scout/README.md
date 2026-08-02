@@ -12,7 +12,27 @@ profile.json + CV  →  fetch jobs in chosen market  →  shortlist to choose fr
 
 Default market is **UAE**. Change it anytime.
 
-## Setup (about 5 minutes)
+## Web UI (easiest)
+
+Upload a CV, pick a country + role, get a **ranked shortlist with short blurbs**, then hit **Apply** to open the employer posting (nothing is submitted for you).
+
+```bash
+cd job-scout
+pip install -U -r requirements.txt
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** (API on `:8787`).
+
+Production-style:
+
+```bash
+npm run build
+npm start          # serves UI + API on http://localhost:8787
+```
+
+## CLI setup (about 5 minutes)
 
 ```bash
 cd job-scout

@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile, access } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { workspaceDir, loadJson, ROOT } from './common.mjs';
 import {
@@ -72,6 +72,55 @@ export async function hasCvPdfMain(jobId) {
 /** True if pack already has downloadable PDF(s) — skip compile unless recreate. */
 export async function hasCachedPdfs(jobId) {
   return hasCvPdf(jobId);
+}
+
+/**
+ * One-shot scan of `.workspace/prep/*` so list endpoints don't `access` per job.
+ * Keys are safeId(jobId) folder names.
+ */
+export async function loadPrepFlagsIndex() {
+  const root = join(workspaceDir(), 'prep');
+  const index = new Map();
+  let dirs;
+  try {
+    dirs = await readdir(root, { withFileTypes: true });
+  } catch {
+    return index;
+  }
+  await Promise.all(
+    dirs.map(async (ent) => {
+      if (!ent.isDirectory()) return;
+      let files;
+      try {
+        files = await readdir(join(root, ent.name));
+      } catch {
+        return;
+      }
+      const set = new Set(files);
+      const tailoredCv = set.has('cv.html');
+      const tailoredPdfAts = set.has('cv-ats.pdf');
+      const tailoredPdfMain = set.has('cv-main.pdf');
+      const tailoredPdf = set.has('cv.pdf') || tailoredPdfAts || tailoredPdfMain;
+      index.set(ent.name, {
+        tailoredCv,
+        tailoredPdf,
+        tailoredPdfAts,
+        tailoredPdfMain,
+        prepCached: tailoredPdf,
+      });
+    }),
+  );
+  return index;
+}
+
+export function prepFlagsForJob(index, jobId) {
+  return index.get(safeId(jobId)) || {
+    tailoredCv: false,
+    tailoredPdf: false,
+    tailoredPdfAts: false,
+    tailoredPdfMain: false,
+    prepCached: false,
+  };
 }
 
 /** Read cv.* from search-profile.json */

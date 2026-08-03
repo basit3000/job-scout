@@ -31,11 +31,9 @@ import {
   writePrepPack,
   readPrepPack,
   readPrepFile,
-  hasTailoredCv,
-  hasCvPdf,
-  hasCvPdfAts,
-  hasCvPdfMain,
   hasCachedPdfs,
+  loadPrepFlagsIndex,
+  prepFlagsForJob,
   loadCvSettings,
   overleafStatus,
   exportPrepDownloads,
@@ -280,68 +278,104 @@ async function getStatus() {
   };
 }
 
-async function enrichJobs() {
-  const data = await loadJson(join(workspaceDir(), 'jobs.json'), null);
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
-  const decisions = await loadDecisions();
-  const byId = new Map((decisions.decisions ?? []).map((d) => [d.id, d]));
-  const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
-  const newSet = new Set(digest?.newIds ?? []);
+/** List responses must stay small — full archive+descriptions made every filter change ~1.5MB. */
+function toJobListItem(job) {
+  const { description, ...rest } = job;
+  return {
+    ...rest,
+    hasDescription: Boolean(description && String(description).trim()),
+  };
+}
 
-  if (!data) {
-    return {
-      jobs: [],
-      meta: null,
-      companies: [],
-      digest,
-      message: 'No fetch yet. Run a search from the UI or CLI.',
-    };
+function companySummaries(companies) {
+  return (companies ?? []).map((c) => ({
+    companyKey: c.companyKey,
+    company: c.company,
+    count: c.count,
+  }));
+}
+
+let jobsEnrichCache = { at: 0, data: null, inflight: null };
+
+function invalidateJobsCache() {
+  jobsEnrichCache = { at: 0, data: null, inflight: null };
+}
+
+async function enrichJobs({ force = false } = {}) {
+  const ttlMs = 3000;
+  if (!force && jobsEnrichCache.data && Date.now() - jobsEnrichCache.at < ttlMs) {
+    return jobsEnrichCache.data;
   }
+  if (!force && jobsEnrichCache.inflight) return jobsEnrichCache.inflight;
 
-  const raw = data.jobs ?? [];
-  const before = raw.length;
-  const deduped = dedupeJobs(raw);
-  const jobs = await Promise.all(
-    deduped.map(async (job) => {
+  const run = (async () => {
+    const data = await loadJson(join(workspaceDir(), 'jobs.json'), null);
+    const profile = await loadJson(join(ROOT, 'profile.json'), null);
+    const decisions = await loadDecisions();
+    const byId = new Map((decisions.decisions ?? []).map((d) => [d.id, d]));
+    const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
+    const newSet = new Set(digest?.newIds ?? []);
+    const prepIndex = await loadPrepFlagsIndex();
+
+    if (!data) {
+      return {
+        jobs: [],
+        meta: null,
+        companies: [],
+        digest,
+        message: 'No fetch yet. Run a search from the UI or CLI.',
+      };
+    }
+
+    const raw = data.jobs ?? [];
+    const before = raw.length;
+    const deduped = dedupeJobs(raw);
+    const jobs = deduped.map((job) => {
       const fit = profile ? scoreJob(job, profile) : null;
       const decision = byId.get(job.id) ?? null;
-      const tailoredCv = await hasTailoredCv(job.id);
-      const tailoredPdf = tailoredCv ? await hasCvPdf(job.id) : false;
-      const tailoredPdfAts = tailoredCv ? await hasCvPdfAts(job.id) : false;
-      const tailoredPdfMain = tailoredCv ? await hasCvPdfMain(job.id) : false;
+      const flags = prepFlagsForJob(prepIndex, job.id);
+      const tailoredCv = flags.tailoredCv;
       return {
         ...job,
         decision,
         fit,
         isNew: newSet.has(job.id),
-        tailoredCv,
-        tailoredPdf,
-        tailoredPdfAts,
-        tailoredPdfMain,
-        prepCached: tailoredCv ? await hasCachedPdfs(job.id) : false,
-        prepPath: decision?.prepPath || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
+        ...flags,
+        prepPath:
+          decision?.prepPath
+          || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
       };
-    }),
-  );
+    });
 
-  jobs.sort((a, b) => {
-    const vs = { Strong: 0, 'Worth a shot': 1, Stretch: 2, No: 3 };
-    const av = vs[a.fit?.verdict] ?? 9;
-    const bv = vs[b.fit?.verdict] ?? 9;
-    if (av !== bv) return av - bv;
-    return (b.fit?.score ?? 0) - (a.fit?.score ?? 0);
-  });
+    jobs.sort((a, b) => {
+      const vs = { Strong: 0, 'Worth a shot': 1, Stretch: 2, No: 3 };
+      const av = vs[a.fit?.verdict] ?? 9;
+      const bv = vs[b.fit?.verdict] ?? 9;
+      if (av !== bv) return av - bv;
+      return (b.fit?.score ?? 0) - (a.fit?.score ?? 0);
+    });
 
-  const { jobs: _j, ...meta } = data;
-  meta.duplicatesRemovedExtra = Math.max(0, before - deduped.length);
+    const { jobs: _j, ...meta } = data;
+    meta.duplicatesRemovedExtra = Math.max(0, before - deduped.length);
 
-  return {
-    jobs,
-    meta,
-    companies: clusterByCompany(jobs),
-    digest,
-    decisions: decisions.decisions ?? [],
-  };
+    return {
+      jobs,
+      meta,
+      companies: clusterByCompany(jobs),
+      digest,
+      decisions: decisions.decisions ?? [],
+    };
+  })();
+
+  jobsEnrichCache.inflight = run;
+  try {
+    const result = await run;
+    jobsEnrichCache = { at: Date.now(), data: result, inflight: null };
+    return result;
+  } catch (err) {
+    jobsEnrichCache.inflight = null;
+    throw err;
+  }
 }
 
 function paginate(items, url) {
@@ -417,17 +451,33 @@ async function handleApi(req, res, url) {
         `${j.title} ${j.company} ${j.location || ''}`.toLowerCase().includes(q),
       );
     }
+    // Multi-hide: ?hide=applied,skipped  (comma-separated decision keys; "none" = undecided)
+    const hideParam = (url.searchParams.get('hide') || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const hideSet = new Set(hideParam);
+    if (hideSet.size) {
+      list = list.filter((j) => {
+        const key = j.decision?.decision || 'none';
+        return !hideSet.has(key);
+      });
+    }
+
+    // Legacy single decision filter (still supported)
     const decision = url.searchParams.get('decision');
     if (decision && decision !== 'all') {
       if (decision === 'none') {
         list = list.filter((j) => !j.decision);
       } else if (decision.startsWith('not:') || decision.startsWith('-')) {
-        // Reverse filter: hide jobs with this decision (e.g. not:applied)
         const hide = decision.startsWith('not:')
           ? decision.slice(4)
           : decision.slice(1);
         if (hide === 'none') list = list.filter((j) => j.decision);
         else list = list.filter((j) => j.decision?.decision !== hide);
+      } else if (decision.includes(',')) {
+        const allow = new Set(decision.split(',').map((s) => s.trim()).filter(Boolean));
+        list = list.filter((j) => allow.has(j.decision?.decision || 'none'));
       } else {
         list = list.filter((j) => j.decision?.decision === decision);
       }
@@ -438,7 +488,7 @@ async function handleApi(req, res, url) {
 
     const page = paginate(list, url);
     return json(res, 200, {
-      jobs: page.items,
+      jobs: page.items.map(toJobListItem),
       pagination: {
         page: page.page,
         pageSize: page.pageSize,
@@ -446,10 +496,25 @@ async function handleApi(req, res, url) {
         pages: page.pages,
       },
       meta: enriched.meta,
-      companies: enriched.companies,
-      digest: enriched.digest,
+      companies: companySummaries(enriched.companies),
+      digest: enriched.digest
+        ? {
+            generatedAt: enriched.digest.generatedAt,
+            previousFetchAt: enriched.digest.previousFetchAt,
+            newCount: (enriched.digest.newIds ?? []).length,
+          }
+        : null,
       message: enriched.message,
     });
+  }
+
+  if (req.method === 'GET' && path.startsWith('/api/jobs/')) {
+    const id = decodeURIComponent(path.slice('/api/jobs/'.length));
+    if (!id || id.includes('/')) return json(res, 404, { error: 'Not found' });
+    const enriched = await enrichJobs();
+    const job = enriched.jobs.find((j) => j.id === id);
+    if (!job) return json(res, 404, { error: 'Job not found' });
+    return json(res, 200, { job });
   }
 
   if (req.method === 'GET' && path === '/api/digest') {
@@ -457,7 +522,7 @@ async function handleApi(req, res, url) {
     const newJobs = enriched.jobs.filter((j) => j.isNew);
     return json(res, 200, {
       digest: enriched.digest,
-      newJobs,
+      newJobs: newJobs.map(toJobListItem),
       count: newJobs.length,
     });
   }
@@ -504,6 +569,7 @@ async function handleApi(req, res, url) {
         followUpDate: body.followUpDate,
         prepPath: body.prepPath,
       });
+      invalidateJobsCache();
       return json(res, 200, { ok: true, ...result, valid: VALID_DECISIONS });
     } catch (err) {
       return json(res, 400, { error: err.message });
@@ -519,6 +585,7 @@ async function handleApi(req, res, url) {
         ...(body.prepPath !== undefined ? { prepPath: body.prepPath } : {}),
         ...(body.decision ? { decision: body.decision } : {}),
       });
+      invalidateJobsCache();
       return json(res, 200, { ok: true, entry });
     } catch (err) {
       return json(res, 400, { error: err.message });
@@ -558,6 +625,7 @@ async function handleApi(req, res, url) {
         extraInstructions,
         tailorMode: mode,
       });
+      invalidateJobsCache();
       return json(res, 200, { ok: true, cached: true, pack, fit });
     }
 
@@ -577,6 +645,7 @@ async function handleApi(req, res, url) {
       } catch {
         /* decision optional */
       }
+      invalidateJobsCache();
       return json(res, 200, { ok: true, cached: false, pack, fit, mode: 'fast' });
     }
 
@@ -649,6 +718,7 @@ async function handleApi(req, res, url) {
       } finally {
         prepState.running = false;
         prepState.stopping = false;
+        invalidateJobsCache();
       }
     })();
 
@@ -992,6 +1062,7 @@ async function handleApi(req, res, url) {
       fetchState.stopping = false;
       fetchState.child = null;
       fetchState.lastCode = stopped ? null : (code ?? 1);
+      invalidateJobsCache();
       const entry = {
         stream: stopped ? 'stderr' : 'stdout',
         line: stopped ? 'Search stopped by user.' : `Fetch finished (exit ${code ?? 1}).`,
@@ -1011,6 +1082,7 @@ async function handleApi(req, res, url) {
       fetchState.stopping = false;
       fetchState.child = null;
       fetchState.lastCode = 1;
+      invalidateJobsCache();
       broadcast('log', { stream: 'stderr', line: err.message, t: Date.now() });
       broadcast('done', { code: 1, stopped: false, at: new Date().toISOString() });
     });

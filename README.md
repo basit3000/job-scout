@@ -57,8 +57,8 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 | **Replace results** | Wipe archive before a run (default is merge) |
 | **Stop** | End a run; jobs found so far are saved |
 | **Agent / Agent model** | Prep & CV backend + model |
-| **Results** | Deduped list, fit scores, Prep & CV; decision filter includes **Hide applied** (`not:applied`) |
-| **Tracker** | Kanban + follow-ups; optional **Hide applied** column |
+| **Results** | Deduped list, fit scores, Prep & CV; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
+| **Tracker** | Kanban + follow-ups; **Columns** multi-select to show/hide decision columns |
 | **Saved answers** | Reusable application form answers |
 | **Portals** | Enable/disable job boards |
 | **Digest** | New since last fetch |

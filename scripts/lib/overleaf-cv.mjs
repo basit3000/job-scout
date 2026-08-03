@@ -658,3 +658,30 @@ export async function runOverleafTailor({
     extraInstructions: String(extraInstructions || '').trim() || null,
   };
 }
+
+/**
+ * After a Cursor agent edited Overleaf: sync (optional push leftover), compile PDFs.
+ * Does not run keyword reorder — the agent already tailored the .tex.
+ */
+export async function assembleOverleafAfterAgent({
+  push = false,
+  job,
+  prepDir,
+}) {
+  const sync = await syncOverleaf();
+  let pushResult = { pushed: false, reason: 'agent handled edits' };
+  if (push) {
+    pushResult = await pushOverleaf(
+      `Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'} (agent)`,
+    );
+  }
+  const pdf = await compileOverleafPdfs(prepDir);
+  return {
+    sync,
+    tailor: { edited: ['agent'], changed: true },
+    push: pushResult,
+    pdf,
+    overleafDir: overleafDir(),
+    via: 'agent',
+  };
+}

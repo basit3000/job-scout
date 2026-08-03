@@ -53,6 +53,12 @@
   "cv": {
     "source": "local",
     "_source": "local = tailor from cv/resume.md. overleaf = pull/edit/push Overleaf .tex + PDF in prep pack.",
+    "tailorMode": "agent",
+    "_tailorMode": "agent = coding agent + cv-tailor. fast = keyword reorder only.",
+    "agentProvider": "cursor",
+    "_agentProvider": "cursor | claude-code | codex. Claude Code needs `claude` on PATH; Codex needs `codex` on PATH.",
+    "agentModel": "composer-2.5",
+    "_agentModel": "Model id for the provider (Cursor catalog, or CLI --model). Empty = CLI default for claude-code/codex.",
     "overleafPush": true,
     "_overleafPush": "When source is overleaf, commit+push tailored ats.tex/main.tex.",
     "updateMaster": false,

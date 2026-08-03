@@ -47,6 +47,18 @@
               <option value="overleaf">Overleaf</option>
             </select>
           </label>
+          <label class="field" title="Which coding agent runs Prep & CV (Create CV). Fast (keyword) ignores this.">
+            <span>Agent</span>
+            <select id="agentProvider" aria-label="Prep agent provider">
+              <option value="cursor">Cursor SDK</option>
+              <option value="claude-code">Claude Code</option>
+              <option value="codex">OpenAI Codex</option>
+            </select>
+          </label>
+          <label class="field" title="Model for the selected agent. Empty = CLI default (Claude Code / Codex).">
+            <span>Agent model</span>
+            <select id="agentModel" aria-label="Prep agent model"></select>
+          </label>
           <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
             <input type="checkbox" id="overleafPush" checked />
             <span>Push Overleaf</span>
@@ -96,6 +108,14 @@
                 <option value="interviewing">Interviewing</option>
                 <option value="rejected">Rejected</option>
                 <option value="closed">Closed</option>
+                <optgroup label="Hide (reverse)">
+                  <option value="not:applied">Hide applied</option>
+                  <option value="not:skipped">Hide skipped</option>
+                  <option value="not:rejected">Hide rejected</option>
+                  <option value="not:closed">Hide closed</option>
+                  <option value="not:shortlisted">Hide shortlisted</option>
+                  <option value="not:interviewing">Hide interviewing</option>
+                </optgroup>
               </select>
               <select id="fitFilter" aria-label="Filter by fit">
                 <option value="all">All fit</option>
@@ -130,6 +150,12 @@
             <div>
               <h2>Tracker</h2>
               <p class="meta">Kanban by decision. Applied sets a 7-day follow-up by default.</p>
+            </div>
+            <div class="filters">
+              <label class="toggle" title="Hide the Applied column from the kanban">
+                <input type="checkbox" id="trackerHideApplied" />
+                <span>Hide applied</span>
+              </label>
             </div>
           </div>
           <div id="followUpBanner" class="follow-banner" hidden></div>
@@ -230,7 +256,10 @@
     <div id="prepModal" class="prep-modal" hidden>
       <div class="prep-modal-card" role="dialog" aria-labelledby="prepModalTitle" aria-modal="true">
         <h3 id="prepModalTitle">Prep &amp; CV</h3>
-        <p id="prepModalHint" class="meta">Build a tailored pack for this job.</p>
+        <p id="prepModalHint" class="meta">
+          Default: Cursor agent (cv-tailor). Needs <code>CURSOR_API_KEY</code> in <code>.env</code>.
+          Fast = keyword reorder only (no LLM).
+        </p>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
           <select id="prepInstrPreset" aria-label="Instruction preset">
@@ -243,13 +272,14 @@
           <textarea
             id="prepInstrCustom"
             rows="3"
-            placeholder="Optional notes for this tailor (reorder bias only)"
+            placeholder="Optional notes for the agent (or Fast keyword bias)"
             hidden
           ></textarea>
         </label>
         <div class="prep-modal-actions">
           <button type="button" class="btn ghost" id="prepModalCancel">Cancel</button>
           <button type="button" class="btn" id="prepModalUseExisting" hidden>Use existing</button>
+          <button type="button" class="btn" id="prepModalFast">Fast (keyword)</button>
           <button type="button" class="btn primary" id="prepModalRecreate">Create CV</button>
         </div>
       </div>

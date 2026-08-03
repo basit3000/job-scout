@@ -40,7 +40,12 @@ import {
   overleafStatus,
   exportPrepDownloads,
   revealDownloadsFolder,
+  cursorAgentAvailable,
+  listAgentModels,
+  listAgentProvidersStatus,
+  agentRunnerAvailable,
 } from '../scripts/lib/prep.mjs';
+import { cancelCvTailorAgent } from '../scripts/lib/cv-agent.mjs';
 import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
 import {
   BOARD_CATALOG,
@@ -77,6 +82,17 @@ const fetchState = {
   stopping: false,
   clients: new Set(),
   buffer: [],
+};
+
+const prepState = {
+  running: false,
+  jobId: null,
+  startedAt: null,
+  stopping: false,
+  clients: new Set(),
+  buffer: [],
+  result: null,
+  error: null,
 };
 
 function forceKillFetch(pid, child) {
@@ -160,6 +176,25 @@ function sseSend(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function broadcastPrep(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of prepState.clients) {
+    try {
+      client.write(payload);
+    } catch {
+      prepState.clients.delete(client);
+    }
+  }
+}
+
+function prepLog(line, stream = 'stdout') {
+  const entry = { stream, line: String(line), t: Date.now() };
+  prepState.buffer.push(entry);
+  if (prepState.buffer.length > 800) prepState.buffer.shift();
+  broadcastPrep('log', entry);
+  return entry;
+}
+
 function broadcast(event, data) {
   for (const client of [...fetchState.clients]) {
     try {
@@ -220,9 +255,14 @@ async function getStatus() {
     candidate: profile?.name ?? null,
     targetRole: profile?.targetRole ?? null,
     apifyTokenPresent: Boolean(process.env.APIFY_TOKEN?.trim()),
+    cursorApiKeyPresent: cursorAgentAvailable(),
+    agentProviders: await listAgentProvidersStatus(),
     fetchRunning: Boolean(fetchState.child),
     fetchStartedAt: fetchState.startedAt,
     lastFetchCode: fetchState.lastCode,
+    prepRunning: Boolean(prepState.running),
+    prepJobId: prepState.jobId,
+    prepStartedAt: prepState.startedAt,
     digestNewCount: digest?.newCount ?? 0,
     followUpsDue: followUpsDue.length,
     enabledBoards,
@@ -379,8 +419,18 @@ async function handleApi(req, res, url) {
     }
     const decision = url.searchParams.get('decision');
     if (decision && decision !== 'all') {
-      if (decision === 'none') list = list.filter((j) => !j.decision);
-      else list = list.filter((j) => j.decision?.decision === decision);
+      if (decision === 'none') {
+        list = list.filter((j) => !j.decision);
+      } else if (decision.startsWith('not:') || decision.startsWith('-')) {
+        // Reverse filter: hide jobs with this decision (e.g. not:applied)
+        const hide = decision.startsWith('not:')
+          ? decision.slice(4)
+          : decision.slice(1);
+        if (hide === 'none') list = list.filter((j) => j.decision);
+        else list = list.filter((j) => j.decision?.decision !== hide);
+      } else {
+        list = list.filter((j) => j.decision?.decision === decision);
+      }
     }
     const fit = url.searchParams.get('fit');
     if (fit && fit !== 'all') list = list.filter((j) => j.fit?.verdict === fit);
@@ -416,9 +466,15 @@ async function handleApi(req, res, url) {
     const decisions = await loadDecisions();
     const enriched = await enrichJobs();
     const byId = new Map(enriched.jobs.map((j) => [j.id, j]));
-    const columns = Object.fromEntries(VALID_DECISIONS.map((d) => [d, []]));
+    const hideParam = (url.searchParams.get('hide') || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const hideSet = new Set(hideParam);
+    const visible = VALID_DECISIONS.filter((d) => !hideSet.has(d));
+    const columns = Object.fromEntries(visible.map((d) => [d, []]));
     for (const d of decisions.decisions ?? []) {
-      if (!columns[d.decision]) columns[d.decision] = [];
+      if (!columns[d.decision]) continue; // hidden column
       columns[d.decision].push({
         ...d,
         job: byId.get(d.id) ?? null,
@@ -426,9 +482,15 @@ async function handleApi(req, res, url) {
     }
     const today = new Date().toISOString().slice(0, 10);
     const followUps = (decisions.decisions ?? []).filter(
-      (d) => d.followUpDate && d.followUpDate <= today,
+      (d) => d.followUpDate && d.followUpDate <= today && !hideSet.has(d.decision),
     );
-    return json(res, 200, { columns, followUps, valid: VALID_DECISIONS });
+    return json(res, 200, {
+      columns,
+      followUps,
+      valid: visible,
+      allValid: VALID_DECISIONS,
+      hidden: [...hideSet],
+    });
   }
 
   if (req.method === 'GET' && path === '/api/decisions') {
@@ -486,29 +548,185 @@ async function handleApi(req, res, url) {
     const extraInstructions = typeof body.extraInstructions === 'string'
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
-    // Cached pack: skip rebuild unless recreate
+    const mode = body.mode === 'fast' ? 'fast' : 'agent';
+
+    // Cached pack: skip rebuild unless recreate (sync)
     if (!recreate && (await hasCachedPdfs(job.id))) {
       const pack = await writePrepPack(job, profile, fit, saved, {
         useCache: true,
         recreate: false,
         extraInstructions,
+        tailorMode: mode,
       });
       return json(res, 200, { ok: true, cached: true, pack, fit });
     }
-    const pack = await writePrepPack(job, profile, fit, saved, {
-      recreate: true,
-      useCache: false,
-      extraInstructions,
-    });
-    try {
-      await recordDecision(job.id, job.decision?.decision || 'shortlisted', job.decision?.note || '', {
-        prepPath: pack.relativeDir,
-        followUpDate: job.decision?.followUpDate,
+
+    // Fast mode stays synchronous
+    if (mode === 'fast') {
+      const pack = await writePrepPack(job, profile, fit, saved, {
+        recreate: true,
+        useCache: false,
+        extraInstructions,
+        tailorMode: 'fast',
       });
-    } catch {
-      /* decision optional */
+      try {
+        await recordDecision(job.id, job.decision?.decision || 'shortlisted', job.decision?.note || '', {
+          prepPath: pack.relativeDir,
+          followUpDate: job.decision?.followUpDate,
+        });
+      } catch {
+        /* decision optional */
+      }
+      return json(res, 200, { ok: true, cached: false, pack, fit, mode: 'fast' });
     }
-    return json(res, 200, { ok: true, cached: false, pack, fit });
+
+    if (prepState.running) {
+      return json(res, 409, {
+        error: 'A Prep & CV agent run is already in progress',
+        jobId: prepState.jobId,
+      });
+    }
+
+    prepState.running = true;
+    prepState.jobId = job.id;
+    prepState.startedAt = new Date().toISOString();
+    prepState.stopping = false;
+    prepState.buffer = [];
+    prepState.result = null;
+    prepState.error = null;
+
+    // Background agent (default) — client listens on /api/prep/stream
+    void (async () => {
+      try {
+        prepLog(`Prep & CV agent starting for ${job.title} @ ${job.company}`);
+        if (!cursorAgentAvailable()) {
+          prepLog('CURSOR_API_KEY missing — will fall back to Fast after attempt check.', 'stderr');
+        }
+        const pack = await writePrepPack(job, profile, fit, saved, {
+          recreate: true,
+          useCache: false,
+          extraInstructions,
+          tailorMode: 'agent',
+          onEvent: (entry) => {
+            prepState.buffer.push(entry);
+            if (prepState.buffer.length > 800) prepState.buffer.shift();
+            broadcastPrep('log', entry);
+          },
+        });
+        try {
+          await recordDecision(job.id, job.decision?.decision || 'shortlisted', job.decision?.note || '', {
+            prepPath: pack.relativeDir,
+            followUpDate: job.decision?.followUpDate,
+          });
+        } catch {
+          /* optional */
+        }
+        prepState.result = {
+          ok: true,
+          cached: false,
+          pack,
+          fit,
+          mode: pack.tailorMode || 'agent',
+          jobId: job.id,
+          startedAt: prepState.startedAt,
+        };
+        prepLog(
+          pack.fallbackReason
+            ? `Prep finished via Fast fallback (${pack.fallbackReason}).`
+            : `Prep finished (${pack.tailorMode || 'agent'}).`,
+        );
+        broadcastPrep('done', prepState.result);
+      } catch (err) {
+        const message = err?.message || String(err);
+        prepState.error = message;
+        prepLog(`Prep failed: ${message}`, 'stderr');
+        broadcastPrep('done', {
+          ok: false,
+          error: message,
+          jobId: job.id,
+          startedAt: prepState.startedAt,
+        });
+      } finally {
+        prepState.running = false;
+        prepState.stopping = false;
+      }
+    })();
+
+    return json(res, 202, {
+      ok: true,
+      started: true,
+      mode: 'agent',
+      jobId: job.id,
+      startedAt: prepState.startedAt,
+      stream: '/api/prep/stream',
+    });
+  }
+
+  if (req.method === 'GET' && path === '/api/prep/models') {
+    const settings = await loadCvSettings();
+    const provider = String(
+      new URL(req.url, 'http://localhost').searchParams.get('provider')
+        || settings.agentProvider
+        || 'cursor',
+    );
+    const catalog = await listAgentModels(provider);
+    const availability = await agentRunnerAvailable(provider);
+    return json(res, 200, {
+      ...catalog,
+      selected: settings.agentModel,
+      selectedProvider: settings.agentProvider,
+      providers: await listAgentProvidersStatus(),
+      availability,
+      cursorApiKeyPresent: cursorAgentAvailable(),
+    });
+  }
+
+  if (req.method === 'POST' && path === '/api/prep/stop') {
+    if (!prepState.running) {
+      return json(res, 200, { ok: true, stopped: false, message: 'No prep run in progress' });
+    }
+    prepState.stopping = true;
+    const cancelled = await cancelCvTailorAgent();
+    prepLog(
+      cancelled
+        ? 'Stop requested — cancelling agent run…'
+        : 'Stop requested — agent cancel not supported; waiting for current step…',
+      'stderr',
+    );
+    return json(res, 200, { ok: true, stopped: cancelled });
+  }
+
+  if (req.method === 'GET' && path === '/api/prep/stream') {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    });
+    res.write(': connected\n\n');
+    sseSend(res, 'status', {
+      running: Boolean(prepState.running),
+      jobId: prepState.jobId,
+      startedAt: prepState.startedAt,
+    });
+    for (const entry of prepState.buffer) sseSend(res, 'log', entry);
+    // Replay done only for an in-flight or just-finished run matching current jobId/startedAt
+    if (!prepState.running && prepState.result?.startedAt === prepState.startedAt) {
+      sseSend(res, 'done', prepState.result);
+    } else if (
+      !prepState.running
+      && prepState.error
+      && prepState.startedAt
+    ) {
+      sseSend(res, 'done', {
+        ok: false,
+        error: prepState.error,
+        jobId: prepState.jobId,
+        startedAt: prepState.startedAt,
+      });
+    }
+    prepState.clients.add(res);
+    req.on('close', () => prepState.clients.delete(res));
+    return;
   }
 
   // POST /api/prep/open-folder { id } — export into project downloads/<Company>/ + open Explorer
@@ -649,7 +867,14 @@ async function handleApi(req, res, url) {
       }
       config.filters = { ...(config.filters ?? {}), maxAgeDays: Math.round(n) };
     }
-    if (body.cvSource != null || body.overleafPush != null || body.updateMaster != null) {
+    if (
+      body.cvSource != null
+      || body.overleafPush != null
+      || body.updateMaster != null
+      || body.tailorMode != null
+      || body.agentModel != null
+      || body.agentProvider != null
+    ) {
       config.cv = { ...(config.cv ?? {}) };
       if (body.cvSource != null) {
         const src = String(body.cvSource);
@@ -660,6 +885,27 @@ async function handleApi(req, res, url) {
       }
       if (body.overleafPush != null) config.cv.overleafPush = Boolean(body.overleafPush);
       if (body.updateMaster != null) config.cv.updateMaster = Boolean(body.updateMaster);
+      if (body.tailorMode != null) {
+        const tm = String(body.tailorMode);
+        if (tm !== 'agent' && tm !== 'fast') {
+          return json(res, 400, { error: 'tailorMode must be agent or fast' });
+        }
+        config.cv.tailorMode = tm;
+      }
+      if (body.agentProvider != null) {
+        const ap = String(body.agentProvider).trim().toLowerCase();
+        if (!['cursor', 'claude-code', 'codex'].includes(ap)) {
+          return json(res, 400, { error: 'agentProvider must be cursor, claude-code, or codex' });
+        }
+        config.cv.agentProvider = ap;
+      }
+      if (body.agentModel != null) {
+        const mid = String(body.agentModel).trim().slice(0, 80);
+        if (mid && !/^[a-zA-Z0-9._+-]+$/.test(mid)) {
+          return json(res, 400, { error: 'agentModel must be a model id (letters, digits, ._+-)' });
+        }
+        config.cv.agentModel = mid;
+      }
     }
     await writeFile(SEARCH_PROFILE, `${JSON.stringify(config, null, 2)}\n`);
     return json(res, 200, await getStatus());

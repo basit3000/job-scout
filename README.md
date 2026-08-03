@@ -5,7 +5,7 @@ Multi-country job finder for any profession. Local profile + CV → fetch → sh
 Personal data stays on your machine (gitignored). The repo never applies to jobs for you.
 
 ```text
-setup (once)  →  npm start  →  search  →  shortlist / tracker
+setup (once)  →  npm start  →  search  →  shortlist / tracker / Prep & CV
 ```
 
 ## Setup
@@ -14,8 +14,11 @@ setup (once)  →  npm start  →  search  →  shortlist / tracker
 git clone https://github.com/basit3000/job-scout.git
 cd job-scout
 pip install -U -r requirements.txt   # free JobSpy
+npm install                          # Cursor SDK for Prep & CV (agent mode)
 npm start                            # → http://localhost:4040
 ```
+
+Requires **Node.js ≥ 22.13** (Cursor SDK).
 
 On first open, a **setup form** asks for name, role, market, titles, skills, and links.  
 It writes local files only: `profile.json`, `search-profile.json`, `cv/resume.md`.
@@ -23,6 +26,26 @@ It writes local files only: `profile.json`, `search-profile.json`, `cv/resume.md
 Leave **Allow paid** unchecked for free searches.
 
 Optional: `npm run setup` copies templates if you prefer editing JSON by hand.
+
+Copy `.env.example` → `.env` for optional tokens (Apify, Overleaf, Cursor API key).
+
+### Prep & CV
+
+Default mode runs a coding agent that follows `cv-tailor` (or your private `cv-tailor.local` overlay).
+
+Pick the backend in the UI **Agent** control (or `cv.agentProvider` / `AGENT_PROVIDER`):
+
+| Provider | Needs |
+| --- | --- |
+| **Cursor SDK** (default) | `CURSOR_API_KEY` ([Integrations](https://cursor.com/dashboard/integrations)) |
+| **Claude Code** | `claude` on PATH (Claude Code CLI) |
+| **OpenAI Codex** | `codex` on PATH (Codex CLI) |
+
+Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / `CLAUDE_CODE_MODEL` / `CODEX_MODEL`.
+
+**Create CV** in the modal uses the agent. **Fast (keyword)** skips it (reorder-only). If the chosen agent is unavailable, Prep falls back to Fast.
+
+Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 
 ## Web UI
 
@@ -33,8 +56,9 @@ Optional: `npm run setup` copies templates if you prefer editing JSON by hand.
 | **Allow paid** | Opt in to Apify (costs money) |
 | **Replace results** | Wipe archive before a run (default is merge) |
 | **Stop** | End a run; jobs found so far are saved |
-| **Results** | Deduped list, fit scores, prep packs |
-| **Tracker** | Kanban + follow-ups |
+| **Agent / Agent model** | Prep & CV backend + model |
+| **Results** | Deduped list, fit scores, Prep & CV; decision filter includes **Hide applied** (`not:applied`) |
+| **Tracker** | Kanban + follow-ups; optional **Hide applied** column |
 | **Saved answers** | Reusable application form answers |
 | **Portals** | Enable/disable job boards |
 | **Digest** | New since last fetch |
@@ -106,7 +130,8 @@ This repo is an Agent Skill (`SKILL.md`). After setup, you can ask the agent to 
   profile.example.json     → template (real profile is gitignored)
   search-profile.example.json
   cv/resume.example.md
-  scripts/                 → fetch, setup, evidence, …
+  .agents/skills/cv-tailor/ → portable CV tailor skill (YOUR_* placeholders)
+  scripts/                 → fetch, setup, evidence, Prep & CV agent backends
   web/                     → UI (npm start → :4040)
   state/*.example.json
   .workspace/              → generated (gitignored)

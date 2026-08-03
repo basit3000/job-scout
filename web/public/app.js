@@ -8,6 +8,8 @@ const els = {
   maxApifyRuns: $('maxApifyRuns'),
   maxAgeDays: $('maxAgeDays'),
   cvSource: $('cvSource'),
+  agentProvider: $('agentProvider'),
+  agentModel: $('agentModel'),
   overleafPush: $('overleafPush'),
   planHint: $('planHint'),
   runBtn: $('runBtn'),
@@ -39,6 +41,7 @@ const els = {
   viewDigest: $('viewDigest'),
   kanban: $('kanban'),
   followUpBanner: $('followUpBanner'),
+  trackerHideApplied: $('trackerHideApplied'),
   answersForm: $('answersForm'),
   saveAnswersBtn: $('saveAnswersBtn'),
   portalsList: $('portalsList'),
@@ -59,6 +62,7 @@ const els = {
   prepInstrCustom: $('prepInstrCustom'),
   prepModalCancel: $('prepModalCancel'),
   prepModalUseExisting: $('prepModalUseExisting'),
+  prepModalFast: $('prepModalFast'),
   prepModalRecreate: $('prepModalRecreate'),
 };
 
@@ -334,22 +338,23 @@ function closePrepModal() {
 }
 
 /**
- * Show Prep dialog: Use existing vs Recreate, Extra instructions (default None).
- * @returns {Promise<{ recreate: boolean, extraInstructions: string } | null>}
+ * Show Prep dialog: Create CV (agent) / Fast / Use existing.
+ * @returns {Promise<{ recreate: boolean, mode: 'agent'|'fast', extraInstructions: string } | null>}
  */
 function openPrepModal(job) {
   return new Promise((resolve) => {
     if (!els.prepModal) {
-      resolve({ recreate: true, extraInstructions: '' });
+      resolve({ recreate: true, mode: 'agent', extraInstructions: '' });
       return;
     }
     const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
+    const keyOk = Boolean(state.status?.cursorApiKeyPresent);
     els.prepModalTitle.textContent = hasCache ? 'Recreate CV?' : 'Prep & CV';
     els.prepModalHint.textContent = hasCache
-      ? 'A pack already exists for this job. Use existing downloads or recreate (recompiles Overleaf PDFs).'
-      : 'Create a tailored pack. Extra instructions are optional (default: none).';
+      ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = keyword reorder.`
+      : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
     els.prepModalUseExisting.hidden = !hasCache;
-    els.prepModalRecreate.textContent = hasCache ? 'Recreate CV' : 'Create CV';
+    els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create CV';
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
@@ -361,13 +366,18 @@ function openPrepModal(job) {
       els.prepModalCancel?.removeEventListener('click', onCancel);
       els.prepModalUseExisting?.removeEventListener('click', onUse);
       els.prepModalRecreate?.removeEventListener('click', onRecreate);
+      els.prepModalFast?.removeEventListener('click', onFast);
       els.prepInstrPreset?.removeEventListener('change', onPreset);
       closePrepModal();
       resolve(value);
     };
     const onCancel = () => finish(null);
-    const onUse = () => finish({ recreate: false, extraInstructions: readPrepInstructions() });
-    const onRecreate = () => finish({ recreate: true, extraInstructions: readPrepInstructions() });
+    const onUse = () =>
+      finish({ recreate: false, mode: 'agent', extraInstructions: readPrepInstructions() });
+    const onRecreate = () =>
+      finish({ recreate: true, mode: 'agent', extraInstructions: readPrepInstructions() });
+    const onFast = () =>
+      finish({ recreate: true, mode: 'fast', extraInstructions: readPrepInstructions() });
     const onPreset = () => {
       if (els.prepInstrCustom) {
         els.prepInstrCustom.hidden = els.prepInstrPreset.value !== 'custom';
@@ -376,8 +386,79 @@ function openPrepModal(job) {
     els.prepModalCancel?.addEventListener('click', onCancel);
     els.prepModalUseExisting?.addEventListener('click', onUse);
     els.prepModalRecreate?.addEventListener('click', onRecreate);
+    els.prepModalFast?.addEventListener('click', onFast);
     els.prepInstrPreset?.addEventListener('change', onPreset);
   });
+}
+
+/** @param {string} startedAt ISO timestamp from POST /api/prep */
+function waitForPrepDone(startedAt) {
+  return new Promise((resolve, reject) => {
+    const es = new EventSource('/api/prep/stream');
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      es.close();
+      fn(value);
+    };
+    es.addEventListener('log', (ev) => {
+      try {
+        const entry = JSON.parse(ev.data);
+        appendLog(entry.line || '', entry.stream || 'stdout');
+      } catch {
+        /* ignore */
+      }
+    });
+    es.addEventListener('done', (ev) => {
+      try {
+        const parsed = JSON.parse(ev.data);
+        // Ignore stale completions from a previous run
+        if (startedAt && parsed.startedAt && parsed.startedAt !== startedAt) return;
+        finish(resolve, parsed);
+      } catch (err) {
+        finish(reject, err);
+      }
+    });
+    es.onerror = () => {
+      if (settled) return;
+      if (es.readyState === EventSource.CLOSED) {
+        finish(reject, new Error('Prep stream closed before completion'));
+      }
+    };
+  });
+}
+
+async function finishPrepUi(job, data) {
+  state.lastPrepJobId = job.id;
+  if (data.cached) appendLog('Skipped compile — cached PDFs.');
+  if (data.pack?.tailorMode) {
+    appendLog(
+      `Tailor mode: ${data.pack.tailorMode}${
+        data.pack.fallbackReason ? ` (fallback: ${data.pack.fallbackReason})` : ''
+      }`,
+    );
+  }
+  if (data.pack?.downloadFolderAbs) {
+    appendLog(`Company folder: ${data.pack.downloadFolderAbs}`);
+  }
+  showPrep(data);
+  try {
+    const res = await api('/api/prep/open-folder', {
+      method: 'POST',
+      body: JSON.stringify({ id: job.id }),
+    });
+    appendLog(`Opened: ${res.folder}`);
+    const pathsEl = $('companyFolderPaths');
+    if (pathsEl) {
+      pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
+        res.folder || '',
+      )}</code>`;
+    }
+  } catch (err) {
+    appendLog(`Folder open failed: ${err.message}`, 'stderr');
+  }
+  await refreshJobs();
 }
 
 async function runPrepFlow(job) {
@@ -386,46 +467,43 @@ async function runPrepFlow(job) {
     appendLog('Prep cancelled.');
     return;
   }
+  const mode = choice.mode === 'fast' ? 'fast' : 'agent';
   try {
-    if (choice.recreate) {
+    if (!choice.recreate) {
+      appendLog(`Using existing prep pack for ${job.title}…`);
+    } else if (mode === 'agent') {
       appendLog(
-        `Building prep + CV for ${job.title}${choice.extraInstructions ? ' (with instructions)' : ''}…`,
+        `Starting agent Prep & CV for ${job.title}${choice.extraInstructions ? ' (with instructions)' : ''}…`,
       );
     } else {
-      appendLog(`Using existing prep pack for ${job.title}…`);
+      appendLog(`Building Fast (keyword) prep + CV for ${job.title}…`);
     }
+
     const data = await api('/api/prep', {
       method: 'POST',
       body: JSON.stringify({
         id: job.id,
         recreate: choice.recreate,
         extraInstructions: choice.extraInstructions || '',
+        mode,
       }),
     });
-    state.lastPrepJobId = job.id;
-    if (data.cached) appendLog('Skipped compile — cached PDFs.');
-    if (data.pack?.downloadFolderAbs) {
-      appendLog(`Company folder: ${data.pack.downloadFolderAbs}`);
-    }
-    showPrep(data);
-    // Always refresh project downloads/<Company>/ + open Explorer after prep
-    try {
-      const res = await api('/api/prep/open-folder', {
-        method: 'POST',
-        body: JSON.stringify({ id: job.id }),
-      });
-      appendLog(`Opened: ${res.folder}`);
-      const pathsEl = $('companyFolderPaths');
-      if (pathsEl) {
-        pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
-          res.folder || '',
-        )}</code>`;
+
+    if (data.started) {
+      setChip('busy', 'Agent CV…');
+      // Connect after start; server replays buffered logs + matching done
+      const final = await waitForPrepDone(data.startedAt);
+      setChip('idle', 'Idle');
+      if (!final?.ok) {
+        throw new Error(final?.error || 'Agent prep failed');
       }
-    } catch (err) {
-      appendLog(`Folder open failed: ${err.message}`, 'stderr');
+      await finishPrepUi(job, final);
+      return;
     }
-    await refreshJobs();
+
+    await finishPrepUi(job, data);
   } catch (err) {
+    setChip('idle', 'Idle');
     appendLog(`Prep failed: ${err.message}`, 'stderr');
   }
 }
@@ -446,12 +524,15 @@ function showPrep(data) {
     ? `Overleaf: ${ol.sync || '?'} · edited ${(ol.edited || []).join(', ') || 'none'} · push ${ol.pushed ? 'yes' : ol.pushReason || 'no'}`
     : '';
   const cachedNote = data.cached || pack.cached ? ' · cached' : '';
+  const modeNote = pack.tailorMode
+    ? ` · tailor: ${pack.tailorMode}${pack.fallbackReason ? ` (fallback)` : ''}`
+    : '';
   els.prepView.innerHTML = `
     <h3>${escapeHtml(data.fit?.verdict || '')} · ${escapeHtml(pack.relativeDir || '')}</h3>
     <p>Source: <strong>${escapeHtml(pack.cvSource || 'local')}</strong>
       ${pack.cvContentSource ? `(${escapeHtml(pack.cvContentSource)})` : ''}
       ${pack.hasPdf ? ` · PDF ready (${escapeHtml(pack.pdfNote || '')})` : ` · ${escapeHtml(pack.pdfNote || 'no PDF')}`}
-      ${escapeHtml(cachedNote)}</p>
+      ${escapeHtml(cachedNote)}${escapeHtml(modeNote)}</p>
     ${pack.extraInstructions ? `<p class="meta">Instructions: ${escapeHtml(pack.extraInstructions)}</p>` : ''}
     ${olLine ? `<p class="meta">${escapeHtml(olLine)}</p>` : ''}
     <div class="prep-actions">
@@ -589,6 +670,43 @@ async function saveSettings(partial) {
   return state.status;
 }
 
+async function refreshAgentModels(provider, selected) {
+  if (!els.agentModel) return;
+  const prov = provider || els.agentProvider?.value || 'cursor';
+  try {
+    const data = await api(`/api/prep/models?provider=${encodeURIComponent(prov)}`);
+    const models = data.models || [];
+    const sel = selected != null ? selected : (data.selected ?? '');
+    const opts = models.map((m) => {
+      const id = m.id ?? '';
+      const label = m.displayName || id || 'CLI default';
+      return `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`;
+    });
+    if (!models.some((m) => (m.id ?? '') === '')) {
+      opts.unshift('<option value="">CLI / account default</option>');
+    }
+    els.agentModel.innerHTML = opts.join('');
+    if ([...els.agentModel.options].some((o) => o.value === sel)) {
+      els.agentModel.value = sel;
+    } else if (sel) {
+      const opt = document.createElement('option');
+      opt.value = sel;
+      opt.textContent = sel;
+      els.agentModel.appendChild(opt);
+      els.agentModel.value = sel;
+    }
+    const avail = data.availability;
+    if (avail && !avail.ok) {
+      els.agentProvider.title = avail.detail || 'Provider not ready';
+    } else if (avail?.detail) {
+      els.agentProvider.title = avail.detail;
+    }
+  } catch (err) {
+    els.agentModel.innerHTML = '<option value="">(could not load models)</option>';
+    appendLog(`Agent models: ${err.message}`, 'stderr');
+  }
+}
+
 async function refreshStatus() {
   state.status = await api('/api/status');
   const s = state.status;
@@ -606,9 +724,14 @@ async function refreshStatus() {
   if (els.cvSource && document.activeElement !== els.cvSource) {
     els.cvSource.value = s.cv?.source === 'overleaf' ? 'overleaf' : 'local';
   }
+  if (els.agentProvider && document.activeElement !== els.agentProvider) {
+    const ap = s.cv?.agentProvider || 'cursor';
+    els.agentProvider.value = ['cursor', 'claude-code', 'codex'].includes(ap) ? ap : 'cursor';
+  }
   if (els.overleafPush && document.activeElement !== els.overleafPush) {
     els.overleafPush.checked = s.cv?.overleafPush !== false;
   }
+  void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
   updatePlanHint(s);
   showSetup(Boolean(s.setup?.needsSetup));
   els.apifyTip.hidden = false;
@@ -676,7 +799,10 @@ function showSetup(needs) {
 }
 
 async function refreshTracker() {
-  const data = await api('/api/tracker');
+  const hide = [];
+  if (els.trackerHideApplied?.checked) hide.push('applied');
+  const qs = hide.length ? `?hide=${encodeURIComponent(hide.join(','))}` : '';
+  const data = await api(`/api/tracker${qs}`);
   if (data.followUps?.length) {
     els.followUpBanner.hidden = false;
     els.followUpBanner.innerHTML = `<strong>Follow-ups due:</strong> ${data.followUps
@@ -905,6 +1031,14 @@ els.decisionFilter.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
 });
+els.trackerHideApplied?.addEventListener('change', () => {
+  try {
+    localStorage.setItem('jobScout.hideAppliedColumn', els.trackerHideApplied.checked ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+  if (state.view === 'tracker') refreshTracker();
+});
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
@@ -998,6 +1132,26 @@ els.cvSource?.addEventListener('change', async () => {
     appendLog(err.message, 'stderr');
   }
 });
+els.agentProvider?.addEventListener('change', async () => {
+  try {
+    const agentProvider = els.agentProvider.value;
+    await saveSettings({ agentProvider });
+    appendLog(`Prep agent → ${agentProvider}`);
+    await refreshAgentModels(agentProvider, '');
+    const st = state.status?.agentProviders?.find((p) => p.id === agentProvider);
+    if (st && !st.ok) appendLog(st.detail || 'Provider not ready', 'stderr');
+  } catch (err) {
+    appendLog(err.message, 'stderr');
+  }
+});
+els.agentModel?.addEventListener('change', async () => {
+  try {
+    await saveSettings({ agentModel: els.agentModel.value });
+    appendLog(`Agent model → ${els.agentModel.value || '(default)'}`);
+  } catch (err) {
+    appendLog(err.message, 'stderr');
+  }
+});
 els.overleafPush?.addEventListener('change', async () => {
   try {
     await saveSettings({ overleafPush: els.overleafPush.checked });
@@ -1057,6 +1211,13 @@ connectStream();
 
 (async function init() {
   try {
+    try {
+      if (els.trackerHideApplied) {
+        els.trackerHideApplied.checked = localStorage.getItem('jobScout.hideAppliedColumn') === '1';
+      }
+    } catch {
+      /* ignore */
+    }
     await refreshMarkets();
     await refreshStatus();
     if (!state.status?.setup?.needsSetup) await refreshJobs();

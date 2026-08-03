@@ -12,6 +12,9 @@
     "evidence": "node scripts/build-evidence.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.26"
   }
 }

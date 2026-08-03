@@ -13,6 +13,7 @@ import {
   overleafConfigured,
   overleafStatus,
   runOverleafTailor,
+  assembleOverleafAfterAgent,
   readOverleafAts,
 } from './overleaf-cv.mjs';
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
@@ -21,6 +22,14 @@ import {
   cvFileBaseName,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
+import {
+  cursorAgentAvailable,
+  agentRunnerAvailable,
+  runCvTailorAgent,
+  seedPrepForAgent,
+  loadAgentSession,
+  normalizeAgentProvider,
+} from './cv-agent.mjs';
 
 function safeId(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
@@ -65,15 +74,29 @@ export async function hasCachedPdfs(jobId) {
   return hasCvPdf(jobId);
 }
 
-/** Read cv.source from search-profile.json */
+/** Read cv.* from search-profile.json */
 export async function loadCvSettings() {
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const cv = config.cv || {};
   const source = cv.source === 'overleaf' ? 'overleaf' : 'local';
+  const tailorMode = cv.tailorMode === 'fast' ? 'fast' : 'agent';
+  const agentProvider = normalizeAgentProvider(
+    cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
+  );
+  const agentModel = String(
+    cv.agentModel
+      || process.env.CURSOR_AGENT_MODEL
+      || process.env.CLAUDE_CODE_MODEL
+      || process.env.CODEX_MODEL
+      || (agentProvider === 'cursor' ? 'composer-2.5' : ''),
+  ).trim();
   return {
     source,
     overleafPush: cv.overleafPush !== false,
     updateMaster: cv.updateMaster === true,
+    tailorMode,
+    agentProvider,
+    agentModel,
   };
 }
 
@@ -268,7 +291,6 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
   if (job && profile) {
     downloadExport = await publishDownloads(job, profile, prepDir(jobId), flags);
   }
-
   return {
     dir: prepDir(jobId),
     relativeDir: `.workspace/prep/${safeId(jobId)}`,
@@ -284,6 +306,7 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
     cached: true,
     applyUrl: job?.url || null,
     jobId,
+    agent: await loadAgentSession(prepDir(jobId)),
     downloadFolder: downloadExport?.relativeDir || null,
     downloadFolderAbs: downloadExport?.absoluteDir || null,
     downloadError: downloadExport?.error || null,
@@ -291,73 +314,23 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
   };
 }
 
-/** Write prep files + tailored CV under .workspace/prep/<id>/ */
-export async function writePrepPack(job, profile, fit, savedAnswers = {}, options = {}) {
-  const dir = prepDir(job.id);
-  await mkdir(dir, { recursive: true });
-
-  const settings = { ...(await loadCvSettings()), ...options };
-  const extraInstructions = String(options.extraInstructions || '').trim();
-  const recreate = options.recreate !== false; // caller controls cache; default rebuild when invoked
-
-  // Cache short-circuit (explicit)
-  if (options.useCache === true || (options.recreate === false && (await hasCachedPdfs(job.id)))) {
-    const cached = await loadCachedPrepPack(job.id, fit, job, profile);
-    if (cached) return cached;
-  }
-
-  void recreate;
-
-  const model = await buildTailoredCvAsync(job, profile, fit);
-  // Merge instruction keywords into model keywords for local path too
-  if (extraInstructions) {
-    const extra = extraInstructions
-      .toLowerCase()
-      .split(/[^a-z0-9+#.]/i)
-      .filter((w) => w.length >= 3);
-    model.keywords = [...new Set([...(model.keywords || []), ...extra])];
-  }
-
-  let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
-  let cvHtml = tailoredCvHtml(model);
-  const requirementsMd = tailoredRequirementsMarkdown(model);
-
-  if (settings.source === 'local' && settings.updateMaster && model.resumeMarkdown) {
-    await writeMasterResume(model.resumeMarkdown);
-  }
-
-  let overleafResult = null;
-  let hasAts = false;
-  let hasMain = false;
-
-  if (settings.source === 'overleaf') {
-    if (!overleafConfigured()) {
-      throw new Error(
-        'CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty in .env',
-      );
-    }
-    overleafResult = await runOverleafTailor({
-      push: settings.overleafPush !== false,
-      keywords: model.keywords || [],
-      job,
-      prepDir: dir,
-      extraInstructions,
-    });
-    hasAts = Boolean(overleafResult.pdf?.hasAts);
-    hasMain = Boolean(overleafResult.pdf?.hasMain);
-
-    const ats = await readOverleafAts();
-    if (ats?.text) {
-      const prepBase = `/api/prep/${encodeURIComponent(job.id)}`;
-      cvHtml = overleafTexToHtml(ats.text, {
-        jobTitle: job.title,
-        company: job.company,
-        prepBase,
-      });
-      cvMd = overleafTexToMarkdown(ats.text);
-    }
-  }
-
+async function finalizePrepPack({
+  job,
+  profile,
+  fit,
+  savedAnswers,
+  dir,
+  settings,
+  extraInstructions,
+  model,
+  cvMd,
+  cvHtml,
+  requirementsMd,
+  overleafResult,
+  tailorMode,
+  fallbackReason = null,
+  agentMeta = null,
+}) {
   const files = {
     'job-posting.md': buildJobPostingMd(job),
     'cover-letter.md': buildCoverLetter(job, profile, fit),
@@ -373,6 +346,10 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     await writeFile(join(dir, name), body.endsWith('\n') ? body : `${body}\n`);
   }
 
+  const agent = agentMeta || (await loadAgentSession(dir));
+
+  let hasAts = Boolean(overleafResult?.pdf?.hasAts);
+  let hasMain = Boolean(overleafResult?.pdf?.hasMain);
   let hasPdf = hasAts || hasMain;
   let pdfNote = '';
   if (overleafResult?.pdf?.ok) {
@@ -381,6 +358,7 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     if (hasAts) parts.push('ats');
     if (hasMain) parts.push('main');
     pdfNote = `Overleaf LaTeX ${parts.join('+')} (${overleafResult.pdf.via})`;
+    if (tailorMode === 'agent') pdfNote = `Agent + ${pdfNote}`;
   } else if (settings.source === 'overleaf') {
     const pdfPath = join(dir, 'cv.pdf');
     const printed = await htmlFileToPdf(join(dir, 'cv.html'), pdfPath);
@@ -395,13 +373,12 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     const printed = await htmlFileToPdf(join(dir, 'cv.html'), pdfPath);
     if (printed.ok) {
       hasPdf = true;
-      pdfNote = 'HTML→PDF via browser';
+      pdfNote = tailorMode === 'agent' ? 'Agent CV → PDF via browser' : 'HTML→PDF via browser';
     } else {
       pdfNote = printed.error || 'no PDF';
     }
   }
 
-  // Refresh flags from disk
   const flags = await pdfFlags(job.id);
   hasAts = flags.hasAts;
   hasMain = flags.hasMain;
@@ -426,13 +403,14 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   const pdfFiles = [
     ...(hasAts ? ['cv-ats.pdf'] : []),
     ...(hasMain ? ['cv-main.pdf'] : []),
-    ...(hasPdf ? ['cv.pdf'] : []),
+    ...(hasPdf && !hasAts && !hasMain ? ['cv.pdf'] : []),
+    ...(hasPdf && (hasAts || hasMain) ? ['cv.pdf'] : []),
   ];
 
   return {
     dir,
     relativeDir: `.workspace/prep/${safeId(job.id)}`,
-    files: [...Object.keys(files), ...pdfFiles],
+    files: [...new Set([...Object.keys(files), ...pdfFiles])],
     coverLetter: files['cover-letter.md'],
     checklist: fit.checklist,
     hasCv: true,
@@ -441,7 +419,13 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     hasMain,
     pdfNote,
     cvSource: settings.source,
-    cvContentSource: settings.source === 'overleaf' ? 'overleaf/ats.tex' : model.meta?.source,
+    cvContentSource:
+      settings.source === 'overleaf'
+        ? (tailorMode === 'agent' ? 'overleaf/agent' : 'overleaf/ats.tex')
+        : model.meta?.source,
+    tailorMode,
+    fallbackReason,
+    agent: agent || null,
     extraInstructions: extraInstructions || null,
     cached: false,
     jobId: job.id,
@@ -462,6 +446,226 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     ...packDownloads(job.id, { hasPdf, hasAts, hasMain }, profile?.name),
   };
 }
+
+async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, options = {}) {
+  const dir = prepDir(job.id);
+  await mkdir(dir, { recursive: true });
+
+  const model = await buildTailoredCvAsync(job, profile, fit);
+  if (extraInstructions) {
+    const extra = extraInstructions
+      .toLowerCase()
+      .split(/[^a-z0-9+#.]/i)
+      .filter((w) => w.length >= 3);
+    model.keywords = [...new Set([...(model.keywords || []), ...extra])];
+  }
+
+  let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
+  let cvHtml = tailoredCvHtml(model);
+  const requirementsMd = tailoredRequirementsMarkdown(model);
+
+  if (settings.source === 'local' && settings.updateMaster && model.resumeMarkdown) {
+    await writeMasterResume(model.resumeMarkdown);
+  }
+
+  let overleafResult = null;
+  if (settings.source === 'overleaf') {
+    if (!overleafConfigured()) {
+      throw new Error(
+        'CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty in .env',
+      );
+    }
+    overleafResult = await runOverleafTailor({
+      push: settings.overleafPush !== false,
+      keywords: model.keywords || [],
+      job,
+      prepDir: dir,
+      extraInstructions,
+    });
+    const ats = await readOverleafAts();
+    if (ats?.text) {
+      const prepBase = `/api/prep/${encodeURIComponent(job.id)}`;
+      cvHtml = overleafTexToHtml(ats.text, {
+        jobTitle: job.title,
+        company: job.company,
+        prepBase,
+      });
+      cvMd = overleafTexToMarkdown(ats.text);
+    }
+  }
+
+  return finalizePrepPack({
+    job,
+    profile,
+    fit,
+    savedAnswers,
+    dir,
+    settings,
+    extraInstructions,
+    model,
+    cvMd,
+    cvHtml,
+    requirementsMd,
+    overleafResult,
+    tailorMode: 'fast',
+    fallbackReason: options.fallbackReason || null,
+    agentMeta: options.agentMeta || null,
+  });
+}
+
+async function assembleCvFromDisk(job, profile, fit, settings, dir) {
+  const model = await buildTailoredCvAsync(job, profile, fit);
+  let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
+  let cvHtml = tailoredCvHtml(model);
+  const requirementsMd = tailoredRequirementsMarkdown(model);
+
+  let overleafResult = null;
+  if (settings.source === 'overleaf') {
+    if (!overleafConfigured()) {
+      throw new Error(
+        'CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty in .env',
+      );
+    }
+    overleafResult = await assembleOverleafAfterAgent({
+      push: settings.overleafPush !== false,
+      job,
+      prepDir: dir,
+    });
+    const ats = await readOverleafAts();
+    if (ats?.text) {
+      const prepBase = `/api/prep/${encodeURIComponent(job.id)}`;
+      cvHtml = overleafTexToHtml(ats.text, {
+        jobTitle: job.title,
+        company: job.company,
+        prepBase,
+      });
+      cvMd = overleafTexToMarkdown(ats.text);
+    }
+  } else {
+    try {
+      const agentCv = await readFile(join(dir, 'cv.md'), 'utf8');
+      if (agentCv && agentCv.trim().length > 40 && !/\bYOUR_[A-Z0-9_]+\b/.test(agentCv)) {
+        cvMd = agentCv;
+        cvHtml = `<!doctype html><html><head><meta charset="utf-8"><title>CV</title>
+<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;line-height:1.45;white-space:pre-wrap}</style>
+</head><body>${escapeForPre(agentCv)}</body></html>`;
+        model.meta = { ...(model.meta || {}), source: 'agent/cv.md' };
+      }
+    } catch {
+      /* keep keyword model */
+    }
+  }
+
+  return { model, cvMd, cvHtml, requirementsMd, overleafResult };
+}
+
+async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, extraInstructions, onEvent) {
+  const dir = prepDir(job.id);
+  await mkdir(dir, { recursive: true });
+  await seedPrepForAgent(dir, job, extraInstructions);
+
+  const agentMeta = await runCvTailorAgent({
+    job,
+    prepDir: dir,
+    profile,
+    extraInstructions,
+    cvSource: settings.source,
+    overleafPush: settings.overleafPush !== false,
+    provider: settings.agentProvider || 'cursor',
+    model: settings.agentModel || null,
+    onEvent,
+  });
+
+  const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir);
+
+  return finalizePrepPack({
+    job,
+    profile,
+    fit,
+    savedAnswers,
+    dir,
+    settings,
+    extraInstructions,
+    ...assembled,
+    overleafResult: assembled.overleafResult,
+    tailorMode: 'agent',
+    agentMeta,
+  });
+}
+
+function escapeForPre(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+/** Write prep files + tailored CV under .workspace/prep/<id>/ */
+export async function writePrepPack(job, profile, fit, savedAnswers = {}, options = {}) {
+  const dir = prepDir(job.id);
+  await mkdir(dir, { recursive: true });
+
+  const settings = { ...(await loadCvSettings()), ...options };
+  const extraInstructions = String(options.extraInstructions || '').trim();
+  const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
+
+  // Cache short-circuit (explicit)
+  if (options.useCache === true || (options.recreate === false && (await hasCachedPdfs(job.id)))) {
+    const cached = await loadCachedPrepPack(job.id, fit, job, profile);
+    if (cached) return cached;
+  }
+
+  const requestedMode = options.tailorMode === 'fast' || settings.tailorMode === 'fast'
+    ? 'fast'
+    : 'agent';
+
+  if (requestedMode === 'agent') {
+    const avail = await agentRunnerAvailable(settings.agentProvider);
+    if (!avail.ok) {
+      onEvent?.({
+        stream: 'stderr',
+        line: `Agent provider "${avail.provider}" unavailable (${avail.detail}) — falling back to Fast (keyword).`,
+        t: Date.now(),
+      });
+      return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
+        fallbackReason: avail.detail,
+      });
+    }
+    try {
+      return await writePrepPackAgent(
+        job,
+        profile,
+        fit,
+        savedAnswers,
+        settings,
+        extraInstructions,
+        onEvent,
+      );
+    } catch (err) {
+      const msg = err?.message || String(err);
+      onEvent?.({
+        stream: 'stderr',
+        line: `Agent tailor failed (${msg}) — falling back to Fast (keyword).`,
+        t: Date.now(),
+      });
+      return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
+        fallbackReason: msg,
+      });
+    }
+  }
+
+  return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions);
+}
+
+export {
+  cursorAgentAvailable,
+  agentRunnerAvailable,
+  listAgentModels,
+  listAgentProvidersStatus,
+  resolveAgentModel,
+  normalizeAgentProvider,
+  AGENT_PROVIDERS,
+} from './cv-agent.mjs';
 
 export async function readPrepPack(jobId) {
   const dir = prepDir(jobId);
@@ -511,6 +715,8 @@ export async function readPrepFile(jobId, filename) {
     'checklist.md',
     'README.md',
     'instructions.md',
+    'agent-report.md',
+    'agent-session.json',
   ]);
   if (!allowed.has(filename)) return null;
   const path = join(prepDir(jobId), filename);

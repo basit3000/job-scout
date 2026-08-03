@@ -1,0 +1,38 @@
+# Per-user identity & local config — never commit these
+profile.json
+search-profile.json
+cv/*
+!cv/.gitkeep
+!cv/README.md
+!cv/resume.example.md
+state/decisions.json
+state/saved-answers.json
+
+# Personal cv-tailor overlay (real name, contacts, framing) — clonees use the
+# generic .agents/skills/cv-tailor/ templates with YOUR_* placeholders instead.
+.agents/skills/cv-tailor.local/
+
+# Scratch output (fetched jobs, prep packs, Overleaf clone, tectonic — never commit)
+.workspace/
+.cv-workspace/
+
+# Per-company CV exports: downloads/<Company>/<Name> CV.pdf — never commit
+downloads/
+scripts/__pycache__/
+__pycache__/
+*.pyc
+.venv/
+venv/
+node_modules/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log

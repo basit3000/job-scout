@@ -1,0 +1,38 @@
+# YOUR_FULL_NAME
+
+YOUR_CITY · YOUR_EMAIL@example.com · YOUR_PHONE  
+YOUR_LINKEDIN_URL · YOUR_OTHER_LINK
+
+YOUR_ONE_PARAGRAPH_SUMMARY — who you are, what you do, what you want in YOUR_TARGET_COUNTRY.
+
+## Experience
+
+### YOUR_JOB_TITLE — YOUR_EMPLOYER
+YOUR_START_DATE – YOUR_END_DATE · YOUR_CITY_OR_Remote
+
+- YOUR_BULLET_DESCRIBING_REAL_WORK_1
+- YOUR_BULLET_DESCRIBING_REAL_WORK_2
+- YOUR_BULLET_DESCRIBING_REAL_WORK_3
+
+### YOUR_PREVIOUS_JOB_TITLE — YOUR_PREVIOUS_EMPLOYER
+YOUR_START_DATE – YOUR_END_DATE · YOUR_CITY
+
+- YOUR_BULLET_1
+- YOUR_BULLET_2
+
+## Education
+
+**YOUR_DEGREE** — YOUR_SCHOOL (YOUR_YEARS)
+
+## Skills
+
+YOUR_SKILL_1 · YOUR_SKILL_2 · YOUR_SKILL_3 · YOUR_SKILL_4
+
+## Certifications / Licenses (if any)
+
+- YOUR_CERT_OR_LICENSE_1
+- YOUR_CERT_OR_LICENSE_2
+
+---
+Replace every YOUR_* line. Delete sections that do not apply. Then save as `cv/resume.md`.
+Or just use the first-run form in the web UI (`npm start`).

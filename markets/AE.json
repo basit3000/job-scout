@@ -1,0 +1,43 @@
+{
+  "id": "AE",
+  "name": "United Arab Emirates",
+  "shortName": "UAE",
+  "indeedCountryCode": "AE",
+  "jobspyCountryIndeed": "united arab emirates",
+  "currency": "AED",
+  "defaultLocation": "Dubai",
+  "defaultRadiusKm": 50,
+  "cities": [
+    { "where": "Dubai", "radiusKm": 50 },
+    { "where": "Abu Dhabi", "radiusKm": 50 },
+    { "where": "United Arab Emirates", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "uae",
+    "u\\.a\\.e",
+    "united arab emirates",
+    "dubai",
+    "abu dhabi",
+    "sharjah",
+    "ajman",
+    "ras al khaimah",
+    "fujairah",
+    "umm al",
+    "al ain",
+    "du,\\s*ae",
+    "az,\\s*ae"
+  ],
+  "boards": ["bayt", "indeed", "linkedin"],
+  "baytCountry": "UAE",
+  "nationalsOnlyPatterns": [
+    "uae nationals?\\s*only",
+    "emirati\\s*only",
+    "for uae nationals"
+  ],
+  "localExperiencePatterns": [
+    "uae experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?uae experience"
+  ],
+  "dropNationalsOnlyDefault": true,
+  "_notes": "Bayt is the main local board. Nationals-only and local-experience gates matter here."
+}

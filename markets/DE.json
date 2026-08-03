@@ -1,0 +1,41 @@
+{
+  "id": "DE",
+  "name": "Germany",
+  "shortName": "Germany",
+  "indeedCountryCode": "DE",
+  "jobspyCountryIndeed": "germany",
+  "currency": "EUR",
+  "defaultLocation": "Berlin",
+  "defaultRadiusKm": 50,
+  "cities": [
+    { "where": "Berlin", "radiusKm": 50 },
+    { "where": "Munich", "radiusKm": 50 },
+    { "where": "Germany", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "germany",
+    "deutschland",
+    "berlin",
+    "munich",
+    "münchen",
+    "hamburg",
+    "frankfurt",
+    "cologne",
+    "köln",
+    "stuttgart",
+    "\\bde\\b"
+  ],
+  "boards": ["indeed", "linkedin", "arbeitsagentur", "arbeitnow"],
+  "baytCountry": null,
+  "nationalsOnlyPatterns": [
+    "german nationals?\\s*only",
+    "eu nationals?\\s*only",
+    "must (have|hold) (an? )?(eu|german) (passport|citizenship)"
+  ],
+  "localExperiencePatterns": [
+    "german experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?(german|germany) experience"
+  ],
+  "dropNationalsOnlyDefault": false,
+  "_notes": "Indeed/LinkedIn/Glassdoor/Google via JobSpy; Arbeitsagentur + Arbeitnow via free APIs. German-language titles are common."
+}

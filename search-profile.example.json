@@ -1,0 +1,61 @@
+{
+  "_README": "Copy to search-profile.json (gitignored). Change \"market\" and optional cities for this person.",
+
+  "market": "AE",
+  "_market": "AE = UAE (default). Also: GB, US, DE, IN, SA. See markets/README.md to add more.",
+
+  "boards": [
+    {
+      "board": "bayt",
+      "_note": "MENA board (UAE/KSA). Skipped automatically for markets without baytCountry. Apify only.",
+      "queriesFromProfile": true
+    },
+    {
+      "board": "indeed",
+      "_note": "Country taken from markets/<id>.json → indeedCountryCode / jobspyCountryIndeed.",
+      "queriesFromProfile": true
+    },
+    {
+      "board": "linkedin",
+      "_note": "JobSpy first when preferJobspy is true; Apify only if needed + --allow-paid.",
+      "queriesFromProfile": true,
+      "input": {
+        "datePosted": "pastMonth"
+      }
+    },
+    {
+      "board": "glassdoor",
+      "_note": "Optional. JobSpy only (free). Enable in UI Portals tab or keep here.",
+      "queriesFromProfile": true
+    }
+  ],
+
+  "_moreBoards": "Also: google, glassdoor, arbeitsagentur + arbeitnow (DE), zip_recruiter (US/CA), naukri (IN), bdjobs (BD). Toggle in the UI Portals tab.",
+
+  "limitPerQuery": 10,
+  "_limitPerQuery": "Keep low — each title×city×board can become one Apify run when paid.",
+
+  "preferJobspy": true,
+  "_preferJobspy": "Free JobSpy first; Apify only if a query returns nothing (and --allow-paid).",
+
+  "maxApifyRuns": 8,
+  "_maxApifyRuns": "Hard cap on paid Apify actor runs per fetch. 0 = unlimited.",
+
+  "_cities": "Omit cities to use markets/<id>.json defaults. Override e.g. \"cities\": [{ \"where\": \"Berlin\", \"radiusKm\": 50 }]",
+
+  "filters": {
+    "maxAgeDays": 14,
+    "countryOnly": true,
+    "dropNationalsOnly": true,
+    "_titlePatterns": "Pulled from profile.search.includeTitlePatterns / excludeTitlePatterns at runtime."
+  },
+
+  "cv": {
+    "source": "local",
+    "_source": "local = tailor from cv/resume.md. overleaf = pull/edit/push Overleaf .tex + PDF in prep pack.",
+    "overleafPush": true,
+    "_overleafPush": "When source is overleaf, commit+push tailored ats.tex/main.tex.",
+    "updateMaster": false,
+    "_updateMaster": "When source is local, also rewrite cv/resume.md with the tailored order (off = prep pack only)."
+  }
+}

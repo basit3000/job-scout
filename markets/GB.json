@@ -1,0 +1,44 @@
+{
+  "id": "GB",
+  "name": "United Kingdom",
+  "shortName": "UK",
+  "indeedCountryCode": "GB",
+  "jobspyCountryIndeed": "uk",
+  "currency": "GBP",
+  "defaultLocation": "London",
+  "defaultRadiusKm": 40,
+  "cities": [
+    { "where": "London", "radiusKm": 40 },
+    { "where": "Manchester", "radiusKm": 40 },
+    { "where": "United Kingdom", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "united kingdom",
+    "\\buk\\b",
+    "england",
+    "scotland",
+    "wales",
+    "northern ireland",
+    "london",
+    "manchester",
+    "birmingham",
+    "edinburgh",
+    "glasgow",
+    "bristol",
+    "leeds",
+    "\\bgb\\b"
+  ],
+  "boards": ["indeed", "linkedin"],
+  "baytCountry": null,
+  "nationalsOnlyPatterns": [
+    "uk nationals?\\s*only",
+    "british nationals?\\s*only",
+    "must (be|have) (the )?right to work (in )?(the )?uk"
+  ],
+  "localExperiencePatterns": [
+    "uk experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?uk experience"
+  ],
+  "dropNationalsOnlyDefault": false,
+  "_notes": "Indeed + LinkedIn. Bayt is MENA-focused and omitted."
+}

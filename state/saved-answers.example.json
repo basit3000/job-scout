@@ -1,0 +1,17 @@
+{
+  "_comment": "Copied to saved-answers.json by npm run setup (gitignored). Fill in the UI or edit here.",
+  "answers": {
+    "workAuthorization": "",
+    "needsSponsorship": "",
+    "noticePeriod": "",
+    "salaryExpectation": "",
+    "earliestStart": "",
+    "citiesOpenTo": "",
+    "remotePreference": "",
+    "phone": "",
+    "linkedin": "",
+    "github": "",
+    "portfolio": ""
+  },
+  "updatedAt": null
+}

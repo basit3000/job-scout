@@ -1,0 +1,90 @@
+% One-page CV bootstrap. Only use this when the Overleaf project has no usable CV to
+% preserve -- otherwise edit the existing document surgically instead.
+%
+% Replace every YOUR_* placeholder (and CONFIRM lines) before pushing.
+% Never leave a CONFIRM or YOUR_* marker in a CV that gets sent anywhere.
+%
+% Spacing knobs for the one-page fit live in the "fit controls" block. Floors:
+% fontsize >= 10pt, margin >= 0.5in, linespread >= 0.95.
+
+\documentclass[10pt,a4paper]{article}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=0.6in]{geometry}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+
+% --- fit controls --------------------------------------------------------
+\linespread{1.0}
+\setlist[itemize]{leftmargin=1.1em, itemsep=1pt, parsep=0pt, topsep=2pt}
+\titlespacing{\section}{0pt}{6pt}{3pt}
+% -------------------------------------------------------------------------
+
+\definecolor{rule}{gray}{0.55}
+\titleformat{\section}{\large\bfseries}{}{0pt}{}[\vspace{1pt}\color{rule}\hrule]
+\pagestyle{empty}
+\setlength{\parindent}{0pt}
+
+\newcommand{\entry}[2]{\textbf{#1}\hfill\textit{#2}\\}
+
+\begin{document}
+
+% --- header --------------------------------------------------------------
+\begin{center}
+  {\LARGE\bfseries YOUR_FULL_NAME}\\[3pt]
+  YOUR_ROLE_HEADLINE --- YOUR_CORE_TECH_1, YOUR_CORE_TECH_2\\[3pt]
+  \href{mailto:YOUR_EMAIL@example.com}{YOUR_EMAIL@example.com} $\cdot$
+  \href{https://YOUR_SITE.example}{YOUR_SITE.example} $\cdot$
+  \href{https://github.com/YOUR_GITHUB}{github.com/YOUR_GITHUB} $\cdot$
+  \href{https://www.linkedin.com/in/YOUR_LINKEDIN/}{linkedin.com/in/YOUR_LINKEDIN}
+\end{center}
+
+\vspace{-4pt}
+
+% Section order (hard rule): Experience → Education → Projects → Skills
+% --- experience ----------------------------------------------------------
+\section*{Experience}
+% CONFIRM: employment history. Take titles, employers, and dates from the existing CV
+% or ask the candidate. Delete this section entirely rather than shipping an empty heading.
+
+\entry{YOUR_EMPLOYER}{YOUR_START -- Present}
+YOUR_JOB_TITLE. YOUR_ONE_LINE_SCOPE.
+\begin{itemize}
+  \item YOUR_ACHIEVEMENT_OR_RESPONSIBILITY_1
+  \item YOUR_ACHIEVEMENT_OR_RESPONSIBILITY_2
+\end{itemize}
+
+% --- education -----------------------------------------------------------
+\section*{Education}
+\entry{YOUR_UNIVERSITY}{YOUR_EDU_DATES}
+YOUR_DEGREE (CONFIRM: exact title).
+
+% --- projects ------------------------------------------------------------
+\section*{Projects}
+
+\entry{YOUR_PROJECT_1}{YOUR_STACK_1}
+\begin{itemize}
+  \item YOUR_PROJECT_1_BULLET_1
+  \item YOUR_PROJECT_1_BULLET_2
+\end{itemize}
+
+\entry{YOUR_PROJECT_2}{YOUR_STACK_2}
+\begin{itemize}
+  \item YOUR_PROJECT_2_BULLET_1
+\end{itemize}
+
+% --- skills --------------------------------------------------------------
+\section*{Skills}
+\textbf{Languages:} YOUR_LANG_1, YOUR_LANG_2\\
+\textbf{Frameworks:} YOUR_FW_1, YOUR_FW_2\\
+\textbf{Infrastructure:} YOUR_INFRA_1, YOUR_INFRA_2\\
+\textbf{APIs:} YOUR_API_1, YOUR_API_2
+
+% --- certifications ------------------------------------------------------
+\section*{Certifications}
+YOUR_CERT_1 $\cdot$ YOUR_CERT_2
+
+\end{document}

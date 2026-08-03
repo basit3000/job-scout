@@ -1,0 +1,49 @@
+{
+  "id": "US",
+  "name": "United States",
+  "shortName": "USA",
+  "indeedCountryCode": "US",
+  "jobspyCountryIndeed": "usa",
+  "currency": "USD",
+  "defaultLocation": "Remote",
+  "defaultRadiusKm": 50,
+  "cities": [
+    { "where": "New York, NY", "radiusKm": 50 },
+    { "where": "San Francisco, CA", "radiusKm": 50 },
+    { "where": "United States", "radiusKm": 100 }
+  ],
+  "locationPatterns": [
+    "united states",
+    "\\busa\\b",
+    "\\bu\\.s\\.a\\b",
+    "\\bu\\.s\\.\\b",
+    ",\\s*ny\\b",
+    ",\\s*ca\\b",
+    ",\\s*tx\\b",
+    ",\\s*wa\\b",
+    ",\\s*il\\b",
+    ",\\s*ma\\b",
+    "new york",
+    "san francisco",
+    "los angeles",
+    "seattle",
+    "chicago",
+    "austin",
+    "boston",
+    "remote"
+  ],
+  "boards": ["indeed", "linkedin"],
+  "baytCountry": null,
+  "nationalsOnlyPatterns": [
+    "us citizens?\\s*only",
+    "u\\.s\\. citizens?\\s*only",
+    "must be (a )?us citizen",
+    "no sponsorship"
+  ],
+  "localExperiencePatterns": [
+    "us experience\\s*(required|mandatory)",
+    "years?\\s*(of\\s*)?us experience"
+  ],
+  "dropNationalsOnlyDefault": false,
+  "_notes": "Indeed + LinkedIn. Override cities in search-profile.json or profile.location.targets."
+}

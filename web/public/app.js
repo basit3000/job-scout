@@ -22,7 +22,14 @@ const els = {
   emptyState: $('emptyState'),
   boardStatus: $('boardStatus'),
   searchInput: $('searchInput'),
-  decisionFilter: $('decisionFilter'),
+  decisionFilterMenu: $('decisionFilterMenu'),
+  decisionFilterBtn: $('decisionFilterBtn'),
+  decisionFilterPanel: $('decisionFilterPanel'),
+  decisionFilterChecks: $('decisionFilterChecks'),
+  decisionFilterCount: $('decisionFilterCount'),
+  decisionFilterAll: $('decisionFilterAll'),
+  decisionFilterActive: $('decisionFilterActive'),
+  activeDecisionFilters: $('activeDecisionFilters'),
   fitFilter: $('fitFilter'),
   pageSize: $('pageSize'),
   pager: $('pager'),
@@ -41,7 +48,13 @@ const els = {
   viewDigest: $('viewDigest'),
   kanban: $('kanban'),
   followUpBanner: $('followUpBanner'),
-  trackerHideApplied: $('trackerHideApplied'),
+  trackerColumnsMenu: $('trackerColumnsMenu'),
+  trackerColumnsBtn: $('trackerColumnsBtn'),
+  trackerColumnsPanel: $('trackerColumnsPanel'),
+  trackerColumnsChecks: $('trackerColumnsChecks'),
+  trackerColumnsCount: $('trackerColumnsCount'),
+  trackerColumnsAll: $('trackerColumnsAll'),
+  trackerColumnsActive: $('trackerColumnsActive'),
   answersForm: $('answersForm'),
   saveAnswersBtn: $('saveAnswersBtn'),
   portalsList: $('portalsList'),
@@ -67,6 +80,25 @@ const els = {
 };
 
 const DECISIONS = ['shortlisted', 'applied', 'skipped', 'interviewing', 'rejected', 'closed'];
+/** Results filter keys — "none" = undecided (no decision yet). */
+const DECISION_FILTER_OPTIONS = [
+  { id: 'none', label: 'Undecided' },
+  { id: 'shortlisted', label: 'Shortlisted' },
+  { id: 'applied', label: 'Applied' },
+  { id: 'skipped', label: 'Skipped' },
+  { id: 'interviewing', label: 'Interviewing' },
+  { id: 'rejected', label: 'Rejected' },
+  { id: 'closed', label: 'Closed' },
+];
+const TRACKER_COLUMN_OPTIONS = DECISIONS.map((id) => ({
+  id,
+  label: id.charAt(0).toUpperCase() + id.slice(1),
+}));
+/** Preset: hide terminal / done statuses — keep hunting in the active pile. */
+const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
+const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
+const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
+
 const ANSWER_FIELDS = [
   ['workAuthorization', 'Work authorisation'],
   ['needsSponsorship', 'Needs sponsorship?'],
@@ -93,13 +125,253 @@ let state = {
   status: null,
   pagination: { page: 1, pages: 1, total: 0, pageSize: 10 },
   view: 'results',
+  /** @type {Set<string>} */
+  visibleDecisions: new Set(DECISION_FILTER_OPTIONS.map((o) => o.id)),
+  /** @type {Set<string>} */
+  trackerVisibleColumns: new Set(DECISIONS),
 };
 
-async function api(path, options) {
-  const res = await fetch(path, {
-    headers: { 'content-type': 'application/json', ...(options?.headers || {}) },
-    ...options,
+let jobsAbort = null;
+let searchDebounce = null;
+
+function loadSetFromStorage(key, allIds) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return new Set(allIds);
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set(allIds);
+    const next = new Set(parsed.filter((id) => allIds.includes(id)));
+    return next.size ? next : new Set(allIds);
+  } catch {
+    return new Set(allIds);
+  }
+}
+
+function saveSetToStorage(key, set) {
+  try {
+    localStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    /* ignore */
+  }
+}
+
+function hiddenFromVisible(allIds, visibleSet) {
+  return allIds.filter((id) => !visibleSet.has(id));
+}
+
+function closeFilterMenus(except) {
+  for (const menu of [els.decisionFilterMenu, els.trackerColumnsMenu]) {
+    if (!menu || menu === except) continue;
+    menu.classList.remove('open');
+    const btn = menu.querySelector('.filter-trigger');
+    const panel = menu.querySelector('.filter-panel');
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+    if (panel) panel.hidden = true;
+  }
+}
+
+function toggleFilterMenu(menu, btn, panel) {
+  if (!menu || !btn || !panel) return;
+  const open = panel.hidden;
+  closeFilterMenus(open ? menu : null);
+  panel.hidden = !open;
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  menu.classList.toggle('open', open);
+}
+
+function renderFilterChecks(container, options, visibleSet, onChange) {
+  if (!container) return;
+  container.innerHTML = options
+    .map(
+      (o) => `
+    <label class="filter-check">
+      <input type="checkbox" value="${escapeAttr(o.id)}" ${visibleSet.has(o.id) ? 'checked' : ''} />
+      <span>${escapeHtml(o.label)}</span>
+    </label>`,
+    )
+    .join('');
+  container.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.addEventListener('change', () => {
+      if (input.checked) visibleSet.add(input.value);
+      else visibleSet.delete(input.value);
+      // Keep at least one visible so the list never looks "broken empty"
+      if (!visibleSet.size) {
+        visibleSet.add(input.value);
+        input.checked = true;
+      }
+      onChange();
+    });
   });
+}
+
+function updateDecisionFilterUi() {
+  const allIds = DECISION_FILTER_OPTIONS.map((o) => o.id);
+  const hidden = hiddenFromVisible(allIds, state.visibleDecisions);
+  if (els.decisionFilterCount) {
+    els.decisionFilterCount.hidden = hidden.length === 0;
+    els.decisionFilterCount.textContent = hidden.length ? String(hidden.length) : '';
+  }
+  if (els.decisionFilterBtn) {
+    els.decisionFilterBtn.classList.toggle('has-filters', hidden.length > 0);
+    els.decisionFilterBtn.title = hidden.length
+      ? `Hiding: ${hidden.map((id) => DECISION_FILTER_OPTIONS.find((o) => o.id === id)?.label || id).join(', ')}`
+      : 'Filter by decision status';
+  }
+  if (els.activeDecisionFilters) {
+    if (!hidden.length) {
+      els.activeDecisionFilters.hidden = true;
+      els.activeDecisionFilters.innerHTML = '';
+    } else {
+      els.activeDecisionFilters.hidden = false;
+      els.activeDecisionFilters.innerHTML = `
+        <span class="active-filters-label">Hiding</span>
+        ${hidden
+          .map((id) => {
+            const label = DECISION_FILTER_OPTIONS.find((o) => o.id === id)?.label || id;
+            return `<button type="button" class="filter-chip" data-show="${escapeAttr(id)}">${escapeHtml(label)} <span aria-hidden="true">×</span></button>`;
+          })
+          .join('')}
+        <button type="button" class="filter-chip-clear" id="clearDecisionHides">Clear</button>`;
+      els.activeDecisionFilters.querySelectorAll('[data-show]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          state.visibleDecisions.add(btn.dataset.show);
+          onDecisionFilterChange({ rerender: true });
+        });
+      });
+      els.activeDecisionFilters.querySelector('#clearDecisionHides')?.addEventListener('click', () => {
+        state.visibleDecisions = new Set(allIds);
+        onDecisionFilterChange({ rerender: true });
+      });
+    }
+  }
+}
+
+function updateTrackerColumnsUi() {
+  const hidden = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
+  if (els.trackerColumnsCount) {
+    els.trackerColumnsCount.hidden = hidden.length === 0;
+    els.trackerColumnsCount.textContent = hidden.length ? String(hidden.length) : '';
+  }
+  if (els.trackerColumnsBtn) {
+    els.trackerColumnsBtn.classList.toggle('has-filters', hidden.length > 0);
+    els.trackerColumnsBtn.title = hidden.length
+      ? `Hiding columns: ${hidden.join(', ')}`
+      : 'Show or hide tracker columns';
+  }
+}
+
+function onDecisionFilterChange({ rerender = false } = {}) {
+  saveSetToStorage(LS_VISIBLE_DECISIONS, state.visibleDecisions);
+  if (rerender) {
+    renderFilterChecks(
+      els.decisionFilterChecks,
+      DECISION_FILTER_OPTIONS,
+      state.visibleDecisions,
+      () => onDecisionFilterChange(),
+    );
+  }
+  updateDecisionFilterUi();
+  state.page = 1;
+  refreshJobs();
+}
+
+function onTrackerColumnsChange({ rerender = false } = {}) {
+  saveSetToStorage(LS_TRACKER_COLUMNS, state.trackerVisibleColumns);
+  if (rerender) {
+    renderFilterChecks(
+      els.trackerColumnsChecks,
+      TRACKER_COLUMN_OPTIONS,
+      state.trackerVisibleColumns,
+      () => onTrackerColumnsChange(),
+    );
+  }
+  updateTrackerColumnsUi();
+  if (state.view === 'tracker') refreshTracker();
+}
+
+function initFilterMenus() {
+  const allDecisionIds = DECISION_FILTER_OPTIONS.map((o) => o.id);
+  state.visibleDecisions = loadSetFromStorage(LS_VISIBLE_DECISIONS, allDecisionIds);
+  // Migrate old single-checkbox preference
+  try {
+    if (localStorage.getItem('jobScout.hideAppliedColumn') === '1') {
+      const migrated = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
+      if (migrated.size === DECISIONS.length) {
+        migrated.delete('applied');
+        state.trackerVisibleColumns = migrated;
+        saveSetToStorage(LS_TRACKER_COLUMNS, migrated);
+      }
+      localStorage.removeItem('jobScout.hideAppliedColumn');
+    } else {
+      state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
+    }
+  } catch {
+    state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
+  }
+
+  renderFilterChecks(
+    els.decisionFilterChecks,
+    DECISION_FILTER_OPTIONS,
+    state.visibleDecisions,
+    () => onDecisionFilterChange(),
+  );
+  renderFilterChecks(
+    els.trackerColumnsChecks,
+    TRACKER_COLUMN_OPTIONS,
+    state.trackerVisibleColumns,
+    () => onTrackerColumnsChange(),
+  );
+  updateDecisionFilterUi();
+  updateTrackerColumnsUi();
+
+  els.decisionFilterBtn?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    toggleFilterMenu(els.decisionFilterMenu, els.decisionFilterBtn, els.decisionFilterPanel);
+  });
+  els.trackerColumnsBtn?.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    toggleFilterMenu(els.trackerColumnsMenu, els.trackerColumnsBtn, els.trackerColumnsPanel);
+  });
+  els.decisionFilterPanel?.addEventListener('click', (ev) => ev.stopPropagation());
+  els.trackerColumnsPanel?.addEventListener('click', (ev) => ev.stopPropagation());
+  document.addEventListener('click', () => closeFilterMenus());
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeFilterMenus();
+  });
+
+  els.decisionFilterAll?.addEventListener('click', () => {
+    state.visibleDecisions = new Set(allDecisionIds);
+    onDecisionFilterChange({ rerender: true });
+  });
+  els.decisionFilterActive?.addEventListener('click', () => {
+    state.visibleDecisions = new Set(
+      allDecisionIds.filter((id) => !ACTIVE_ONLY_HIDDEN.includes(id)),
+    );
+    onDecisionFilterChange({ rerender: true });
+  });
+  els.trackerColumnsAll?.addEventListener('click', () => {
+    state.trackerVisibleColumns = new Set(DECISIONS);
+    onTrackerColumnsChange({ rerender: true });
+  });
+  els.trackerColumnsActive?.addEventListener('click', () => {
+    state.trackerVisibleColumns = new Set(
+      DECISIONS.filter((id) => !ACTIVE_ONLY_HIDDEN.includes(id)),
+    );
+    onTrackerColumnsChange({ rerender: true });
+  });
+}
+
+async function api(path, options = {}) {
+  const { headers: extraHeaders, ...rest } = options;
+  const res = await fetch(path, {
+    headers: { 'content-type': 'application/json', ...(extraHeaders || {}) },
+    ...rest,
+  });
+  if (rest.signal?.aborted) {
+    const err = new Error('Aborted');
+    err.name = 'AbortError';
+    throw err;
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
   return data;
@@ -171,9 +443,13 @@ function queryString() {
     page: String(state.page),
     pageSize: els.pageSize.value || '10',
     q: els.searchInput.value.trim(),
-    decision: els.decisionFilter.value,
     fit: els.fitFilter.value,
   });
+  const hide = hiddenFromVisible(
+    DECISION_FILTER_OPTIONS.map((o) => o.id),
+    state.visibleDecisions,
+  );
+  if (hide.length) p.set('hide', hide.join(','));
   return p.toString();
 }
 
@@ -257,10 +533,23 @@ function renderJob(job, { compact = false } = {}) {
       ? `<strong>Why:</strong> ${(fit.reasons || []).map(escapeHtml).join(' · ')}
          <ul>${(fit.gaps || []).slice(0, 5).map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>`
       : '';
-    desc.textContent = job.description || 'No description — open the URL before judging.';
+    desc.textContent = job.description
+      || (job.hasDescription === false
+        ? 'No description — open the URL before judging.'
+        : 'Expand to load description…');
 
-    el.querySelector('.toggle-desc').addEventListener('click', () => {
+    el.querySelector('.toggle-desc').addEventListener('click', async () => {
       const open = desc.hidden;
+      if (open && !desc.dataset.loaded && job.description == null) {
+        desc.textContent = 'Loading description…';
+        try {
+          const full = await api(`/api/jobs/${encodeURIComponent(job.id)}`);
+          desc.textContent = full.job?.description || 'No description — open the URL before judging.';
+        } catch (err) {
+          desc.textContent = `Could not load description (${err.message}).`;
+        }
+        desc.dataset.loaded = '1';
+      }
       desc.hidden = !open;
       fitBox.hidden = !open;
       el.classList.toggle('open', open);
@@ -594,59 +883,68 @@ function showPrep(data) {
 }
 
 async function refreshJobs() {
-  const data = await api(`/api/jobs?${queryString()}`);
-  state.pagination = data.pagination;
-  els.jobList.innerHTML = '';
+  jobsAbort?.abort();
+  jobsAbort = new AbortController();
+  const { signal } = jobsAbort;
+  try {
+    const data = await api(`/api/jobs?${queryString()}`, { signal });
+    if (signal.aborted) return;
+    state.pagination = data.pagination;
+    els.jobList.innerHTML = '';
 
-  if (!data.pagination.total && !data.meta) {
-    els.emptyState.hidden = false;
-    els.pager.hidden = true;
-    els.jobsMeta.textContent = data.message || 'No fetch yet.';
-    return;
+    if (!data.pagination.total && !data.meta) {
+      els.emptyState.hidden = false;
+      els.pager.hidden = true;
+      els.jobsMeta.textContent = data.message || 'No fetch yet.';
+      return;
+    }
+
+    els.emptyState.hidden = data.pagination.total > 0;
+    if (!data.jobs.length && data.pagination.total === 0) {
+      els.emptyState.hidden = false;
+    } else {
+      els.emptyState.hidden = true;
+    }
+
+    const when = data.meta?.generatedAt ? new Date(data.meta.generatedAt).toLocaleString() : '—';
+    const dup = (data.meta?.duplicatesRemoved ?? 0) + (data.meta?.duplicatesRemovedExtra ?? 0);
+    const newN = data.meta?.newSinceLastFetch;
+    const parts = [
+      `${data.pagination.total} in archive`,
+      data.meta?.marketName || '—',
+      when,
+    ];
+    if (typeof newN === 'number') parts.push(`${newN} new last run`);
+    if (dup) parts.push(`${dup} dupes collapsed`);
+    if (data.meta?.replaced) parts.push('replaced');
+    els.jobsMeta.textContent = parts.join(' · ');
+
+    if (data.meta?.sourceStatus?.length) {
+      els.boardStatus.hidden = false;
+      els.boardStatus.innerHTML = data.meta.sourceStatus
+        .map((s) => {
+          const cls = s.ok ? 'ok' : 'bad';
+          const text = s.ok ? `${s.board}: ${s.count} via ${s.via}` : `${s.board}: failed`;
+          return `<span class="pill ${cls}" title="${escapeAttr(s.error || '')}">${escapeHtml(text)}</span>`;
+        })
+        .join('');
+    } else {
+      els.boardStatus.hidden = true;
+    }
+
+    const frag = document.createDocumentFragment();
+    for (const job of data.jobs) frag.appendChild(renderJob(job));
+    els.jobList.appendChild(frag);
+
+    const { page, pages, total } = data.pagination;
+    els.pager.hidden = total === 0;
+    els.pageLabel.textContent = `Page ${page} / ${pages} (${total})`;
+    els.prevPage.disabled = page <= 1;
+    els.nextPage.disabled = page >= pages;
+  } catch (err) {
+    if (err?.name === 'AbortError') return;
+    appendLog(`Results failed: ${err.message}`, 'stderr');
   }
-
-  els.emptyState.hidden = data.pagination.total > 0;
-  if (!data.jobs.length && data.pagination.total === 0) {
-    els.emptyState.hidden = false;
-  } else {
-    els.emptyState.hidden = true;
-  }
-
-  const when = data.meta?.generatedAt ? new Date(data.meta.generatedAt).toLocaleString() : '—';
-  const dup = (data.meta?.duplicatesRemoved ?? 0) + (data.meta?.duplicatesRemovedExtra ?? 0);
-  const newN = data.meta?.newSinceLastFetch;
-  const parts = [
-    `${data.pagination.total} in archive`,
-    data.meta?.marketName || '—',
-    when,
-  ];
-  if (typeof newN === 'number') parts.push(`${newN} new last run`);
-  if (dup) parts.push(`${dup} dupes collapsed`);
-  if (data.meta?.replaced) parts.push('replaced');
-  els.jobsMeta.textContent = parts.join(' · ');
-
-  if (data.meta?.sourceStatus?.length) {
-    els.boardStatus.hidden = false;
-    els.boardStatus.innerHTML = data.meta.sourceStatus
-      .map((s) => {
-        const cls = s.ok ? 'ok' : 'bad';
-        const text = s.ok ? `${s.board}: ${s.count} via ${s.via}` : `${s.board}: failed`;
-        return `<span class="pill ${cls}" title="${escapeAttr(s.error || '')}">${escapeHtml(text)}</span>`;
-      })
-      .join('');
-  } else {
-    els.boardStatus.hidden = true;
-  }
-
-  const frag = document.createDocumentFragment();
-  for (const job of data.jobs) frag.appendChild(renderJob(job));
-  els.jobList.appendChild(frag);
-
-  const { page, pages, total } = data.pagination;
-  els.pager.hidden = total === 0;
-  els.pageLabel.textContent = `Page ${page} / ${pages} (${total})`;
-  els.prevPage.disabled = page <= 1;
-  els.nextPage.disabled = page >= pages;
 }
 
 function updatePlanHint(s = state.status) {
@@ -799,8 +1097,7 @@ function showSetup(needs) {
 }
 
 async function refreshTracker() {
-  const hide = [];
-  if (els.trackerHideApplied?.checked) hide.push('applied');
+  const hide = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
   const qs = hide.length ? `?hide=${encodeURIComponent(hide.join(','))}` : '';
   const data = await api(`/api/tracker${qs}`);
   if (data.followUps?.length) {
@@ -1025,19 +1322,8 @@ els.emptyRunBtn.addEventListener('click', runSearch);
 els.stopBtn?.addEventListener('click', stopSearch);
 els.searchInput.addEventListener('input', () => {
   state.page = 1;
-  refreshJobs();
-});
-els.decisionFilter.addEventListener('change', () => {
-  state.page = 1;
-  refreshJobs();
-});
-els.trackerHideApplied?.addEventListener('change', () => {
-  try {
-    localStorage.setItem('jobScout.hideAppliedColumn', els.trackerHideApplied.checked ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-  if (state.view === 'tracker') refreshTracker();
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => refreshJobs(), 200);
 });
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;
@@ -1211,13 +1497,7 @@ connectStream();
 
 (async function init() {
   try {
-    try {
-      if (els.trackerHideApplied) {
-        els.trackerHideApplied.checked = localStorage.getItem('jobScout.hideAppliedColumn') === '1';
-      }
-    } catch {
-      /* ignore */
-    }
+    initFilterMenus();
     await refreshMarkets();
     await refreshStatus();
     if (!state.status?.setup?.needsSetup) await refreshJobs();

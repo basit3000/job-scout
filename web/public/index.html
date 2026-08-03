@@ -99,24 +99,21 @@
             </div>
             <div class="filters">
               <input type="search" id="searchInput" placeholder="Filter title, company…" />
-              <select id="decisionFilter" aria-label="Filter by decision">
-                <option value="all">All decisions</option>
-                <option value="none">Undecided</option>
-                <option value="shortlisted">Shortlisted</option>
-                <option value="applied">Applied</option>
-                <option value="skipped">Skipped</option>
-                <option value="interviewing">Interviewing</option>
-                <option value="rejected">Rejected</option>
-                <option value="closed">Closed</option>
-                <optgroup label="Hide (reverse)">
-                  <option value="not:applied">Hide applied</option>
-                  <option value="not:skipped">Hide skipped</option>
-                  <option value="not:rejected">Hide rejected</option>
-                  <option value="not:closed">Hide closed</option>
-                  <option value="not:shortlisted">Hide shortlisted</option>
-                  <option value="not:interviewing">Hide interviewing</option>
-                </optgroup>
-              </select>
+              <div class="filter-menu" id="decisionFilterMenu">
+                <button type="button" class="filter-trigger" id="decisionFilterBtn" aria-expanded="false" aria-haspopup="true" aria-controls="decisionFilterPanel">
+                  <span class="filter-trigger-label">Decision</span>
+                  <span class="filter-trigger-count" id="decisionFilterCount" hidden></span>
+                  <span class="filter-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="filter-panel" id="decisionFilterPanel" role="group" aria-label="Show decisions" hidden>
+                  <p class="filter-panel-hint">Show statuses (uncheck to hide)</p>
+                  <div class="filter-checks" id="decisionFilterChecks"></div>
+                  <div class="filter-panel-actions">
+                    <button type="button" class="btn ghost small" id="decisionFilterAll">Show all</button>
+                    <button type="button" class="btn ghost small" id="decisionFilterActive">Active only</button>
+                  </div>
+                </div>
+              </div>
               <select id="fitFilter" aria-label="Filter by fit">
                 <option value="all">All fit</option>
                 <option value="Strong">Strong</option>
@@ -131,6 +128,7 @@
               </select>
             </div>
           </div>
+          <div class="active-filters" id="activeDecisionFilters" hidden></div>
           <div id="boardStatus" class="board-status" hidden></div>
           <div id="jobList" class="job-list"></div>
           <div id="emptyState" class="empty" hidden>
@@ -152,10 +150,21 @@
               <p class="meta">Kanban by decision. Applied sets a 7-day follow-up by default.</p>
             </div>
             <div class="filters">
-              <label class="toggle" title="Hide the Applied column from the kanban">
-                <input type="checkbox" id="trackerHideApplied" />
-                <span>Hide applied</span>
-              </label>
+              <div class="filter-menu" id="trackerColumnsMenu">
+                <button type="button" class="filter-trigger" id="trackerColumnsBtn" aria-expanded="false" aria-haspopup="true" aria-controls="trackerColumnsPanel">
+                  <span class="filter-trigger-label">Columns</span>
+                  <span class="filter-trigger-count" id="trackerColumnsCount" hidden></span>
+                  <span class="filter-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="filter-panel" id="trackerColumnsPanel" role="group" aria-label="Show tracker columns" hidden>
+                  <p class="filter-panel-hint">Show columns (uncheck to hide)</p>
+                  <div class="filter-checks" id="trackerColumnsChecks"></div>
+                  <div class="filter-panel-actions">
+                    <button type="button" class="btn ghost small" id="trackerColumnsAll">Show all</button>
+                    <button type="button" class="btn ghost small" id="trackerColumnsActive">Active only</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
           <div id="followUpBanner" class="follow-banner" hidden></div>

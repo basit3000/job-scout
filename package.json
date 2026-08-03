@@ -1,0 +1,17 @@
+{
+  "name": "job-scout",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Local multi-country job scout — CLI + web UI",
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start": "node scripts/setup.mjs --quiet && node web/server.mjs",
+    "dev": "node scripts/setup.mjs --quiet && node web/server.mjs",
+    "fetch": "node scripts/fetch-jobs.mjs",
+    "evidence": "node scripts/build-evidence.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

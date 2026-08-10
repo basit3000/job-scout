@@ -17,7 +17,7 @@
     },
     {
       "board": "linkedin",
-      "_note": "JobSpy first when preferJobspy is true; Apify only if needed + --allow-paid.",
+      "_note": "Apify first when Allow paid; JobSpy fallback. Free searches use JobSpy only.",
       "queriesFromProfile": true,
       "input": {
         "datePosted": "pastMonth"
@@ -36,7 +36,7 @@
   "_limitPerQuery": "Keep low — each title×city×board can become one Apify run when paid.",
 
   "preferJobspy": true,
-  "_preferJobspy": "Free JobSpy first; Apify only if a query returns nothing (and --allow-paid).",
+  "_preferJobspy": "Only applies when Allow paid is OFF. With --allow-paid / Allow paid, Apify runs first (JobSpy is fallback).",
 
   "maxApifyRuns": 8,
   "_maxApifyRuns": "Hard cap on paid Apify actor runs per fetch. 0 = unlimited.",

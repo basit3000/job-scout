@@ -53,6 +53,13 @@ import {
   selectedBoardIds,
 } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
+import {
+  sheetsStatus,
+  sheetsUrl,
+  syncDecisionsToSheet,
+  maybeSyncDecisionToSheet,
+  SHEET_SYNC_DECISIONS,
+} from '../scripts/lib/google-sheets.mjs';
 
 loadDotEnv();
 
@@ -275,6 +282,7 @@ async function getStatus() {
     setup: await getSetupStatus(),
     cv: await loadCvSettings(),
     overleaf: overleafStatus(),
+    sheets: await sheetsStatus(),
   };
 }
 
@@ -570,7 +578,8 @@ async function handleApi(req, res, url) {
         prepPath: body.prepPath,
       });
       invalidateJobsCache();
-      return json(res, 200, { ok: true, ...result, valid: VALID_DECISIONS });
+      const sheets = await maybeSyncDecisionToSheet(result.entry);
+      return json(res, 200, { ok: true, ...result, valid: VALID_DECISIONS, sheets });
     } catch (err) {
       return json(res, 400, { error: err.message });
     }
@@ -586,9 +595,29 @@ async function handleApi(req, res, url) {
         ...(body.decision ? { decision: body.decision } : {}),
       });
       invalidateJobsCache();
-      return json(res, 200, { ok: true, entry });
+      const sheets = await maybeSyncDecisionToSheet(entry);
+      return json(res, 200, { ok: true, entry, sheets });
     } catch (err) {
       return json(res, 400, { error: err.message });
+    }
+  }
+
+  if (req.method === 'GET' && path === '/api/sheets') {
+    return json(res, 200, await sheetsStatus());
+  }
+
+  if (req.method === 'POST' && path === '/api/sheets/sync') {
+    try {
+      const result = await syncDecisionsToSheet();
+      if (!result.ok && result.error && !result.synced) {
+        return json(res, 400, result);
+      }
+      return json(res, 200, {
+        ...result,
+        syncStatuses: SHEET_SYNC_DECISIONS,
+      });
+    } catch (err) {
+      return json(res, 500, { error: err.message || String(err), url: sheetsUrl() });
     }
   }
 
@@ -840,11 +869,13 @@ async function handleApi(req, res, url) {
             ? `${nice[nice.length - 2]} ${nice[nice.length - 1]}`
             : nice.join(' ') || 'Candidate';
         const friendly =
-          file === 'cv-main.pdf' || file === 'cv.pdf'
+          file === 'cv-ats.pdf'
             ? `${short} CV.pdf`
-            : file === 'cv-ats.pdf'
-              ? `${short} CV ATS.pdf`
-              : file;
+            : file === 'cv-main.pdf'
+              ? `${short} CV Main.pdf`
+              : file === 'cv.pdf'
+                ? `${short} CV.pdf`
+                : file;
 
         // Also write into <project>/downloads/<Company>/
         let folderHint = '';
@@ -1018,7 +1049,10 @@ async function handleApi(req, res, url) {
     const body = await readBody(req);
     const args = [join(ROOT, 'scripts', 'fetch-jobs.mjs')];
     if (body.market) args.push('--market', String(body.market).toUpperCase());
-    if (body.allowPaid) args.push('--allow-paid');
+    if (body.allowPaid) {
+      args.push('--allow-paid');
+      args.push('--apify-first');
+    }
     if (body.forceJobspy) args.push('--force-jobspy');
     if (body.replace) args.push('--replace');
     if (body.limit != null && Number(body.limit) > 0) {

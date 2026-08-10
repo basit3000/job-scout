@@ -490,7 +490,12 @@ async function main() {
   });
   const totalQueries = boardPlans.reduce((n, b) => n + b.queries.length, 0);
   const useApify = Boolean(!FORCE_JOBSPY && process.env.APIFY_TOKEN && ALLOW_PAID);
-  const preferJobspy = !APIFY_FIRST && (config.preferJobspy !== false);
+  // Free → JobSpy. Allow paid → Apify first (JobSpy fallback). --force-jobspy overrides.
+  const preferJobspy = FORCE_JOBSPY
+    ? true
+    : (ALLOW_PAID || APIFY_FIRST)
+      ? false
+      : config.preferJobspy !== false;
   const maxApifyRuns = Number(value('--max-apify', config.maxApifyRuns ?? 8));
   let apifyRunsUsed = 0;
   const strategy = FORCE_JOBSPY

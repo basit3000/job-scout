@@ -89,6 +89,38 @@ Rule: only list a language if there is a repo behind it and the candidate would 
 question on it. Order by real depth from the language footprint in the evidence pack, not
 alphabetically.
 
+## Job-aware bullet edits (light touch)
+
+When a job posting is supplied, **edit the bullets** — do not stop at reordering projects
+or updating the skills line. Ground every change in the portfolio project descriptions and
+verified GitHub facts from the evidence pack.
+
+**Stay on theme.** The existing CV has a voice: concrete systems, short active sentences,
+tech named in-line. New wording must sound like the same author wrote a slightly sharper
+version of the same bullet — not a different resume template.
+
+| Allowed | Not allowed |
+| --- | --- |
+| Move the job-relevant clause earlier in the sentence | Rewrite the bullet into a new story |
+| Name a stack item the portfolio already lists for that project | Add tech the project never used |
+| Mirror a posting synonym for something already true ("REST API" ↔ "HTTP API") | Buzzword-upgrade ("service" → "microservices platform") |
+| Swap which project feature leads when the portfolio supports both | Invent features, metrics, or team roles |
+| Leave a bullet alone if it already fits | Touch every line "for consistency" |
+
+Worked pattern — same project, same facts, posting cares about APIs and Docker:
+
+> Before: Built a league site with registration, drafts, and match rooms on PostgreSQL.
+>
+> After: Shipped a FastAPI REST backend (Docker, PostgreSQL) for registration, captain
+> draft, and match rooms, shared by the web app and Discord bot.
+
+Same theme and length; emphasis follows the posting; every clause is in the portfolio.
+
+**Budget:** for a typical tailor pass, change roughly a third to half of Experience and
+Projects bullets; leave the rest. Prefer clause reordering over full sentence replacement.
+Experience bullets may re-emphasise duties that already appear on the CV; never invent
+duties, tools, or scope the existing CV did not state and the evidence pack cannot verify.
+
 ## Tone and mechanics
 
 - Past tense, active voice, no first-person pronouns.

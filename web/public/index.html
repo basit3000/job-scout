@@ -150,6 +150,10 @@
               <p class="meta">Kanban by decision. Applied sets a 7-day follow-up by default.</p>
             </div>
             <div class="filters">
+              <div class="sheets-bar" id="sheetsBar">
+                <a class="btn ghost small" id="sheetsOpenLink" href="#" target="_blank" rel="noopener" hidden>Open Sheet</a>
+                <button type="button" class="btn ghost small" id="sheetsSyncBtn" hidden>Sync to Sheets</button>
+              </div>
               <div class="filter-menu" id="trackerColumnsMenu">
                 <button type="button" class="filter-trigger" id="trackerColumnsBtn" aria-expanded="false" aria-haspopup="true" aria-controls="trackerColumnsPanel">
                   <span class="filter-trigger-label">Columns</span>
@@ -167,6 +171,7 @@
               </div>
             </div>
           </div>
+          <p class="meta sheets-hint" id="sheetsHint" hidden></p>
           <div id="followUpBanner" class="follow-banner" hidden></div>
           <div id="kanban" class="kanban"></div>
         </section>
@@ -212,7 +217,7 @@
           <div id="prepView" class="prep-view" hidden></div>
           <p class="tip" id="apifyTip">
             Searches are <strong>free</strong> with JobSpy unless you enable Allow paid.
-            Paid mode is JobSpy-first and capped (see <code>maxApifyRuns</code> in search-profile.json).
+            Paid mode uses <strong>Apify first</strong> (JobSpy fallback), capped by Max paid / <code>maxApifyRuns</code>.
           </p>
         </aside>
       </main>

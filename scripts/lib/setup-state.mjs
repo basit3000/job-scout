@@ -21,7 +21,8 @@ async function exists(p) {
 
 async function loadJson(path, fallback = null) {
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    const text = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '');
+    return JSON.parse(text);
   } catch {
     return fallback;
   }

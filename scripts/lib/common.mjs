@@ -39,7 +39,8 @@ export function loadDotEnv(path = join(ROOT, '.env')) {
 
 export async function loadJson(path, fallback) {
   try {
-    return JSON.parse(await readFile(path, 'utf8'));
+    const text = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '');
+    return JSON.parse(text);
   } catch {
     return fallback;
   }

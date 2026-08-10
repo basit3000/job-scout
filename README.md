@@ -58,10 +58,27 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 | **Stop** | End a run; jobs found so far are saved |
 | **Agent / Agent model** | Prep & CV backend + model |
 | **Results** | Deduped list, fit scores, Prep & CV; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
-| **Tracker** | Kanban + follow-ups; **Columns** multi-select to show/hide decision columns |
+| **Tracker** | Kanban + follow-ups; **Columns** multi-select; optional **Google Sheets** sync for applied pipeline |
 | **Saved answers** | Reusable application form answers |
 | **Portals** | Enable/disable job boards |
 | **Digest** | New since last fetch |
+
+### Google Sheets (optional)
+
+Direct Sheets API (service account — no Zapier). When you mark a job **applied** / **interviewing** / **rejected** / **closed**, Job Scout upserts a row. Tracker also has **Open Sheet** and **Sync to Sheets** (backfill).
+
+1. Create a Google Cloud service account and enable **Google Sheets API**
+2. Download the JSON key to `secrets/google-sheets.json` (gitignored)
+3. Create a spreadsheet, share it with the service account email as **Editor**
+4. Put the spreadsheet ID and paths in `.env`:
+
+```bash
+GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id
+GOOGLE_SHEETS_CREDENTIALS=secrets/google-sheets.json
+GOOGLE_SHEETS_TAB=Applications
+```
+
+Columns: Job ID, Date, Company, Title, Location, Board, Status, URL, Note, Follow-up, Salary, Remote, Updated at.
 
 ## Shared vs local
 
@@ -73,6 +90,7 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 | | `state/decisions.json`, `state/saved-answers.json` |
 | | `.workspace/` — fetched jobs, prep packs |
 | | `downloads/` — per-company CV PDFs |
+| | `secrets/` — Google service-account JSON |
 
 ## Country & boards
 

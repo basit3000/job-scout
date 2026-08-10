@@ -501,6 +501,18 @@ a.btn.primary-link:hover {
   font-size: 0.8rem;
 }
 
+.sheets-bar {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.sheets-hint {
+  padding: 0 1.1rem 0.35rem;
+  margin: 0;
+}
+
 .active-filters {
   display: flex;
   flex-wrap: wrap;

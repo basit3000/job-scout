@@ -29,6 +29,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+secrets/
 
 # OS / editors
 .DS_Store

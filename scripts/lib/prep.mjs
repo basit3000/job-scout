@@ -228,8 +228,9 @@ export function buildPrepIndex(job, fit, {
   downloadFolder = null,
 } = {}) {
   const pdfLines = [];
-  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `<Name> CV.pdf` in downloads folder');
-  if (hasAts) pdfLines.push('- [CV PDF (ATS)](./cv-ats.pdf)');
+  if (hasAts) pdfLines.push('- Friendly export: `<Name> CV.pdf` (ATS) in downloads folder');
+  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `<Name> CV Main.pdf` in downloads folder');
+  if (hasAts) pdfLines.push('- [CV PDF (ATS → named CV.pdf)](./cv-ats.pdf)');
   if (hasMain) pdfLines.push('- [CV PDF (Main)](./cv-main.pdf)');
   if (hasPdf && !hasAts && !hasMain) pdfLines.push('- [CV PDF](./cv.pdf)');
   if (!pdfLines.length) pdfLines.push('- _PDF: open HTML → Print, or enable Overleaf + LaTeX / Chrome_');
@@ -287,8 +288,8 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
     downloadCvPdf: hasPdf ? `${base}/cv.pdf` : null,
     downloadCvPdfAts: hasAts ? `${base}/cv-ats.pdf?download=1` : null,
     downloadCvPdfMain: hasMain ? `${base}/cv-main.pdf?download=1` : (hasPdf ? `${base}/cv.pdf?download=1` : null),
-    downloadLabelMain: `${nice} CV.pdf`,
-    downloadLabelAts: `${nice} CV ATS.pdf`,
+    downloadLabelMain: `${nice} CV Main.pdf`,
+    downloadLabelAts: `${nice} CV.pdf`,
   };
 }
 

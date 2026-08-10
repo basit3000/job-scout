@@ -1,5 +1,7 @@
 /**
- * Export tailored CVs into <project-root>/downloads/<Company>/<Name> CV.pdf
+ * Export tailored CVs into <project-root>/downloads/<Company>/
+ *   <Name> CV.pdf       ← ATS / portals
+ *   <Name> CV Main.pdf  ← human-facing Main
  */
 
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
@@ -60,20 +62,18 @@ export async function exportCvDownloads({
   let mainOut = null;
   let atsOut = null;
 
-  if (mainSrc) {
-    mainOut = join(dir, `${base} CV.pdf`);
-    await copyFile(mainSrc, mainOut);
-    files.push(mainOut);
-  } else if (atsSrc) {
-    mainOut = join(dir, `${base} CV.pdf`);
-    await copyFile(atsSrc, mainOut);
-    files.push(mainOut);
+  // ATS / portal file → "<Name> CV.pdf" (no "ATS" in the filename)
+  if (atsSrc) {
+    atsOut = join(dir, `${base} CV.pdf`);
+    await copyFile(atsSrc, atsOut);
+    files.push(atsOut);
   }
 
-  if (atsSrc) {
-    atsOut = join(dir, `${base} CV ATS.pdf`);
-    await copyFile(atsSrc, atsOut);
-    if (!files.includes(atsOut)) files.push(atsOut);
+  // Human-facing Main → "<Name> CV Main.pdf"
+  if (mainSrc) {
+    mainOut = join(dir, `${base} CV Main.pdf`);
+    await copyFile(mainSrc, mainOut);
+    files.push(mainOut);
   }
 
   const note = [
@@ -82,8 +82,8 @@ export async function exportCvDownloads({
     jobTitle ? `Role: ${jobTitle}` : '',
     `Exported: ${new Date().toISOString()}`,
     '',
-    mainOut ? `- \`${base} CV.pdf\` — main / human-facing` : '',
-    atsOut ? `- \`${base} CV ATS.pdf\` — ATS / portals` : '',
+    atsOut ? `- \`${base} CV.pdf\` — ATS / portals` : '',
+    mainOut ? `- \`${base} CV Main.pdf\` — main / human-facing` : '',
     '',
     `Path: \`${dir}\``,
     '',

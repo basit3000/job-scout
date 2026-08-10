@@ -48,6 +48,10 @@ const els = {
   viewDigest: $('viewDigest'),
   kanban: $('kanban'),
   followUpBanner: $('followUpBanner'),
+  sheetsBar: $('sheetsBar'),
+  sheetsOpenLink: $('sheetsOpenLink'),
+  sheetsSyncBtn: $('sheetsSyncBtn'),
+  sheetsHint: $('sheetsHint'),
   trackerColumnsMenu: $('trackerColumnsMenu'),
   trackerColumnsBtn: $('trackerColumnsBtn'),
   trackerColumnsPanel: $('trackerColumnsPanel'),
@@ -559,10 +563,11 @@ function renderJob(job, { compact = false } = {}) {
       btn.addEventListener('click', async () => {
         try {
           const d = btn.dataset.decision;
-          await api('/api/decisions', {
+          const res = await api('/api/decisions', {
             method: 'POST',
             body: JSON.stringify({ id: job.id, decision: d }),
           });
+          logSheetsResult(res.sheets, `Sheets (${d})`);
           // Shortlist → prompt for CV prep (first time or recreate)
           if (d === 'shortlisted') {
             await runPrepFlow(job);
@@ -599,13 +604,14 @@ function renderJob(job, { compact = false } = {}) {
       );
       if (!mark) return;
       try {
-        await api('/api/decisions', {
+        const res = await api('/api/decisions', {
           method: 'POST',
           body: JSON.stringify({ id: job.id, decision: 'applied' }),
         });
         await refreshJobs();
         if (state.view === 'tracker') await refreshTracker();
         appendLog(`Marked applied: ${job.title}`);
+        logSheetsResult(res.sheets, 'Sheets (applied)');
       } catch (err) {
         appendLog(err.message, 'stderr');
       }
@@ -718,6 +724,59 @@ function waitForPrepDone(startedAt) {
   });
 }
 
+function updateSheetsUi(sheets = state.status?.sheets) {
+  const configured = Boolean(sheets?.configured);
+  if (els.sheetsOpenLink) {
+    if (configured && sheets.url) {
+      els.sheetsOpenLink.hidden = false;
+      els.sheetsOpenLink.href = sheets.url;
+    } else {
+      els.sheetsOpenLink.hidden = true;
+      els.sheetsOpenLink.removeAttribute('href');
+    }
+  }
+  if (els.sheetsSyncBtn) {
+    els.sheetsSyncBtn.hidden = !configured;
+    els.sheetsSyncBtn.disabled = false;
+  }
+  if (els.sheetsHint) {
+    if (configured) {
+      els.sheetsHint.hidden = false;
+      els.sheetsHint.textContent = `Google Sheet tab “${sheets.tab || 'Applications'}” — applied / interviewing / rejected / closed sync here.`;
+    } else if (sheets?.hint) {
+      els.sheetsHint.hidden = false;
+      els.sheetsHint.textContent = `Google Sheets: ${sheets.hint}`;
+    } else {
+      els.sheetsHint.hidden = true;
+      els.sheetsHint.textContent = '';
+    }
+  }
+}
+
+function logSheetsResult(sheets, context = 'Sheets') {
+  if (!sheets || sheets.skipped) return;
+  if (sheets.ok === false && sheets.error) {
+    appendLog(`${context}: ${sheets.error}`, 'stderr');
+    return;
+  }
+  if (sheets.action === 'appended') appendLog(`${context}: row appended`);
+  else if (sheets.action === 'updated') appendLog(`${context}: row updated`);
+  else if (typeof sheets.synced === 'number') {
+    appendLog(
+      `${context}: synced ${sheets.synced} (${sheets.appended || 0} new, ${sheets.updated || 0} updated)`,
+    );
+    if (sheets.errors?.length) {
+      appendLog(`${context}: ${sheets.errors.length} error(s)`, 'stderr');
+    }
+  }
+}
+
+function showLogView() {
+  if (els.prepView) els.prepView.hidden = true;
+  if (els.logView) els.logView.hidden = false;
+  if (els.sideTitle) els.sideTitle.textContent = 'Run log';
+}
+
 async function finishPrepUi(job, data) {
   state.lastPrepJobId = job.id;
   if (data.cached) appendLog('Skipped compile — cached PDFs.');
@@ -728,10 +787,14 @@ async function finishPrepUi(job, data) {
       }`,
     );
   }
+  if (data.pack?.relativeDir) {
+    appendLog(`Prep pack ready: ${data.pack.relativeDir}`);
+  }
   if (data.pack?.downloadFolderAbs) {
     appendLog(`Company folder: ${data.pack.downloadFolderAbs}`);
   }
-  showPrep(data);
+  // Populate prep panel HTML but stay on the run log
+  showPrep(data, { reveal: false });
   try {
     const res = await api('/api/prep/open-folder', {
       method: 'POST',
@@ -756,6 +819,7 @@ async function runPrepFlow(job) {
     appendLog('Prep cancelled.');
     return;
   }
+  showLogView();
   const mode = choice.mode === 'fast' ? 'fast' : 'agent';
   try {
     if (!choice.recreate) {
@@ -797,10 +861,14 @@ async function runPrepFlow(job) {
   }
 }
 
-function showPrep(data) {
-  els.sideTitle.textContent = 'Prep & CV';
-  els.logView.hidden = true;
-  els.prepView.hidden = false;
+function showPrep(data, { reveal = true } = {}) {
+  if (reveal) {
+    els.sideTitle.textContent = 'Prep & CV';
+    els.logView.hidden = true;
+    els.prepView.hidden = false;
+  } else {
+    showLogView();
+  }
   const pack = data.pack;
   const cvHtml = pack.downloadCvHtml || '';
   const cvMd = pack.downloadCvMd || '';
@@ -841,7 +909,7 @@ function showPrep(data) {
       }
     </p>
     ${pack.downloadError ? `<p class="meta" style="color:#b00">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
-    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> + <code>&lt;Your Name&gt; CV ATS.pdf</code> (from profile.json).</p>
+    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from profile.json).</p>
     <p>Cover letter draft:</p>
     <pre>${escapeHtml(pack.coverLetter || '')}</pre>
     <button type="button" class="btn ghost" id="backToLog">Back to log</button>
@@ -876,9 +944,7 @@ function showPrep(data) {
     }
   });
   $('backToLog')?.addEventListener('click', () => {
-    els.prepView.hidden = true;
-    els.logView.hidden = false;
-    els.sideTitle.textContent = 'Run log';
+    showLogView();
   });
 }
 
@@ -1031,6 +1097,7 @@ async function refreshStatus() {
   }
   void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
   updatePlanHint(s);
+  updateSheetsUi(s.sheets);
   showSetup(Boolean(s.setup?.needsSetup));
   els.apifyTip.hidden = false;
 
@@ -1097,6 +1164,7 @@ function showSetup(needs) {
 }
 
 async function refreshTracker() {
+  updateSheetsUi(state.status?.sheets);
   const hide = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
   const qs = hide.length ? `?hide=${encodeURIComponent(hide.join(','))}` : '';
   const data = await api(`/api/tracker${qs}`);
@@ -1227,8 +1295,8 @@ async function runSearch() {
   const maxAgeDays = Number(els.maxAgeDays?.value || 0);
   if (allowPaid) {
     const ok = window.confirm(
-      'Allow paid uses Apify and can cost money (often many actor runs).\n\n' +
-        'JobSpy-first is on by default, with a paid-run cap — but free searches leave this unchecked.\n\n' +
+      'Allow paid uses Apify first (costs money — often many actor runs).\n\n' +
+        'JobSpy is only used as a fallback if Apify returns nothing. Paid runs are capped by Max paid.\n\n' +
         'New finds merge into your archive (duplicates skipped) unless Replace results is on.\n\n' +
         'Continue with Apify enabled?',
     );
@@ -1267,7 +1335,7 @@ async function runSearch() {
     appendLog(
       [
         `Starting fetch · market=${market}`,
-        allowPaid ? 'allow-paid (JobSpy first, Apify capped)' : 'FREE JobSpy only',
+        allowPaid ? 'allow-paid (Apify first, JobSpy fallback, capped)' : 'FREE JobSpy only',
         replace ? 'REPLACE archive' : 'merge into archive',
         limit > 0 ? `limit=${limit}/query` : null,
         Number.isFinite(maxApifyRuns) ? `max-paid=${maxApifyRuns}` : null,
@@ -1347,6 +1415,24 @@ els.nextPage.addEventListener('click', () => {
 });
 els.clearLogBtn.addEventListener('click', () => {
   els.logView.textContent = '';
+});
+els.sheetsSyncBtn?.addEventListener('click', async () => {
+  if (!els.sheetsSyncBtn || els.sheetsSyncBtn.disabled) return;
+  els.sheetsSyncBtn.disabled = true;
+  appendLog('Syncing applied pipeline to Google Sheets…');
+  try {
+    const res = await api('/api/sheets/sync', { method: 'POST', body: '{}' });
+    if (res.status) {
+      state.status = { ...(state.status || {}), sheets: res.status };
+      updateSheetsUi(res.status);
+    }
+    logSheetsResult(res, 'Sheets sync');
+    if (res.url) appendLog(`Sheet: ${res.url}`);
+  } catch (err) {
+    appendLog(`Sheets sync failed: ${err.message}`, 'stderr');
+  } finally {
+    els.sheetsSyncBtn.disabled = false;
+  }
 });
 els.marketSelect.addEventListener('change', async () => {
   try {

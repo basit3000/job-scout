@@ -43,10 +43,11 @@ Frame as a **working professional**, not a student CV. Standard headings only:
 | UI **CV source** | Behaviour |
 | --- | --- |
 | **Local resume.md** | Reorder `cv/resume.md` into the prep pack (Experience first) |
-| **Overleaf** | Pull → reorder sections/entries, lightly re-emphasise Experience bullets (current CV is source of truth), optionally add one posting-named portfolio tag on Projects → PDF in prep pack |
+| **Overleaf** | Pull → reorder, lightly re-emphasise Experience bullets, compile both CVs and squeeze to 1 page (no Experience cuts) → PDF in prep pack |
 
 ## What this is not
 
 Full agentic **cv-tailor** (GitHub evidence gather, one-page shell checks, surgical prose
-rewrites) still lives with the Overleaf skill. Job Scout Fast mode reorders and
-re-emphasises existing bullets; it does not invent new duties or metrics.
+rewrites) still lives with the Overleaf skill. Job Scout Fast mode reorders,
+re-emphasises existing bullets, and compile-checks both CVs to one page; it does not
+invent new duties or metrics or drop Experience.

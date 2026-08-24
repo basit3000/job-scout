@@ -7,17 +7,18 @@
  * (never logged). Mirror of cv-tailor git workflow.
  */
 
-import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, copyFile, readdir, rm, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
-import { compileTexToPdf, htmlFileToPdf } from './pdf.mjs';
+import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
 import {
   emphasizeItemizeInBody,
   enrichProjectsBody,
   loadPortfolioFacts,
 } from './tex-bullets.mjs';
+import { applyNextFitPass, experienceItemCount } from './tex-fit.mjs';
 
 loadDotEnv();
 
@@ -509,6 +510,83 @@ export async function tailorOverleafTex(
   return { edited, repaired, targets };
 }
 
+async function pageCountForTex(dir, texName) {
+  const texPath = join(dir, texName);
+  if (!existsSync(texPath)) return { pages: null, error: `${texName} not found` };
+  const outDir = join(dir, '.cv-build');
+  await mkdir(outDir, { recursive: true });
+  const compiled = await compileTexToPdf(texPath, outDir);
+  if (!compiled.ok) return { pages: null, error: compiled.error };
+  const pages = await countPdfPages(compiled.path);
+  return { pages, path: compiled.path, via: compiled.via };
+}
+
+async function fitOneTexToOnePage(dir, name) {
+  const path = join(dir, name);
+  let tex = await readFile(path, 'utf8');
+  const expBefore = experienceItemCount(tex);
+  const applied = [];
+  let last = await pageCountForTex(dir, name);
+  if (last.pages == null) {
+    return { ok: false, skipped: true, reason: last.error, pages: null, applied };
+  }
+  if (last.pages === 1) {
+    return { ok: true, pages: 1, applied: [], already: true };
+  }
+
+  while (last.pages > 1) {
+    const next = applyNextFitPass(tex, applied);
+    if (!next.changed) break;
+    if (experienceItemCount(next.tex) < expBefore) {
+      break;
+    }
+    tex = next.tex;
+    applied.push(next.pass);
+    await writeFile(path, tex);
+    last = await pageCountForTex(dir, name);
+    if (last.pages == null) {
+      return { ok: false, skipped: true, reason: last.error, pages: null, applied };
+    }
+  }
+
+  return {
+    ok: last.pages === 1,
+    pages: last.pages,
+    applied,
+    overflow: last.pages > 1,
+  };
+}
+
+/**
+ * Compile-check main.tex and ats.tex. If either is over one page, squeeze
+ * spacing/typography/filler wording (never drop Experience bullets).
+ */
+export async function fitOverleafCvsToOnePage() {
+  const dir = overleafDir();
+  const files = await listTexFiles(dir);
+  const targets = ['ats.tex', 'main.tex'].filter((n) => files.includes(n));
+  const perFile = {};
+  for (const name of targets) {
+    perFile[name] = await fitOneTexToOnePage(dir, name);
+  }
+  const pages = Object.fromEntries(
+    Object.entries(perFile).map(([k, v]) => [k, v.pages]),
+  );
+  const ok = targets.length > 0 && targets.every((n) => perFile[n]?.pages === 1);
+  return { ok, files: perFile, pages, targets };
+}
+
+async function cleanOverleafArtifacts(dir) {
+  await rm(join(dir, '.cv-build'), { recursive: true, force: true });
+  for (const n of ['main.pdf', 'ats.pdf', 'cv.pdf', 'resume.pdf']) {
+    try {
+      await unlink(join(dir, n));
+    } catch {
+      /* missing is fine */
+    }
+  }
+}
+
 export async function readOverleafAts() {
   const dir = overleafDir();
   for (const name of ['ats.tex', 'main.tex', 'cv.tex', 'resume.tex']) {
@@ -523,6 +601,7 @@ export async function readOverleafAts() {
 
 export async function pushOverleaf(message) {
   const dir = overleafDir();
+  await cleanOverleafArtifacts(dir);
   const { stdout: status } = await run('git', ['-C', dir, 'status', '--porcelain']);
   if (!String(status || '').trim()) {
     return { pushed: false, reason: 'no changes' };
@@ -552,7 +631,8 @@ export async function compileOverleafTex(texName, destPdf) {
   if (!result.ok) return { ...result, source: texName };
   await mkdir(dirname(destPdf), { recursive: true });
   await copyFile(result.path, destPdf);
-  return { ok: true, path: destPdf, via: result.via, source: texName };
+  const pages = await countPdfPages(destPdf);
+  return { ok: true, path: destPdf, via: result.via, source: texName, pages };
 }
 
 /** When LaTeX fails (e.g. moderncv + tectonic on Windows), print tex→HTML→PDF. */
@@ -637,6 +717,10 @@ export async function compileOverleafPdfs(prepDir) {
   const error = ok
     ? null
     : [results.ats?.error, results.main?.error].filter(Boolean).join(' | ') || 'No PDF compiled';
+  const pages = {
+    ats: results.ats?.pages ?? null,
+    main: results.main?.pages ?? null,
+  };
 
   return {
     ok,
@@ -647,6 +731,7 @@ export async function compileOverleafPdfs(prepDir) {
     ats: results.ats,
     main: results.main,
     alias: results.alias,
+    pages,
   };
 }
 
@@ -682,6 +767,7 @@ export async function runOverleafTailor({
     extraInstructions,
     portfolio,
   });
+  const fit = await fitOverleafCvsToOnePage();
   let pushResult = { pushed: false, reason: 'skipped' };
   if (push) {
     pushResult = await pushOverleaf(
@@ -692,6 +778,7 @@ export async function runOverleafTailor({
   return {
     sync,
     tailor,
+    fit,
     push: pushResult,
     pdf,
     overleafDir: overleafDir(),
@@ -709,6 +796,7 @@ export async function assembleOverleafAfterAgent({
   prepDir,
 }) {
   const sync = await syncOverleaf();
+  const fit = await fitOverleafCvsToOnePage();
   let pushResult = { pushed: false, reason: 'agent handled edits' };
   if (push) {
     pushResult = await pushOverleaf(
@@ -719,6 +807,7 @@ export async function assembleOverleafAfterAgent({
   return {
     sync,
     tailor: { edited: ['agent'], changed: true },
+    fit,
     push: pushResult,
     pdf,
     overleafDir: overleafDir(),

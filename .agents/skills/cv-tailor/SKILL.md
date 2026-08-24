@@ -36,6 +36,9 @@ If the token is missing, stop and say so rather than guessing at credentials. Se
 
 ```bash
 node .agents/skills/cv-tailor/scripts/gather-evidence.mjs --username YOUR_GITHUB
+# or, if this repo is not the portfolio:
+# node .agents/skills/cv-tailor/scripts/gather-evidence.mjs --username YOUR_GITHUB \
+#   --portfolio-root /path/to/portfolio
 ```
 
 Writes `.cv-workspace/evidence.json` and `.cv-workspace/evidence.md` (both gitignored).
@@ -106,6 +109,10 @@ Rules for the table:
 - A requirement with no evidence gets **no CV line**. Report it as a gap instead.
 - Tailoring means **reorder projects, re-weight skills, and lightly rewrite bullets** so
   the same true facts lead with what the posting cares about — not a full rewrite.
+- **Experience bullets on the current CV are the source of truth.** Re-emphasise them
+  (clause order, which duty leads) against the posting. Do not replace them with a
+  different job story. Portfolio copy is for Projects and for stack names those
+  projects already list — never paste personal-project work into employment.
 - Prefer portfolio project details that map to the posting over inventing new angles.
 - Mirror the posting's vocabulary only where it describes the same thing. If they say
   "microservices" and the evidence is one FastAPI service, do not call it microservices.
@@ -123,13 +130,15 @@ and voice, change emphasis not biography.
 
 Typical bullet moves (do several of these, not a page rewrite):
 
-1. Read each portfolio project in `evidence.md` that appears (or should appear) on the CV.
-2. For each existing bullet, keep the same role, project, and overall story; promote the
-   clause or tech that matches the posting to the front of the sentence.
-3. Swap in a portfolio-backed detail when the current bullet underplays something the job
-   asks for (e.g. API design, Docker, auth, testing) — still one line, same tone.
+1. Start from the current Experience bullets. Keep the same employer, title, dates,
+   and overall duty. Promote the clause or tech that matches the posting to the front.
+2. Read each portfolio project in `evidence.md` that appears (or should appear) on the CV.
+3. Swap in a portfolio-backed detail on **Projects** when the current bullet underplays
+   something the job asks for (e.g. API design, Docker, auth, testing) — still one line,
+   same tone. Do not add that detail to an employment bullet unless the existing CV
+   already states it.
 4. Drop or demote a clause that is true but irrelevant to this posting, if space or focus
-   needs it.
+   needs it — prefer demoting over deleting an Experience bullet.
 5. Keep employers, titles, dates, and project names unchanged unless the evidence pack
    clearly supports a correction.
 

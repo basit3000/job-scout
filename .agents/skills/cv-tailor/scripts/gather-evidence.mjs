@@ -8,6 +8,7 @@
 //
 // Usage:
 //   node .agents/skills/cv-tailor/scripts/gather-evidence.mjs [--username <login>] [--no-github]
+//   [--portfolio-root /path/to/portfolio]
 
 import { execFile } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -35,6 +36,7 @@ if (!USERNAME && !flag('--no-github')) {
   process.exit(1);
 }
 const USE_GITHUB = !flag('--no-github');
+const PORTFOLIO_ROOT = value('--portfolio-root', process.env.PORTFOLIO_ROOT || '');
 const RECENT_REPO_COUNT = 6;
 const COMMIT_SAMPLE = 8;
 const YEARS_BACK = 4;
@@ -42,6 +44,7 @@ const YEARS_BACK = 4;
 const warnings = [];
 
 async function repoRoot() {
+  if (PORTFOLIO_ROOT) return PORTFOLIO_ROOT;
   const { stdout } = await run('git', ['rev-parse', '--show-toplevel']);
   return stdout.trim();
 }

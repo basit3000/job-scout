@@ -272,7 +272,14 @@ export async function applySetup(body = {}) {
     const ids = new Set(
       (searchProfile.boards ?? []).map((b) => (typeof b === 'string' ? b : b.board)),
     );
-    for (const board of ['arbeitsagentur', 'arbeitnow']) {
+    for (const board of [
+      'arbeitsagentur',
+      'arbeitnow',
+      'berlinstartupjobs',
+      'munichstartup',
+      'pegel',
+      'nomado24',
+    ]) {
       if (!ids.has(board)) {
         searchProfile.boards.push({ board, queriesFromProfile: true });
       }

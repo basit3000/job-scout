@@ -25,7 +25,16 @@
     "stuttgart",
     "\\bde\\b"
   ],
-  "boards": ["indeed", "linkedin", "arbeitsagentur", "arbeitnow"],
+  "boards": [
+    "indeed",
+    "linkedin",
+    "arbeitsagentur",
+    "arbeitnow",
+    "berlinstartupjobs",
+    "munichstartup",
+    "pegel",
+    "nomado24"
+  ],
   "baytCountry": null,
   "nationalsOnlyPatterns": [
     "german nationals?\\s*only",
@@ -37,5 +46,5 @@
     "years?\\s*(of\\s*)?(german|germany) experience"
   ],
   "dropNationalsOnlyDefault": false,
-  "_notes": "Indeed/LinkedIn/Glassdoor/Google via JobSpy; Arbeitsagentur + Arbeitnow via free APIs. German-language titles are common."
+  "_notes": "Indeed/LinkedIn via JobSpy; Arbeitsagentur, Arbeitnow, Berlin Startup Jobs, Munich Startup, Pegel, Nomado24 via free APIs/HTML. German-language titles are common. startup-in-munich.de is a city self-employment office, not a job board."
 }

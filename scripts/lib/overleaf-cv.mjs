@@ -1,6 +1,7 @@
 /**
- * Overleaf CV mode: clone/pull → reorder Projects/Skills in ats.tex + main.tex →
- * commit/push → compile PDF when a LaTeX engine exists.
+ * Overleaf CV mode: clone/pull → reorder sections/entries, then lightly
+ * re-emphasise Experience bullets (current CV is source of truth) and
+ * optionally enrich Projects from portfolio facts → commit/push → compile.
  *
  * Credentials: OVERLEAF_GIT_TOKEN + OVERLEAF_PROJECT_ID in .env
  * (never logged). Mirror of cv-tailor git workflow.
@@ -12,6 +13,11 @@ import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
 import { compileTexToPdf, htmlFileToPdf } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
+import {
+  emphasizeItemizeInBody,
+  enrichProjectsBody,
+  loadPortfolioFacts,
+} from './tex-bullets.mjs';
 
 loadDotEnv();
 
@@ -417,11 +423,39 @@ function stampComments(jobTitle, company, extraInstructions) {
 }
 
 /**
- * Edit ats.tex + main.tex (or any .tex) — reorder only, never invent facts.
+ * Experience: reorder/re-emphasise existing bullets only.
+ * Projects: same, plus at most one portfolio tag the posting already names.
+ */
+function emphasizeAndEnrich(tex, keywords, projects) {
+  const parts = splitDocumentSections(tex);
+  if (!parts) return { tex, changed: false };
+  let changed = false;
+  const next = parts.sections.map((sec) => {
+    if (sec.key === 'experience') {
+      const r = emphasizeItemizeInBody(sec.body, keywords);
+      if (r.changed) changed = true;
+      return { ...sec, body: r.body };
+    }
+    if (sec.key === 'projects') {
+      const r1 = emphasizeItemizeInBody(sec.body, keywords);
+      const r2 = enrichProjectsBody(r1.body, keywords, projects);
+      if (r1.changed || r2.changed) changed = true;
+      return { ...sec, body: r2.body };
+    }
+    return sec;
+  });
+  if (!changed) return { tex, changed: false };
+  return { tex: joinDocumentSections({ ...parts, sections: next }), changed: true };
+}
+
+/**
+ * Edit ats.tex + main.tex (or any .tex).
+ * Reorder sections/entries, then lightly re-emphasise Experience bullets
+ * (current CV is source of truth). Never invent facts.
  */
 export async function tailorOverleafTex(
   keywords,
-  { jobTitle = '', company = '', extraInstructions = '' } = {},
+  { jobTitle = '', company = '', extraInstructions = '', portfolio = null } = {},
 ) {
   const dir = overleafDir();
   const texFiles = await listTexFiles(dir);
@@ -439,6 +473,7 @@ export async function tailorOverleafTex(
     if (await repairSkillsIfNeeded(dir, name)) repaired.push(name);
   }
 
+  const facts = portfolio || (await loadPortfolioFacts());
   const kw = [...new Set([...keywords, ...instructionKeywords(extraInstructions)])];
   const edited = [...repaired];
   for (const name of targets.slice(0, 4)) {
@@ -454,6 +489,9 @@ export async function tailorOverleafTex(
     r = reorderSection(tex, ['experience'], kw);
     tex = r.tex;
     r = reorderSkills(tex, kw);
+    tex = r.tex;
+    // 3) Light-touch Experience (and Projects) bullets — keep current text
+    r = emphasizeAndEnrich(tex, kw, facts.projects || []);
     tex = r.tex;
     const stamp = stampComments(jobTitle, company, extraInstructions);
     const needsStamp =
@@ -635,12 +673,14 @@ export async function runOverleafTailor({
   job,
   prepDir,
   extraInstructions = '',
+  portfolio = null,
 }) {
   const sync = await syncOverleaf();
   const tailor = await tailorOverleafTex(keywords, {
     jobTitle: job.title,
     company: job.company,
     extraInstructions,
+    portfolio,
   });
   let pushResult = { pushed: false, reason: 'skipped' };
   if (push) {

@@ -235,6 +235,10 @@ export function buildPrepIndex(job, fit, {
   if (hasPdf && !hasAts && !hasMain) pdfLines.push('- [CV PDF](./cv.pdf)');
   if (!pdfLines.length) pdfLines.push('- _PDF: open HTML → Print, or enable Overleaf + LaTeX / Chrome_');
   if (downloadFolder) pdfLines.push(`- Download folder: \`${downloadFolder}\``);
+  const fitPages = overleaf?.fit?.pages || overleaf?.pdf?.pages || {};
+  const fitNote = overleaf?.fit
+    ? `- One-page check: ATS ${fitPages['ats.tex'] ?? fitPages.ats ?? '?'}p, Main ${fitPages['main.tex'] ?? fitPages.main ?? '?'}p${overleaf.fit.ok ? ' — both 1 page' : overleaf.fit.ok === false ? ' — still over (kept Experience; squeezed spacing only)' : ''}`
+    : null;
   const olLines = overleaf
     ? [
         '',
@@ -245,6 +249,7 @@ export function buildPrepIndex(job, fit, {
         `- Push: ${(overleaf.push?.pushed ?? overleaf.pushed) ? 'yes' : overleaf.push?.reason || overleaf.pushReason || 'no'}`,
         `- ATS PDF: ${overleaf.pdf?.hasAts ? overleaf.pdf.via || 'yes' : overleaf.pdf?.ats?.error || 'n/a'}`,
         `- Main PDF: ${overleaf.pdf?.hasMain ? overleaf.pdf.via || 'yes' : overleaf.pdf?.main?.error || 'n/a'}`,
+        ...(fitNote ? [fitNote] : []),
       ]
     : [];
 

@@ -45,8 +45,10 @@ Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / 
 
 **Create CV** in the modal uses the agent. **Fast (keyword)** skips it: reorder plus
 light re-emphasis of existing Experience bullets (current CV is source of truth;
-portfolio may add one posting-named tag on Projects). If the chosen agent is unavailable,
-Prep falls back to Fast.
+portfolio may add one posting-named tag on Projects). After edits, both Overleaf CVs
+(`main.tex` and `ats.tex`) are compiled and squeezed to **one page** (spacing /
+typography / filler wording — Experience bullets are kept). If the chosen agent is
+unavailable, Prep falls back to Fast.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 

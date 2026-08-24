@@ -58,13 +58,15 @@ function isProjectEntry(exp) {
     || /personal|portfolio|side|own|hobby|freelance\s*project|self/.test(org);
 }
 
-function scoreEntry(exp, keywords) {
+function scoreEntry(exp, keywords, { keepAllBullets = false } = {}) {
   const bullets = rankBullets(exp.bullets, keywords);
-  const chosen = (
-    bullets.filter((b) => b.score > 0).slice(0, 3).length
-      ? bullets.filter((b) => b.score > 0).slice(0, 3)
-      : bullets.slice(0, 2)
-  ).map((b) => b.text);
+  const chosen = keepAllBullets
+    ? bullets.map((b) => b.text)
+    : (
+      bullets.filter((b) => b.score > 0).slice(0, 3).length
+        ? bullets.filter((b) => b.score > 0).slice(0, 3)
+        : bullets.slice(0, 2)
+    ).map((b) => b.text);
   const score =
     scoreText(`${exp.title} ${exp.org}`, keywords)
     + chosen.reduce((n, t) => n + scoreText(t, keywords), 0);
@@ -122,14 +124,14 @@ function fromProfile(job, profile, fit, keywords) {
   const highlighted = rankedSkills.filter((s) => scoreText(s, keywords) > 0);
   const skillLine = unique([...highlighted, ...rankedSkills]).slice(0, 8);
 
-  const scored = (profile.experience ?? []).map((e) => scoreEntry(e, keywords));
+  const scored = (profile.experience ?? []).map((e) =>
+    scoreEntry(e, keywords, { keepAllBullets: !isProjectEntry(e) }),
+  );
   const projects = scored
     .filter((e) => isProjectEntry(e))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
-  const experience = scored
-    .filter((e) => !isProjectEntry(e))
-    .sort((a, b) => b.score - a.score);
+  const experience = scored.filter((e) => !isProjectEntry(e));
 
   const role = profile.targetRole || 'Software Developer';
   const techHint = (highlighted.length ? highlighted : skillLine).slice(0, 4).join(', ');

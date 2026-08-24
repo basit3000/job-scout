@@ -2,7 +2,7 @@
  * Produce a PDF from HTML (Chrome/Edge headless) or LaTeX (tectonic, auto-downloaded).
  */
 
-import { access, mkdir, writeFile, chmod } from 'node:fs/promises';
+import { access, mkdir, writeFile, chmod, readFile } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { existsSync } from 'node:fs';
 import { run, ROOT, workspaceDir } from './common.mjs';
@@ -140,6 +140,28 @@ export async function ensureTectonic() {
     throw new Error(`tectonic downloaded but binary not found at ${exe}`);
   }
   return exe;
+}
+
+/**
+ * Count pages in a PDF. Prefers the /Pages /Count tree; falls back to /Type /Page objects.
+ */
+export function parsePdfPageCount(buf) {
+  const s = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf ?? '');
+  const near = [...s.matchAll(/\/Type\s*\/Pages[\s\S]{0,240}\/Count\s+(\d+)/g)]
+    .map((m) => Number(m[1]))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n < 80);
+  if (near.length) return Math.max(...near);
+  const pages = [...s.matchAll(/\/Type\s*\/Page(?![sA-Za-z])/g)].length;
+  return pages || null;
+}
+
+export async function countPdfPages(pdfPath) {
+  try {
+    const buf = await readFile(pdfPath);
+    return parsePdfPageCount(buf);
+  } catch {
+    return null;
+  }
 }
 
 /** Try tectonic / latexmk / pdflatex on a .tex file. Auto-fetches tectonic once. */

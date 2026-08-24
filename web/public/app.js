@@ -277,6 +277,7 @@ function onDecisionFilterChange({ rerender = false } = {}) {
   updateDecisionFilterUi();
   state.page = 1;
   refreshJobs();
+  if (state.view === 'digest') refreshDigest();
 }
 
 function onTrackerColumnsChange({ rerender = false } = {}) {
@@ -574,6 +575,7 @@ function renderJob(job, { compact = false } = {}) {
           }
           await refreshJobs();
           if (state.view === 'tracker') await refreshTracker();
+          if (state.view === 'digest') await refreshDigest();
         } catch (err) {
           appendLog(`Decision failed: ${err.message}`, 'stderr');
         }
@@ -610,6 +612,7 @@ function renderJob(job, { compact = false } = {}) {
         });
         await refreshJobs();
         if (state.view === 'tracker') await refreshTracker();
+        if (state.view === 'digest') await refreshDigest();
         appendLog(`Marked applied: ${job.title}`);
         logSheetsResult(res.sheets, 'Sheets (applied)');
       } catch (err) {
@@ -1224,18 +1227,34 @@ async function refreshAnswers() {
   ).join('');
 }
 
+function decisionKey(job) {
+  return job?.decision?.decision || 'none';
+}
+
+/** Digest is an inbox of new postings — hide applied (and any Results-filter hides). */
+function digestJobVisible(job) {
+  const key = decisionKey(job);
+  if (key === 'applied') return false;
+  const hide = hiddenFromVisible(
+    DECISION_FILTER_OPTIONS.map((o) => o.id),
+    state.visibleDecisions,
+  );
+  return !hide.includes(key);
+}
+
 async function refreshDigest() {
   const data = await api('/api/digest');
+  const jobs = (data.newJobs || []).filter(digestJobVisible);
   els.digestMeta.textContent = data.digest?.generatedAt
-    ? `${data.count} new since previous fetch (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
+    ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
   els.digestList.innerHTML = '';
-  if (!data.newJobs?.length) {
-    els.digestList.innerHTML = '<div class="empty"><p>No new postings vs the previous fetch.</p></div>';
+  if (!jobs.length) {
+    els.digestList.innerHTML = '<div class="empty"><p>No new postings left to review. Applied jobs are in Tracker.</p></div>';
     return;
   }
   const frag = document.createDocumentFragment();
-  for (const job of data.newJobs) frag.appendChild(renderJob(job));
+  for (const job of jobs) frag.appendChild(renderJob(job));
   els.digestList.appendChild(frag);
 }
 

@@ -165,17 +165,22 @@ there is nothing to preserve, and replace every placeholder before push.
 anything other than exactly 1. Do not report success on an uncompiled document, and do not
 assume a trim worked — rerun it.
 
-When it overflows, cut in this order, stopping as soon as it fits:
+When it overflows, **compile both `main.tex` and `ats.tex` first**, then fit in this
+order, stopping as soon as each file is exactly 1 page. **Do not delete Experience
+bullets, Education, or project headlines.**
 
-1. Oldest and weakest bullets (coursework-grade repos, duplicate tools).
-2. Whole projects that the target job does not care about.
-3. Second and third bullets on projects that keep their headline.
-4. Wording: compress long bullets to one line each, drop filler adjectives.
-5. Only then typography — and only down to these floors: body text ≥ 10pt, page margins
-   ≥ 0.5in, line spacing ≥ 0.95. A CV that fits because it is unreadable has failed.
+1. Typography / spacing — down to these floors: body text ≥ 10pt, page margins
+   ≥ 0.5in, line spacing ≥ 0.95.
+2. Wording: compress long bullets to one line each, drop filler adjectives.
+   Same facts, shorter sentences.
+3. Cut Interests / Hobbies if present.
+4. Only then extra project bullets (second/third on a project that keeps its headline),
+   then weakest coursework-grade repos. Never Experience.
+5. If it still will not fit at those floors, stop and report which content the user
+   should cut. Do not shrink past the floors.
 
-If it still will not fit at those floors, stop and report which content the user should
-cut. Do not shrink past the floors.
+Job Scout Fast/agent Overleaf mode runs the same compile-check after edits and applies
+steps 1–3 automatically.
 
 If the page count contradicts the space you can see at the bottom of the render, suspect a
 `\cvitem` label wider than `\hintscolumnwidth` before you cut anything: an overlong label

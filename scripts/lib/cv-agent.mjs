@@ -303,7 +303,10 @@ function buildPrompt({
       '- Credentials are in the environment as OVERLEAF_GIT_TOKEN and OVERLEAF_PROJECT_ID.',
       '- Use the git clone at `.workspace/overleaf` (create/pull it if needed).',
       '- URL form: `https://git:$OVERLEAF_GIT_TOKEN@git.overleaf.com/$OVERLEAF_PROJECT_ID`.',
-      '- Surgically edit ats.tex and main.tex for this job; keep one-page fit.',
+      '- Surgically edit ats.tex and main.tex for this job.',
+      '- After edits, compile both and confirm each is exactly 1 page (`check-onepage.sh`).',
+      '- If a file overflows: squeeze spacing, then typography (floors 10pt / 0.5in / 0.95),',
+      '  then drop filler adjectives. Do not delete Experience bullets or Education.',
       '- Run page/ATS checks when practical (scripts under `.agents/skills/cv-tailor/scripts/`).',
       overleafPush
         ? '- Commit and push the .tex changes to Overleaf when done.'

@@ -10,7 +10,7 @@
     "dev": "node scripts/setup.mjs --quiet && node web/server.mjs",
     "fetch": "node scripts/fetch-jobs.mjs",
     "evidence": "node scripts/build-evidence.mjs",
-    "test": "node --test scripts/lib/tex-bullets.test.mjs"
+    "test": "node --test scripts/lib/tex-bullets.test.mjs scripts/lib/tex-fit.test.mjs"
   },
   "engines": {
     "node": ">=22.13"

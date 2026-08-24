@@ -9,7 +9,8 @@
     "start": "node scripts/setup.mjs --quiet && node web/server.mjs",
     "dev": "node scripts/setup.mjs --quiet && node web/server.mjs",
     "fetch": "node scripts/fetch-jobs.mjs",
-    "evidence": "node scripts/build-evidence.mjs"
+    "evidence": "node scripts/build-evidence.mjs",
+    "test": "node --test scripts/lib/tex-bullets.test.mjs"
   },
   "engines": {
     "node": ">=22.13"

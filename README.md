@@ -43,7 +43,10 @@ Pick the backend in the UI **Agent** control (or `cv.agentProvider` / `AGENT_PRO
 
 Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / `CLAUDE_CODE_MODEL` / `CODEX_MODEL`.
 
-**Create CV** in the modal uses the agent. **Fast (keyword)** skips it (reorder-only). If the chosen agent is unavailable, Prep falls back to Fast.
+**Create CV** in the modal uses the agent. **Fast (keyword)** skips it: reorder plus
+light re-emphasis of existing Experience bullets (current CV is source of truth;
+portfolio may add one posting-named tag on Projects). If the chosen agent is unavailable,
+Prep falls back to Fast.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 

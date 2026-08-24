@@ -112,8 +112,14 @@ Toggle portals in the **Portals** tab (or `boards` in `search-profile.json`).
 | Indeed, LinkedIn | JobSpy | Defaults |
 | Glassdoor, Google Jobs | JobSpy | Often flaky / blocked |
 | Arbeitsagentur, Arbeitnow | API | Germany (`DE`) |
+| Berlin Startup Jobs | API | [berlinstartupjobs.com](https://berlinstartupjobs.com/) (`DE`) |
+| Munich Startup | HTML | [munich-startup.de/en/jobs](https://www.munich-startup.de/en) (`DE`) |
+| Pegel | API | [pegel.berlin](https://pegel.berlin) Berlin startup ATS feeds (`DE`) |
+| Nomado24 | API | [nomado24.de](https://www.nomado24.de) DE/EU remote+hybrid (`DE`) |
 | ZipRecruiter / Naukri / BDJobs | JobSpy | Regional |
 | Bayt | Apify (paid) | MENA only |
+
+`startup-in-munich.de` is Munich’s municipal self-employment office (not a job board), so it is not wired as a portal.
 
 Searches **accumulate** into `.workspace/jobs.json` by default (duplicates collapsed). Use **Replace results** or `--replace` to start fresh.
 

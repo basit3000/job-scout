@@ -205,7 +205,7 @@ export function tailorParsedResume(parsed, keywords, profile = {}) {
     .map((e) => ({
       ...e,
       score: scoreText(`${e.title} ${e.org} ${(e.bullets || []).join(' ')}`, kw),
-      bullets: rankBullets(e.bullets, kw),
+      bullets: rankBullets(e.bullets, kw, { limit: 3 }),
     }))
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
@@ -215,9 +215,8 @@ export function tailorParsedResume(parsed, keywords, profile = {}) {
     .map((e) => ({
       ...e,
       score: scoreText(`${e.title} ${e.org} ${(e.bullets || []).join(' ')}`, kw),
-      bullets: rankBullets(e.bullets, kw),
-    }))
-    .sort((a, b) => b.score - a.score);
+      bullets: rankBullets(e.bullets, kw), // keep every experience bullet
+    }));
 
   let skillLine = skillsSec?.skills?.length
     ? [...skillsSec.skills].sort(
@@ -269,16 +268,16 @@ export function tailorParsedResume(parsed, keywords, profile = {}) {
   };
 }
 
-function rankBullets(bullets, keywords) {
+function rankBullets(bullets, keywords, { limit = Infinity } = {}) {
   const weak = /^(responsible for|helped with|worked on|assisted|utilised|utilized)\b/i;
-  return [...(bullets ?? [])]
+  const ranked = [...(bullets ?? [])]
     .map((text) => ({
       text,
       score: scoreText(text, keywords) + (weak.test(text) ? -2 : 0),
     }))
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 3)
-    .map((b) => b.text);
+    .sort((a, b) => b.score - a.score);
+  const capped = Number.isFinite(limit) ? ranked.slice(0, limit) : ranked;
+  return capped.map((b) => b.text);
 }
 
 /** Serialize tailored resume back to markdown (cv-tailor section order). */

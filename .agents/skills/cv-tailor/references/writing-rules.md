@@ -99,6 +99,11 @@ verified GitHub facts from the evidence pack.
 tech named in-line. New wording must sound like the same author wrote a slightly sharper
 version of the same bullet — not a different resume template.
 
+**Experience source of truth.** The bullets already on the CV (especially current
+employment) are the duties you may re-emphasise. Portfolio copy is extra evidence for
+**Projects** and for naming stack that those project entries already list. Do not invent
+a new e.solutions (or any other) story from the portfolio.
+
 | Allowed | Not allowed |
 | --- | --- |
 | Move the job-relevant clause earlier in the sentence | Rewrite the bullet into a new story |
@@ -120,6 +125,8 @@ Same theme and length; emphasis follows the posting; every clause is in the port
 Projects bullets; leave the rest. Prefer clause reordering over full sentence replacement.
 Experience bullets may re-emphasise duties that already appear on the CV; never invent
 duties, tools, or scope the existing CV did not state and the evidence pack cannot verify.
+Do not drop Experience bullets to make room for keyword stuffing — keep the current set
+and only trim if the one-page check fails.
 
 ## Tone and mechanics
 

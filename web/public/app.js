@@ -646,8 +646,8 @@ function openPrepModal(job) {
     const keyOk = Boolean(state.status?.cursorApiKeyPresent);
     els.prepModalTitle.textContent = hasCache ? 'Recreate CV?' : 'Prep & CV';
     els.prepModalHint.textContent = hasCache
-      ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = keyword reorder.`
-      : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
+      ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = reorder + light experience-bullet emphasis.`
+      : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword reorder + existing-bullet emphasis.`;
     els.prepModalUseExisting.hidden = !hasCache;
     els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create CV';
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';

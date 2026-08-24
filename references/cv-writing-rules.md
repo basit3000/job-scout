@@ -10,8 +10,10 @@ Overleaf **cv-tailor** skill (`writing-rules.md` + `format-benchmarks.md`).
 - **No implied employment.** Personal projects stay personal — never client / production /
   “thousands of users” language unless the profile already states it.
 - **No buzzword laundering.** One FastAPI service is not “microservices”.
-- **Reorder and re-weight only.** Tailoring means putting the best-fit true content first
-  *within* a section — not inventing lines.
+- **Reorder, re-weight, and lightly re-emphasise.** Tailoring puts the best-fit true
+  content first *within* a section. Experience bullets on the current CV are the source
+  of truth: reorder clauses / which duty leads, but do not replace them with a new story
+  or drop them. Portfolio copy may enrich **Projects** (stack the project already lists).
 - A requirement with **no evidence** gets **no CV line** — it goes in `requirements.md` as a gap.
 
 ## Section order (hard rule — Main and ATS)
@@ -41,10 +43,10 @@ Frame as a **working professional**, not a student CV. Standard headings only:
 | UI **CV source** | Behaviour |
 | --- | --- |
 | **Local resume.md** | Reorder `cv/resume.md` into the prep pack (Experience first) |
-| **Overleaf** | Pull → reorder sections/entries in `ats.tex`/`main.tex` → PDF in prep pack |
+| **Overleaf** | Pull → reorder sections/entries, lightly re-emphasise Experience bullets (current CV is source of truth), optionally add one posting-named portfolio tag on Projects → PDF in prep pack |
 
 ## What this is not
 
 Full agentic **cv-tailor** (GitHub evidence gather, one-page shell checks, surgical prose
-rewrites) still lives with the Overleaf skill. Job Scout automates reorder + PDF download;
-it does not invent new bullet text.
+rewrites) still lives with the Overleaf skill. Job Scout Fast mode reorders and
+re-emphasises existing bullets; it does not invent new duties or metrics.

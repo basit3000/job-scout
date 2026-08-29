@@ -31,6 +31,7 @@ const els = {
   decisionFilterActive: $('decisionFilterActive'),
   activeDecisionFilters: $('activeDecisionFilters'),
   fitFilter: $('fitFilter'),
+  sortSelect: $('sortSelect'),
   pageSize: $('pageSize'),
   pager: $('pager'),
   pageLabel: $('pageLabel'),
@@ -102,6 +103,8 @@ const TRACKER_COLUMN_OPTIONS = DECISIONS.map((id) => ({
 const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
 const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
+const LS_SORT = 'jobScout.sort';
+const SORT_VALUES = ['fit', 'newest', 'oldest'];
 
 const ANSWER_FIELDS = [
   ['workAuthorization', 'Work authorisation'],
@@ -328,6 +331,7 @@ function initFilterMenus() {
   );
   updateDecisionFilterUi();
   updateTrackerColumnsUi();
+  if (els.sortSelect) els.sortSelect.value = loadSort();
 
   els.decisionFilterBtn?.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -443,12 +447,30 @@ function connectStream() {
   return es;
 }
 
+function loadSort() {
+  try {
+    const raw = localStorage.getItem(LS_SORT);
+    return SORT_VALUES.includes(raw) ? raw : 'fit';
+  } catch {
+    return 'fit';
+  }
+}
+
+function saveSort(value) {
+  try {
+    localStorage.setItem(LS_SORT, SORT_VALUES.includes(value) ? value : 'fit');
+  } catch {
+    /* ignore */
+  }
+}
+
 function queryString() {
   const p = new URLSearchParams({
     page: String(state.page),
     pageSize: els.pageSize.value || '10',
     q: els.searchInput.value.trim(),
     fit: els.fitFilter.value,
+    sort: els.sortSelect?.value || 'fit',
   });
   const hide = hiddenFromVisible(
     DECISION_FILTER_OPTIONS.map((o) => o.id),
@@ -1413,6 +1435,11 @@ els.searchInput.addEventListener('input', () => {
   searchDebounce = setTimeout(() => refreshJobs(), 200);
 });
 els.fitFilter.addEventListener('change', () => {
+  state.page = 1;
+  refreshJobs();
+});
+els.sortSelect?.addEventListener('change', () => {
+  saveSort(els.sortSelect.value);
   state.page = 1;
   refreshJobs();
 });

@@ -53,6 +53,7 @@ import {
   selectedBoardIds,
 } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
+import { compareFit, sortJobs } from '../scripts/lib/job-sort.mjs';
 import {
   sheetsStatus,
   sheetsUrl,
@@ -355,13 +356,7 @@ async function enrichJobs({ force = false } = {}) {
       };
     });
 
-    jobs.sort((a, b) => {
-      const vs = { Strong: 0, 'Worth a shot': 1, Stretch: 2, No: 3 };
-      const av = vs[a.fit?.verdict] ?? 9;
-      const bv = vs[b.fit?.verdict] ?? 9;
-      if (av !== bv) return av - bv;
-      return (b.fit?.score ?? 0) - (a.fit?.score ?? 0);
-    });
+    jobs.sort(compareFit);
 
     const { jobs: _j, ...meta } = data;
     meta.duplicatesRemovedExtra = Math.max(0, before - deduped.length);
@@ -494,6 +489,7 @@ async function handleApi(req, res, url) {
     if (fit && fit !== 'all') list = list.filter((j) => j.fit?.verdict === fit);
     if (url.searchParams.get('new') === '1') list = list.filter((j) => j.isNew);
 
+    list = sortJobs(list, url.searchParams.get('sort') || 'fit');
     const page = paginate(list, url);
     return json(res, 200, {
       jobs: page.items.map(toJobListItem),

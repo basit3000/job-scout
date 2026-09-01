@@ -236,9 +236,22 @@ export async function fetchBerlinStartupJobs(query, { limit }, market) {
     const res = await fetch(`${BSJ_BASE}/posts?${params}`, {
       headers: { Accept: 'application/json', 'User-Agent': AA_UA },
     });
-    if (!res.ok) throw new Error(`BerlinStartupJobs HTTP ${res.status}`);
-    const items = await res.json();
-    if (!Array.isArray(items) || !items.length) break;
+    const totalPages = Number(res.headers.get('X-WP-TotalPages') || 0);
+    let body = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+
+    // WP REST returns 400 (not 404) when page > available pages.
+    if (res.status === 400 && body?.code === 'rest_post_invalid_page_number') break;
+    if (!res.ok) {
+      throw new Error(`BerlinStartupJobs HTTP ${res.status}`);
+    }
+
+    const items = Array.isArray(body) ? body : [];
+    if (!items.length) break;
 
     for (const p of items) {
       const title = decodeEntities(stripHtml(p.title?.rendered || ''));
@@ -269,6 +282,8 @@ export async function fetchBerlinStartupJobs(query, { limit }, market) {
       out.push(job);
       if (out.length >= want) break;
     }
+
+    if (totalPages && page >= totalPages) break;
   }
 
   return out;

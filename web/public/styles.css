@@ -611,6 +611,14 @@ a.btn.primary-link:hover {
   color: var(--danger);
 }
 
+.pill.lang-de {
+  background: rgba(36, 54, 64, 0.1);
+}
+
+.pill.lang-en {
+  background: rgba(13, 143, 123, 0.1);
+}
+
 .job-list {
   padding: 0.5rem;
   display: grid;
@@ -726,45 +734,111 @@ a.btn.primary-link:hover {
 }
 
 .kanban {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 0.65rem;
-  padding: 0.75rem;
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem 1.1rem;
+  overflow-x: auto;
 }
 
 .kanban-col {
+  flex: 1 1 16rem;
+  min-width: 16rem;
+  max-width: 22rem;
   background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--line);
   border-radius: 12px;
-  min-height: 160px;
-  padding: 0.55rem;
+  padding: 0.65rem 0.7rem 0.75rem;
 }
 
 .kanban-col h3 {
-  margin: 0 0 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 0 0 0.55rem;
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
 }
 
+.kanban-col h3 span {
+  font-family: var(--mono);
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .kanban-card {
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 0.55rem 0.65rem;
-  margin-bottom: 0.45rem;
-  font-size: 0.85rem;
+  padding: 0.65rem 0.7rem 0.7rem;
+  margin-bottom: 0.5rem;
 }
 
-.kanban-card strong {
+.kanban-card-title {
   display: block;
-  margin-bottom: 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 650;
+  line-height: 1.35;
+  color: var(--ink);
+  text-decoration: none;
 }
 
-.kanban-card .muted {
+a.kanban-card-title:hover {
+  color: var(--accent-ink);
+}
+
+.kanban-card-meta {
+  margin: 0.25rem 0 0;
   color: var(--muted);
   font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.kanban-card-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.4rem;
+  margin-top: 0.55rem;
+  align-items: center;
+}
+
+.kanban-status {
+  min-width: 0;
+}
+
+.kanban-status select,
+.kanban-card-actions input[type="date"] {
+  width: 100%;
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.32rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+}
+
+.kanban-card-actions input[type="date"] {
+  width: 8.4rem;
+}
+
+.kanban-more {
+  width: 100%;
+  margin-top: 0.15rem;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .follow-banner {
@@ -867,6 +941,18 @@ a.btn.primary-link:hover {
 
 .log-view .err {
   color: var(--danger);
+}
+
+.log-view .tool {
+  color: #1d4e89;
+}
+
+.log-view .meta {
+  color: var(--muted);
+}
+
+.log-view .ok {
+  color: var(--ok);
 }
 
 .prep-view {

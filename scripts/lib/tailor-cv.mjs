@@ -142,7 +142,9 @@ function fromProfile(job, profile, fit, keywords) {
     links.linkedin,
     links.github,
     links.portfolio || links.site,
-    profile.location?.current,
+    profile.location?.showOnCv === false
+      ? null
+      : (profile.location?.cvDisplay || profile.location?.current),
   ].filter(Boolean);
 
   return {

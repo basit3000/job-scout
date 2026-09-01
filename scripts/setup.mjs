@@ -16,7 +16,9 @@ async function main() {
   const status = await getSetupStatus();
 
   if (quiet) {
-    if (status.needsSetup) {
+    if (status.profileParseError) {
+      console.log(`Job Scout: profile.json is invalid JSON (${status.profileParseError}). Fix that file — your data is still there.`);
+    } else if (status.needsSetup) {
       console.log('Job Scout: first-run setup needed → open http://localhost:4040 and fill the form.');
     }
     return;
@@ -24,7 +26,9 @@ async function main() {
 
   console.log(`\n${created ? `Created ${created} file(s).` : 'Everything already in place.'}`);
 
-  if (status.needsSetup) {
+  if (status.profileParseError) {
+    console.log(`\nprofile.json is invalid JSON:\n  ${status.profileParseError}\nFix the file (often a trailing comma). Do not run first-time setup — that would overwrite it.\n`);
+  } else if (status.needsSetup) {
     console.log(`
 Not configured yet. Easiest path:
   npm start

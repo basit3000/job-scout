@@ -14,6 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { ROOT, loadJson, workspaceDir } from './common.mjs';
+import { loadDecisions, recordDecision } from './decisions.mjs';
 
 const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -23,20 +24,211 @@ const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 export const SHEET_SYNC_DECISIONS = ['applied', 'interviewing', 'rejected', 'closed'];
 
 export const SHEET_HEADERS = [
-  'Job ID',
   'Date',
   'Company',
   'Title',
+  'Applied',
+  'Links',
   'Location',
   'Board',
-  'Status',
-  'URL',
   'Note',
   'Follow-up',
   'Salary',
   'Remote',
   'Updated at',
 ];
+
+const LAST_COL = 'L';
+
+export function looksLikeJobId(cell) {
+  return /^[a-z][a-z0-9_-]*:[a-z0-9._-]+:[a-z0-9._-]+$/i.test(String(cell || '').trim());
+}
+
+export function looksLikeIsoDate(cell) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(cell || '').trim());
+}
+
+/**
+ * Company in A, status in C, board in D, URL in F — leftover after a remap
+ * that dropped Date. New Apply rows already use Date first.
+ */
+export function isShiftedSheetRow(row = []) {
+  if (looksLikeIsoDate(row[0]) || looksLikeJobId(row[0])) return false;
+  const status = String(row[2] || '').trim().toLowerCase();
+  if (!SHEET_SYNC_DECISIONS.includes(status) && status !== 'shortlisted') return false;
+  const url = String(row[5] || '').trim();
+  const board = String(row[3] || '').trim();
+  return /^https?:\/\//i.test(url) || (Boolean(board) && !/^https?:\/\//i.test(board));
+}
+
+export function isLegacySheetHeader(row) {
+  const cells = (row || []).map((c) => String(c || '').trim().toLowerCase());
+  return cells[0] === 'job id' || cells.includes('job id');
+}
+
+export function isCurrentSheetHeader(row) {
+  const cells = (row || []).map((c) => String(c || '').trim());
+  return cells[0] === 'Date'
+    && cells[1] === 'Company'
+    && cells[2] === 'Title'
+    && cells[3] === 'Applied'
+    && cells[4] === 'Links';
+}
+
+/** Old: Job ID, Date, Company, Title, Location, Board, Status, URL, … */
+export function remapLegacySheetRow(old = []) {
+  const r = Array.isArray(old) ? old : [];
+  return [
+    r[1] || '',
+    r[2] || '',
+    r[3] || '',
+    r[6] || '',
+    r[7] || '',
+    r[4] || '',
+    r[5] || '',
+    r[8] || '',
+    r[9] || '',
+    r[10] || '',
+    r[11] || '',
+    r[12] || '',
+  ];
+}
+
+function dateFromUpdatedAt(cell) {
+  const s = String(cell || '').trim();
+  return /^\d{4}-\d{2}-\d{2}T/.test(s) ? s.slice(0, 10) : '';
+}
+
+export function remapShiftedSheetRow(row = [], dateHint = '') {
+  const r = Array.isArray(row) ? row : [];
+  return [
+    dateHint || dateFromUpdatedAt(r[10]) || '',
+    r[0] || '',
+    r[1] || '',
+    r[2] || '',
+    r[5] || '',
+    r[6] || '',
+    r[3] || '',
+    r[4] || '',
+    r[7] || '',
+    r[8] || '',
+    r[9] || '',
+    r[10] || '',
+  ];
+}
+
+export function rowFromEntry(entry, job = null) {
+  const remote = job?.remote === true ? 'yes' : job?.remote === false ? 'no' : '';
+  return [
+    entry.date || '',
+    entry.company || job?.company || '',
+    entry.title || job?.title || '',
+    entry.decision || '',
+    entry.url || job?.url || '',
+    job?.location || entry.location || '',
+    entry.board || job?.board || '',
+    entry.note || '',
+    entry.followUpDate || '',
+    job?.salary || entry.salary || '',
+    remote,
+    new Date().toISOString(),
+  ];
+}
+
+/** 1-based sheet row to write the next application into (row 1 is the header). */
+export function nextSheetDataRow(rows = []) {
+  let last = 1;
+  for (let i = 1; i < rows.length; i += 1) {
+    if ((rows[i] || []).some((c) => String(c || '').trim())) last = i + 1;
+  }
+  return last + 1;
+}
+
+export function normalizeSheetRow(row = [], dateHint = '') {
+  if (looksLikeJobId(row[0])) return remapLegacySheetRow(row);
+  if (isShiftedSheetRow(row)) return remapShiftedSheetRow(row, dateHint);
+  return SHEET_HEADERS.map((_, i) => row[i] || '');
+}
+
+export function dateHintForShiftedRow(row = [], decisions = []) {
+  const url = String(row[5] || '').trim();
+  const company = String(row[0] || '').trim().toLowerCase();
+  const title = String(row[1] || '').trim().toLowerCase();
+  if (url) {
+    const byUrl = decisions.find((d) => String(d.url || '').trim() === url);
+    if (byUrl?.date) return byUrl.date;
+  }
+  if (company && title) {
+    const byCt = decisions.find(
+      (d) => String(d.company || '').trim().toLowerCase() === company
+        && String(d.title || '').trim().toLowerCase() === title,
+    );
+    if (byCt?.date) return byCt.date;
+  }
+  return '';
+}
+
+function rowMatchKeys(row) {
+  const url = String(row?.[4] || '').trim();
+  const company = String(row?.[1] || '').trim().toLowerCase();
+  const title = String(row?.[2] || '').trim().toLowerCase();
+  const keys = [];
+  if (url) keys.push(`url:${url}`);
+  if (company && title) keys.push(`ct:${company}|${title}`);
+  return keys;
+}
+
+function entryMatchKeys(entry, job = null) {
+  return rowMatchKeys(rowFromEntry(entry, job));
+}
+
+export function normalizeSheetStatus(raw) {
+  const s = String(raw || '').trim().toLowerCase();
+  if (['rejected', 'reject', 'abgelehnt', 'ablehnung'].includes(s)) return 'rejected';
+  if (SHEET_SYNC_DECISIONS.includes(s)) return s;
+  return null;
+}
+
+export function parseSheetDataRow(header, cells) {
+  const obj = {};
+  (header || SHEET_HEADERS).forEach((h, i) => {
+    obj[h] = cells?.[i] ?? '';
+  });
+  return {
+    date: obj.Date || cells?.[0] || '',
+    company: obj.Company || cells?.[1] || '',
+    title: obj.Title || cells?.[2] || '',
+    applied: obj.Applied || cells?.[3] || '',
+    links: obj.Links || cells?.[4] || '',
+  };
+}
+
+export function findDecisionForSheetRow(row, decisions = [], jobs = []) {
+  const url = String(row.links || '').trim();
+  const company = String(row.company || '').trim().toLowerCase();
+  const title = String(row.title || '').trim().toLowerCase();
+  const pool = [
+    ...(decisions || []),
+    ...(jobs || []).map((j) => ({
+      id: j.id,
+      url: j.url,
+      company: j.company,
+      title: j.title,
+    })),
+  ];
+  if (url) {
+    const byUrl = pool.find((d) => String(d.url || '').trim() === url);
+    if (byUrl?.id) return byUrl;
+  }
+  if (company && title) {
+    return pool.find(
+      (d) => d.id
+        && String(d.company || '').trim().toLowerCase() === company
+        && String(d.title || '').trim().toLowerCase() === title,
+    ) || null;
+  }
+  return null;
+}
 
 let cachedToken = { accessToken: null, expiresAt: 0, email: null };
 
@@ -173,56 +365,64 @@ export async function sheetsStatus() {
   };
 }
 
-async function ensureHeaderRow() {
-  const tab = sheetsTabName();
-  const data = await sheetsFetch(
-    `/values/${encodeURIComponent(a1(tab, 'A1:M1'))}`,
-  );
-  const row = data.values?.[0] || [];
-  if (row[0] === SHEET_HEADERS[0] && row.length >= 3) return { created: false };
-
-  await sheetsFetch(`/values/${encodeURIComponent(a1(tab, 'A1'))}?valueInputOption=USER_ENTERED`, {
-    method: 'PUT',
-    body: { values: [SHEET_HEADERS] },
-  });
-  return { created: true };
+export async function migrateSheetLayout() {
+  return ensureLayout();
 }
 
-async function loadIdRowMap() {
+async function ensureLayout() {
   const tab = sheetsTabName();
   const data = await sheetsFetch(
-    `/values/${encodeURIComponent(a1(tab, 'A:A'))}`,
+    `/values/${encodeURIComponent(a1(tab, 'A:M'))}`,
+  );
+  const rows = data.values || [];
+  const header = rows[0] || [];
+  const headerIsData = looksLikeJobId(header[0]) || looksLikeIsoDate(header[0]);
+  const dataRows = headerIsData ? rows : rows.slice(1);
+  const needsHeader = !isCurrentSheetHeader(header);
+  const needsRemap = isLegacySheetHeader(header)
+    || dataRows.some((r) => looksLikeJobId(r[0]) || isShiftedSheetRow(r));
+
+  if (!needsHeader && !needsRemap) return { migrated: false, rows };
+
+  const log = await loadDecisions().catch(() => ({ decisions: [] }));
+  const decisions = log.decisions || [];
+  const next = [
+    SHEET_HEADERS,
+    ...dataRows.map((r) => {
+      if (looksLikeJobId(r[0])) return remapLegacySheetRow(r);
+      if (isShiftedSheetRow(r)) return remapShiftedSheetRow(r, dateHintForShiftedRow(r, decisions));
+      return normalizeSheetRow(r);
+    }),
+  ];
+  await sheetsFetch(
+    `/values/${encodeURIComponent(a1(tab, `A1:${LAST_COL}${Math.max(next.length, 1)}`))}?valueInputOption=USER_ENTERED`,
+    { method: 'PUT', body: { values: next } },
+  );
+  await sheetsFetch(
+    `/values/${encodeURIComponent(a1(tab, 'M:Z'))}:clear`,
+    { method: 'POST', body: {} },
+  );
+  return { migrated: true, rows: next, remapped: next.length - 1 };
+}
+
+async function loadRowMap() {
+  const tab = sheetsTabName();
+  const data = await sheetsFetch(
+    `/values/${encodeURIComponent(a1(tab, `A:${LAST_COL}`))}`,
   );
   const rows = data.values || [];
   const map = new Map();
   for (let i = 1; i < rows.length; i += 1) {
-    const id = String(rows[i]?.[0] || '').trim();
-    if (id) map.set(id, i + 1); // 1-based sheet row
+    const sheetRow = i + 1;
+    for (const key of rowMatchKeys(rows[i])) {
+      if (!map.has(key)) map.set(key, sheetRow);
+    }
   }
   return map;
 }
 
-function rowFromEntry(entry, job = null) {
-  const remote = job?.remote === true ? 'yes' : job?.remote === false ? 'no' : '';
-  return [
-    entry.id || '',
-    entry.date || '',
-    entry.company || job?.company || '',
-    entry.title || job?.title || '',
-    job?.location || '',
-    entry.board || job?.board || '',
-    entry.decision || '',
-    entry.url || job?.url || '',
-    entry.note || '',
-    entry.followUpDate || '',
-    job?.salary || '',
-    remote,
-    new Date().toISOString(),
-  ];
-}
-
 /**
- * Upsert one decision into the sheet (by Job ID in column A).
+ * Upsert one decision into the sheet (match by link, else company + title).
  */
 export async function upsertDecisionToSheet(entry, job = null) {
   if (!entry?.id) throw new Error('entry.id required');
@@ -230,25 +430,38 @@ export async function upsertDecisionToSheet(entry, job = null) {
     return { skipped: true, reason: `status ${entry.decision} not synced` };
   }
 
-  await ensureHeaderRow();
-  const map = await loadIdRowMap();
-  const values = [rowFromEntry(entry, job)];
+  const layout = await ensureLayout();
   const tab = sheetsTabName();
-  const existingRow = map.get(entry.id);
-
-  if (existingRow) {
-    await sheetsFetch(
-      `/values/${encodeURIComponent(a1(tab, `A${existingRow}:M${existingRow}`))}?valueInputOption=USER_ENTERED`,
-      { method: 'PUT', body: { values } },
-    );
-    return { ok: true, action: 'updated', row: existingRow, url: sheetsUrl() };
+  const data = await sheetsFetch(
+    `/values/${encodeURIComponent(a1(tab, `A:${LAST_COL}`))}`,
+  );
+  const rows = data.values || layout.rows || [];
+  const map = new Map();
+  for (let i = 1; i < rows.length; i += 1) {
+    for (const key of rowMatchKeys(rows[i])) {
+      if (!map.has(key)) map.set(key, i + 1);
+    }
+  }
+  const values = [rowFromEntry(entry, job)];
+  let existingRow;
+  for (const key of entryMatchKeys(entry, job)) {
+    if (map.has(key)) {
+      existingRow = map.get(key);
+      break;
+    }
   }
 
+  const targetRow = existingRow || nextSheetDataRow(rows);
   await sheetsFetch(
-    `/values/${encodeURIComponent(a1(tab, 'A:M'))}:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
-    { method: 'POST', body: { values } },
+    `/values/${encodeURIComponent(a1(tab, `A${targetRow}:${LAST_COL}${targetRow}`))}?valueInputOption=USER_ENTERED`,
+    { method: 'PUT', body: { values } },
   );
-  return { ok: true, action: 'appended', url: sheetsUrl() };
+  return {
+    ok: true,
+    action: existingRow ? 'updated' : 'appended',
+    row: targetRow,
+    url: sheetsUrl(),
+  };
 }
 
 /**
@@ -265,7 +478,7 @@ export async function syncDecisionsToSheet(decisions = null) {
   const byId = new Map((jobsData.jobs || []).map((j) => [j.id, j]));
 
   const entries = (log.decisions || []).filter((d) => SHEET_SYNC_DECISIONS.includes(d.decision));
-  await ensureHeaderRow();
+  await ensureLayout();
 
   let appended = 0;
   let updated = 0;
@@ -280,12 +493,80 @@ export async function syncDecisionsToSheet(decisions = null) {
     }
   }
 
+  let pull = { skipped: true };
+  try {
+    pull = await pullRejectedFromSheet();
+  } catch (err) {
+    pull = { ok: false, error: err.message || String(err) };
+  }
+
   return {
-    ok: errors.length === 0,
+    ok: errors.length === 0 && pull.ok !== false,
     synced: entries.length,
     appended,
     updated,
     errors,
+    pull,
+    url: sheetsUrl(),
+    status,
+  };
+}
+
+async function readSheetEntries() {
+  await ensureLayout();
+  const tab = sheetsTabName();
+  const data = await sheetsFetch(
+    `/values/${encodeURIComponent(a1(tab, `A:${LAST_COL}`))}`,
+  );
+  const rows = data.values || [];
+  const header = rows[0] || SHEET_HEADERS;
+  return rows.slice(1).map((cells) => parseSheetDataRow(header, cells));
+}
+
+/**
+ * Sheet → local: any row marked rejected updates the matching Job Scout decision.
+ */
+export async function pullRejectedFromSheet() {
+  const status = await sheetsStatus();
+  if (!status.configured) {
+    return { ok: false, skipped: true, reason: status.hint, status };
+  }
+
+  const rows = await readSheetEntries();
+  const log = await loadDecisions();
+  const jobsData = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
+  const updated = [];
+  const unmatched = [];
+
+  for (const row of rows) {
+    if (normalizeSheetStatus(row.applied) !== 'rejected') continue;
+    const match = findDecisionForSheetRow(row, log.decisions, jobsData.jobs || []);
+    if (!match?.id) {
+      unmatched.push({ company: row.company, title: row.title, links: row.links });
+      continue;
+    }
+    const existing = log.decisions.find((d) => d.id === match.id);
+    if (existing?.decision === 'rejected') continue;
+    const result = await recordDecision(match.id, 'rejected', existing?.note || '');
+    if (existing) {
+      const i = log.decisions.findIndex((d) => d.id === match.id);
+      if (i !== -1) log.decisions[i] = { ...log.decisions[i], decision: 'rejected' };
+    } else {
+      log.decisions.push({ id: match.id, decision: 'rejected' });
+    }
+    updated.push({
+      id: match.id,
+      from: result.previous || 'none',
+      company: row.company,
+      title: row.title,
+    });
+  }
+
+  return {
+    ok: true,
+    pulled: updated.length,
+    updated,
+    unmatched,
     url: sheetsUrl(),
     status,
   };
@@ -294,7 +575,7 @@ export async function syncDecisionsToSheet(decisions = null) {
 /**
  * Best-effort sync after a decision change. Never throws.
  */
-export async function maybeSyncDecisionToSheet(entry) {
+export async function maybeSyncDecisionToSheet(entry, jobSnapshot = null) {
   try {
     const status = await sheetsStatus();
     if (!status.configured) return { skipped: true, reason: 'not configured' };
@@ -302,7 +583,8 @@ export async function maybeSyncDecisionToSheet(entry) {
       return { skipped: true, reason: 'status not synced' };
     }
     const jobsData = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
-    const job = (jobsData.jobs || []).find((j) => j.id === entry.id) || null;
+    const fromArchive = (jobsData.jobs || []).find((j) => j.id === entry.id) || null;
+    const job = fromArchive || (jobSnapshot && typeof jobSnapshot === 'object' ? jobSnapshot : null);
     const result = await upsertDecisionToSheet(entry, job);
     return { ...result, status };
   } catch (err) {

@@ -10,7 +10,7 @@
     "dev": "node scripts/setup.mjs --quiet && node web/server.mjs",
     "fetch": "node scripts/fetch-jobs.mjs",
     "evidence": "node scripts/build-evidence.mjs",
-    "test": "node --test scripts/lib/tex-bullets.test.mjs scripts/lib/tex-fit.test.mjs scripts/lib/job-sort.test.mjs"
+    "test": "node --test scripts/lib/tex-bullets.test.mjs scripts/lib/tex-fit.test.mjs scripts/lib/job-sort.test.mjs scripts/lib/google-sheets.test.mjs scripts/lib/cv-agent-log.test.mjs scripts/lib/cv-agent.test.mjs scripts/lib/cv-keywords.test.mjs"
   },
   "engines": {
     "node": ">=22.13"

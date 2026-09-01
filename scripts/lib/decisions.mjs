@@ -31,7 +31,8 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
 
   const log = await loadDecisions();
   const fetched = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
-  const job = (fetched.jobs ?? []).find((j) => j.id === id);
+  const snapshot = extra.job && typeof extra.job === 'object' ? extra.job : null;
+  const job = (fetched.jobs ?? []).find((j) => j.id === id) || snapshot;
 
   const existingIndex = log.decisions.findIndex((d) => d.id === id);
   const prev = existingIndex !== -1 ? log.decisions[existingIndex] : null;
@@ -50,10 +51,10 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
     id,
     decision,
     date: new Date().toISOString().slice(0, 10),
-    title: job?.title ?? prev?.title ?? null,
-    company: job?.company ?? prev?.company ?? null,
-    url: job?.url ?? prev?.url ?? null,
-    board: job?.board ?? prev?.board ?? null,
+    title: job?.title ?? snapshot?.title ?? prev?.title ?? null,
+    company: job?.company ?? snapshot?.company ?? prev?.company ?? null,
+    url: job?.url ?? snapshot?.url ?? prev?.url ?? null,
+    board: job?.board ?? snapshot?.board ?? prev?.board ?? null,
     note: note || prev?.note || null,
     followUpDate,
     prepPath: extra.prepPath !== undefined ? extra.prepPath : (prev?.prepPath ?? null),

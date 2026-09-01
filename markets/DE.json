@@ -5,12 +5,14 @@
   "indeedCountryCode": "DE",
   "jobspyCountryIndeed": "germany",
   "currency": "EUR",
-  "defaultLocation": "Berlin",
+  "defaultLocation": "Germany",
   "defaultRadiusKm": 50,
   "cities": [
+    { "where": "Germany", "radiusKm": 100 },
     { "where": "Berlin", "radiusKm": 50 },
     { "where": "Munich", "radiusKm": 50 },
-    { "where": "Germany", "radiusKm": 100 }
+    { "where": "Hamburg", "radiusKm": 50 },
+    { "where": "Frankfurt", "radiusKm": 50 }
   ],
   "locationPatterns": [
     "germany",
@@ -23,6 +25,25 @@
     "cologne",
     "köln",
     "stuttgart",
+    "düsseldorf",
+    "dusseldorf",
+    "leipzig",
+    "dresden",
+    "hannover",
+    "nuremberg",
+    "nürnberg",
+    "nuernberg",
+    "erlangen",
+    "erfurt",
+    "ilmenau",
+    "jena",
+    "weimar",
+    "aachen",
+    "karlsruhe",
+    "mannheim",
+    "bremen",
+    "essen",
+    "dortmund",
     "\\bde\\b"
   ],
   "boards": [

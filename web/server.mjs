@@ -54,11 +54,13 @@ import {
 } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
 import { compareFit, sortJobs } from '../scripts/lib/job-sort.mjs';
+import { detectPostingLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
 import {
   sheetsStatus,
   sheetsUrl,
   syncDecisionsToSheet,
   maybeSyncDecisionToSheet,
+  pullRejectedFromSheet,
   SHEET_SYNC_DECISIONS,
 } from '../scripts/lib/google-sheets.mjs';
 
@@ -346,6 +348,7 @@ async function enrichJobs({ force = false } = {}) {
       const tailoredCv = flags.tailoredCv;
       return {
         ...job,
+        language: detectPostingLanguage(job),
         decision,
         fit,
         isNew: newSet.has(job.id),
@@ -487,6 +490,8 @@ async function handleApi(req, res, url) {
     }
     const fit = url.searchParams.get('fit');
     if (fit && fit !== 'all') list = list.filter((j) => j.fit?.verdict === fit);
+    const lang = (url.searchParams.get('lang') || 'all').trim().toLowerCase();
+    if (lang && lang !== 'all') list = list.filter((j) => jobMatchesLanguageFilter(j, lang));
     if (url.searchParams.get('new') === '1') list = list.filter((j) => j.isNew);
 
     list = sortJobs(list, url.searchParams.get('sort') || 'fit');
@@ -533,29 +538,87 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'GET' && path === '/api/tracker') {
     const decisions = await loadDecisions();
-    const enriched = await enrichJobs();
-    const byId = new Map(enriched.jobs.map((j) => [j.id, j]));
     const hideParam = (url.searchParams.get('hide') || '')
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
     const hideSet = new Set(hideParam);
-    const visible = VALID_DECISIONS.filter((d) => !hideSet.has(d));
+    const preferred = ['shortlisted', 'applied', 'interviewing'];
+    const visible = [
+      ...preferred.filter((d) => VALID_DECISIONS.includes(d) && !hideSet.has(d)),
+      ...VALID_DECISIONS.filter((d) => !preferred.includes(d) && !hideSet.has(d)),
+    ];
     const columns = Object.fromEntries(visible.map((d) => [d, []]));
+    const counts = Object.fromEntries(visible.map((d) => [d, 0]));
+    const limit = Math.min(40, Math.max(4, Number(url.searchParams.get('limit') || 8)));
+    const expand = new Set(
+      (url.searchParams.get('expand') || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    );
+
+    const missing = [];
     for (const d of decisions.decisions ?? []) {
-      if (!columns[d.decision]) continue; // hidden column
+      if (!columns[d.decision]) continue;
+      counts[d.decision] += 1;
+      if (!d.title || !d.company) missing.push(d.id);
+    }
+
+    let snippets = new Map();
+    if (missing.length) {
+      const jobsData = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
+      const want = new Set(missing);
+      for (const j of jobsData.jobs || []) {
+        if (!want.has(j.id)) continue;
+        snippets.set(j.id, {
+          title: j.title || '',
+          company: j.company || '',
+          url: j.url || '',
+          board: j.board || '',
+        });
+        if (snippets.size === want.size) break;
+      }
+    }
+
+    for (const d of decisions.decisions ?? []) {
+      if (!columns[d.decision]) continue;
+      const extra = snippets.get(d.id) || {};
       columns[d.decision].push({
-        ...d,
-        job: byId.get(d.id) ?? null,
+        id: d.id,
+        decision: d.decision,
+        date: d.date || '',
+        title: d.title || extra.title || '',
+        company: d.company || extra.company || '',
+        url: d.url || extra.url || '',
+        board: d.board || extra.board || '',
+        followUpDate: d.followUpDate || null,
+        prepPath: d.prepPath || null,
       });
     }
+
+    for (const col of visible) {
+      if (!expand.has(col) && columns[col].length > limit) {
+        columns[col] = columns[col].slice(0, limit);
+      }
+    }
+
     const today = new Date().toISOString().slice(0, 10);
-    const followUps = (decisions.decisions ?? []).filter(
+    const followUpsDue = (decisions.decisions ?? []).filter(
       (d) => d.followUpDate && d.followUpDate <= today && !hideSet.has(d.decision),
     );
     return json(res, 200, {
       columns,
-      followUps,
+      counts,
+      limit,
+      followUps: followUpsDue.slice(0, 8).map((d) => ({
+        id: d.id,
+        title: d.title || d.id,
+        company: d.company || '',
+        followUpDate: d.followUpDate,
+        decision: d.decision,
+      })),
+      followUpTotal: followUpsDue.length,
       valid: visible,
       allValid: VALID_DECISIONS,
       hidden: [...hideSet],
@@ -572,9 +635,10 @@ async function handleApi(req, res, url) {
       const result = await recordDecision(body.id, body.decision, body.note ?? '', {
         followUpDate: body.followUpDate,
         prepPath: body.prepPath,
+        job: body.job && typeof body.job === 'object' ? body.job : null,
       });
       invalidateJobsCache();
-      const sheets = await maybeSyncDecisionToSheet(result.entry);
+      const sheets = await maybeSyncDecisionToSheet(result.entry, body.job);
       return json(res, 200, { ok: true, ...result, valid: VALID_DECISIONS, sheets });
     } catch (err) {
       return json(res, 400, { error: err.message });
@@ -584,6 +648,9 @@ async function handleApi(req, res, url) {
   if (req.method === 'PATCH' && path === '/api/decisions') {
     const body = await readBody(req);
     try {
+      if (body.decision && !VALID_DECISIONS.includes(body.decision)) {
+        return json(res, 400, { error: `Unknown decision "${body.decision}"` });
+      }
       const entry = await patchDecision(body.id, {
         ...(body.followUpDate !== undefined ? { followUpDate: body.followUpDate || null } : {}),
         ...(body.note !== undefined ? { note: body.note } : {}),
@@ -591,7 +658,7 @@ async function handleApi(req, res, url) {
         ...(body.decision ? { decision: body.decision } : {}),
       });
       invalidateJobsCache();
-      const sheets = await maybeSyncDecisionToSheet(entry);
+      const sheets = await maybeSyncDecisionToSheet(entry, body.job);
       return json(res, 200, { ok: true, entry, sheets });
     } catch (err) {
       return json(res, 400, { error: err.message });
@@ -608,10 +675,23 @@ async function handleApi(req, res, url) {
       if (!result.ok && result.error && !result.synced) {
         return json(res, 400, result);
       }
+      invalidateJobsCache();
       return json(res, 200, {
         ...result,
         syncStatuses: SHEET_SYNC_DECISIONS,
       });
+    } catch (err) {
+      return json(res, 500, { error: err.message || String(err), url: sheetsUrl() });
+    }
+  }
+
+  if (req.method === 'POST' && path === '/api/sheets/pull') {
+    try {
+      const result = await pullRejectedFromSheet();
+      if (result.skipped) return json(res, 200, result);
+      if (!result.ok && result.error) return json(res, 400, result);
+      invalidateJobsCache();
+      return json(res, 200, result);
     } catch (err) {
       return json(res, 500, { error: err.message || String(err), url: sheetsUrl() });
     }
@@ -692,7 +772,7 @@ async function handleApi(req, res, url) {
     // Background agent (default) — client listens on /api/prep/stream
     void (async () => {
       try {
-        prepLog(`Prep & CV agent starting for ${job.title} @ ${job.company}`);
+        prepLog(`Prep & CV starting for ${job.title} @ ${job.company} — staging first, then the agent`, 'meta');
         if (!cursorAgentAvailable()) {
           prepLog('CURSOR_API_KEY missing — will fall back to Fast after attempt check.', 'stderr');
         }

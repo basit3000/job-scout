@@ -101,7 +101,17 @@ function titlesToIncludePatterns(titles) {
 export async function getSetupStatus() {
   await ensureLocalTemplates({ quiet: true });
 
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
+  let profileParseError = null;
+  let profile;
+  try {
+    const text = (await readFile(join(ROOT, 'profile.json'), 'utf8')).replace(/^\uFEFF/, '');
+    profile = JSON.parse(text);
+  } catch (err) {
+    profile = null;
+    if (err.code !== 'ENOENT') {
+      profileParseError = err.message;
+    }
+  }
   const search = await loadJson(join(ROOT, 'search-profile.json'), null);
   const resumePath = join(ROOT, 'cv', 'resume.md');
   const hasResume = await exists(resumePath);
@@ -127,10 +137,11 @@ export async function getSetupStatus() {
   const titles = (profile?.search?.titles ?? []).filter((t) => t && !isPlaceholder(t));
   const marketOk = Boolean(search?.market && !String(search.market).startsWith('YOUR_'));
 
-  const needsSetup = !(nameOk && roleOk && titles.length >= 1 && marketOk);
+  const needsSetup = !profileParseError && !(nameOk && roleOk && titles.length >= 1 && marketOk);
 
   return {
     needsSetup,
+    profileParseError,
     ready: !needsSetup,
     nameOk,
     roleOk,

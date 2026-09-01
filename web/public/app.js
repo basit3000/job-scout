@@ -31,6 +31,7 @@ const els = {
   decisionFilterActive: $('decisionFilterActive'),
   activeDecisionFilters: $('activeDecisionFilters'),
   fitFilter: $('fitFilter'),
+  langFilter: $('langFilter'),
   sortSelect: $('sortSelect'),
   pageSize: $('pageSize'),
   pager: $('pager'),
@@ -99,12 +100,18 @@ const TRACKER_COLUMN_OPTIONS = DECISIONS.map((id) => ({
   id,
   label: id.charAt(0).toUpperCase() + id.slice(1),
 }));
+/** Tracker default: the live pile, not skipped / rejected / closed. */
+const TRACKER_DEFAULT_VISIBLE = ['shortlisted', 'applied', 'interviewing'];
 /** Preset: hide terminal / done statuses — keep hunting in the active pile. */
 const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
+const TRACKER_COL_LIMIT = 8;
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
 const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
 const LS_SORT = 'jobScout.sort';
+const LS_LANG = 'jobScout.langFilter';
 const SORT_VALUES = ['fit', 'newest', 'oldest'];
+const LANG_VALUES = ['all', 'en', 'de'];
+const LANG_LABEL = { en: 'English', de: 'German' };
 
 const ANSWER_FIELDS = [
   ['workAuthorization', 'Work authorisation'],
@@ -135,7 +142,9 @@ let state = {
   /** @type {Set<string>} */
   visibleDecisions: new Set(DECISION_FILTER_OPTIONS.map((o) => o.id)),
   /** @type {Set<string>} */
-  trackerVisibleColumns: new Set(DECISIONS),
+  trackerVisibleColumns: new Set(TRACKER_DEFAULT_VISIBLE),
+  /** @type {Set<string>} */
+  trackerExpand: new Set(),
 };
 
 let jobsAbort = null;
@@ -294,6 +303,7 @@ function onTrackerColumnsChange({ rerender = false } = {}) {
     );
   }
   updateTrackerColumnsUi();
+  state.trackerExpand = new Set();
   if (state.view === 'tracker') refreshTracker();
 }
 
@@ -311,10 +321,10 @@ function initFilterMenus() {
       }
       localStorage.removeItem('jobScout.hideAppliedColumn');
     } else {
-      state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
+      state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, TRACKER_DEFAULT_VISIBLE);
     }
   } catch {
-    state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
+    state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, TRACKER_DEFAULT_VISIBLE);
   }
 
   renderFilterChecks(
@@ -332,6 +342,7 @@ function initFilterMenus() {
   updateDecisionFilterUi();
   updateTrackerColumnsUi();
   if (els.sortSelect) els.sortSelect.value = loadSort();
+  if (els.langFilter) els.langFilter.value = loadLang();
 
   els.decisionFilterBtn?.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -363,9 +374,7 @@ function initFilterMenus() {
     onTrackerColumnsChange({ rerender: true });
   });
   els.trackerColumnsActive?.addEventListener('click', () => {
-    state.trackerVisibleColumns = new Set(
-      DECISIONS.filter((id) => !ACTIVE_ONLY_HIDDEN.includes(id)),
-    );
+    state.trackerVisibleColumns = new Set(TRACKER_DEFAULT_VISIBLE);
     onTrackerColumnsChange({ rerender: true });
   });
 }
@@ -386,6 +395,27 @@ async function api(path, options = {}) {
   return data;
 }
 
+function jobSnapshot(job) {
+  if (!job) return null;
+  return {
+    id: job.id,
+    title: job.title || '',
+    company: job.company || '',
+    url: job.url || '',
+    board: job.board || '',
+    location: job.location || '',
+    salary: job.salary || '',
+    remote: job.remote,
+  };
+}
+
+async function submitDecision(id, decision, job = null) {
+  return api('/api/decisions', {
+    method: 'POST',
+    body: JSON.stringify({ id, decision, job: jobSnapshot(job) }),
+  });
+}
+
 function setFetchUi(running) {
   els.runBtn.disabled = running;
   if (els.emptyRunBtn) els.emptyRunBtn.disabled = running;
@@ -402,7 +432,8 @@ function setChip(stateName, label) {
 
 function appendLog(line, stream = 'stdout') {
   const span = document.createElement('span');
-  if (stream === 'stderr') span.className = 'err';
+  const cls = { stderr: 'err', err: 'err', tool: 'tool', meta: 'meta', ok: 'ok' }[stream];
+  if (cls) span.className = cls;
   span.textContent = `${line}\n`;
   els.logView.appendChild(span);
   els.logView.scrollTop = els.logView.scrollHeight;
@@ -464,12 +495,30 @@ function saveSort(value) {
   }
 }
 
+function loadLang() {
+  try {
+    const raw = localStorage.getItem(LS_LANG);
+    return LANG_VALUES.includes(raw) ? raw : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
+function saveLang(value) {
+  try {
+    localStorage.setItem(LS_LANG, LANG_VALUES.includes(value) ? value : 'all');
+  } catch {
+    /* ignore */
+  }
+}
+
 function queryString() {
   const p = new URLSearchParams({
     page: String(state.page),
     pageSize: els.pageSize.value || '10',
     q: els.searchInput.value.trim(),
     fit: els.fitFilter.value,
+    lang: els.langFilter?.value || 'all',
     sort: els.sortSelect?.value || 'fit',
   });
   const hide = hiddenFromVisible(
@@ -492,6 +541,7 @@ function renderJob(job, { compact = false } = {}) {
     job.board ? `${job.board}${job.via ? ` / ${job.via}` : ''}` : null,
     job.salary,
   ].filter(Boolean);
+  const langLabel = LANG_LABEL[job.language];
 
   const also = (job.alsoOn || []).slice(0, 4);
   const flags = (job.flags || []).map((f) => `<span class="flag pill">${escapeHtml(f)}</span>`).join('');
@@ -515,6 +565,7 @@ function renderJob(job, { compact = false } = {}) {
           : ''
       }
       ${job.isNew ? '<span class="pill new">New</span>' : ''}
+      ${langLabel ? `<span class="pill lang-${escapeAttr(job.language)}">${escapeHtml(langLabel)}</span>` : ''}
       ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
       ${also.map((s) => `<span class="pill" title="Also seen on">also ${escapeHtml(s)}</span>`).join('')}
@@ -586,15 +637,8 @@ function renderJob(job, { compact = false } = {}) {
       btn.addEventListener('click', async () => {
         try {
           const d = btn.dataset.decision;
-          const res = await api('/api/decisions', {
-            method: 'POST',
-            body: JSON.stringify({ id: job.id, decision: d }),
-          });
+          const res = await submitDecision(job.id, d, job);
           logSheetsResult(res.sheets, `Sheets (${d})`);
-          // Shortlist → prompt for CV prep (first time or recreate)
-          if (d === 'shortlisted') {
-            await runPrepFlow(job);
-          }
           await refreshJobs();
           if (state.view === 'tracker') await refreshTracker();
           if (state.view === 'digest') await refreshDigest();
@@ -628,10 +672,7 @@ function renderJob(job, { compact = false } = {}) {
       );
       if (!mark) return;
       try {
-        const res = await api('/api/decisions', {
-          method: 'POST',
-          body: JSON.stringify({ id: job.id, decision: 'applied' }),
-        });
+        const res = await submitDecision(job.id, 'applied', job);
         await refreshJobs();
         if (state.view === 'tracker') await refreshTracker();
         if (state.view === 'digest') await refreshDigest();
@@ -796,6 +837,23 @@ function logSheetsResult(sheets, context = 'Sheets') {
   }
 }
 
+function logSheetsPull(pull) {
+  if (!pull || pull.skipped) return;
+  if (pull.ok === false && pull.error) {
+    appendLog(`Sheets pull: ${pull.error}`, 'stderr');
+    return;
+  }
+  if (pull.pulled > 0) {
+    appendLog(`Sheets: marked ${pull.pulled} job(s) rejected from the sheet`);
+    for (const u of pull.updated || []) {
+      appendLog(`  ${u.company || '—'} — ${u.title || u.id} (${u.from} → rejected)`);
+    }
+  }
+  if (pull.unmatched?.length) {
+    appendLog(`Sheets: ${pull.unmatched.length} rejected row(s) had no matching job in Job Scout`);
+  }
+}
+
 function showLogView() {
   if (els.prepView) els.prepView.hidden = true;
   if (els.logView) els.logView.hidden = false;
@@ -811,6 +869,16 @@ async function finishPrepUi(job, data) {
         data.pack.fallbackReason ? ` (fallback: ${data.pack.fallbackReason})` : ''
       }`,
     );
+  }
+  const agent = data.pack?.agent;
+  if (agent?.usage || agent?.tools || agent?.durationMs) {
+    const bits = [];
+    if (agent.durationMs) bits.push(`${Math.round(agent.durationMs / 1000)}s`);
+    if (agent.tools) bits.push(`${agent.tools} tools`);
+    if (agent.usage?.inputTokens != null) {
+      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
+    }
+    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
   }
   if (data.pack?.relativeDir) {
     appendLog(`Prep pack ready: ${data.pack.relativeDir}`);
@@ -1123,10 +1191,13 @@ async function refreshStatus() {
   void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
   updatePlanHint(s);
   updateSheetsUi(s.sheets);
-  showSetup(Boolean(s.setup?.needsSetup));
+  showSetup(Boolean(s.setup?.needsSetup) && !s.setup?.profileParseError);
   els.apifyTip.hidden = false;
 
   const alerts = [];
+  if (s.setup?.profileParseError) {
+    alerts.push(`profile.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
+  }
   if (s.followUpsDue > 0) {
     alerts.push(`${s.followUpsDue} follow-up(s) due — check Tracker`);
   }
@@ -1188,16 +1259,23 @@ function showSetup(needs) {
   }
 }
 
+function trackerQuery() {
+  const hide = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
+  const p = new URLSearchParams({ limit: String(TRACKER_COL_LIMIT) });
+  if (hide.length) p.set('hide', hide.join(','));
+  if (state.trackerExpand.size) p.set('expand', [...state.trackerExpand].join(','));
+  return p.toString();
+}
+
 async function refreshTracker() {
   updateSheetsUi(state.status?.sheets);
-  const hide = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
-  const qs = hide.length ? `?hide=${encodeURIComponent(hide.join(','))}` : '';
-  const data = await api(`/api/tracker${qs}`);
+  const data = await api(`/api/tracker?${trackerQuery()}`);
   if (data.followUps?.length) {
+    const extra = (data.followUpTotal || data.followUps.length) - data.followUps.length;
     els.followUpBanner.hidden = false;
     els.followUpBanner.innerHTML = `<strong>Follow-ups due:</strong> ${data.followUps
       .map((d) => `${escapeHtml(d.title || d.id)} (${escapeHtml(d.followUpDate)})`)
-      .join(' · ')}`;
+      .join(' · ')}${extra > 0 ? ` · +${extra} more` : ''}`;
   } else {
     els.followUpBanner.hidden = true;
   }
@@ -1205,34 +1283,70 @@ async function refreshTracker() {
   els.kanban.innerHTML = '';
   for (const col of data.valid) {
     const items = data.columns[col] || [];
+    const total = data.counts?.[col] ?? items.length;
     const colEl = document.createElement('div');
     colEl.className = 'kanban-col';
-    colEl.innerHTML = `<h3>${escapeHtml(col)} (${items.length})</h3>`;
+    colEl.innerHTML = `<h3>${escapeHtml(col)} <span>${items.length === total ? total : `${items.length}/${total}`}</span></h3>`;
     for (const item of items) {
-      const card = document.createElement('div');
+      const card = document.createElement('article');
       card.className = 'kanban-card';
+      const title = item.title || item.id;
       card.innerHTML = `
-        <strong>${escapeHtml(item.title || item.id)}</strong>
-        <div class="muted">${escapeHtml(item.company || '')}</div>
-        <div class="muted">${item.followUpDate ? `Follow-up ${escapeHtml(item.followUpDate)}` : 'No follow-up'}
-          ${item.prepPath ? ` · prep ready` : ''}</div>
-        <div class="job-actions" style="margin-top:0.4rem">
-          <input type="date" data-id="${escapeAttr(item.id)}" value="${escapeAttr(item.followUpDate || '')}" />
+        ${
+          item.url
+            ? `<a class="kanban-card-title" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+            : `<strong class="kanban-card-title">${escapeHtml(title)}</strong>`
+        }
+        <p class="kanban-card-meta">${escapeHtml(item.company || '—')}${item.date ? ` · ${escapeHtml(item.date)}` : ''}${item.prepPath ? ' · prep ready' : ''}</p>
+        <div class="kanban-card-actions">
+          <label class="kanban-status">
+            <span class="visually-hidden">Status</span>
+            <select data-status>
+              ${DECISIONS.map(
+                (d) =>
+                  `<option value="${escapeAttr(d)}"${item.decision === d ? ' selected' : ''}>${escapeHtml(d)}</option>`,
+              ).join('')}
+            </select>
+          </label>
+          <input type="date" aria-label="Follow-up" value="${escapeAttr(item.followUpDate || '')}" />
         </div>
       `;
-      card.querySelector('input')?.addEventListener('change', async (ev) => {
+      card.querySelector('[data-status]')?.addEventListener('change', async (ev) => {
+        const next = ev.target.value;
+        if (next === item.decision) return;
+        try {
+          const res = await submitDecision(item.id, next, item);
+          logSheetsResult(res.sheets, `Sheets (${next})`);
+          appendLog(`${title} → ${next}`);
+          await refreshTracker();
+        } catch (err) {
+          ev.target.value = item.decision;
+          appendLog(err.message, 'stderr');
+        }
+      });
+      card.querySelector('input[type="date"]')?.addEventListener('change', async (ev) => {
         try {
           await api('/api/decisions', {
             method: 'PATCH',
             body: JSON.stringify({ id: item.id, followUpDate: ev.target.value || null }),
           });
           await refreshTracker();
-          await refreshStatus();
         } catch (err) {
           appendLog(err.message, 'stderr');
         }
       });
       colEl.appendChild(card);
+    }
+    if (total > items.length) {
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'btn ghost small kanban-more';
+      more.textContent = `Show ${total - items.length} more`;
+      more.addEventListener('click', () => {
+        state.trackerExpand.add(col);
+        refreshTracker();
+      });
+      colEl.appendChild(more);
     }
     els.kanban.appendChild(colEl);
   }
@@ -1264,9 +1378,15 @@ function digestJobVisible(job) {
   return !hide.includes(key);
 }
 
+function digestLangVisible(job) {
+  const lang = els.langFilter?.value || 'all';
+  if (lang === 'all') return true;
+  return job?.language === lang;
+}
+
 async function refreshDigest() {
   const data = await api('/api/digest');
-  const jobs = (data.newJobs || []).filter(digestJobVisible);
+  const jobs = (data.newJobs || []).filter((j) => digestJobVisible(j) && digestLangVisible(j));
   els.digestMeta.textContent = data.digest?.generatedAt
     ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
@@ -1438,6 +1558,12 @@ els.fitFilter.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
 });
+els.langFilter?.addEventListener('change', () => {
+  saveLang(els.langFilter.value);
+  state.page = 1;
+  refreshJobs();
+  if (state.view === 'digest') refreshDigest();
+});
 els.sortSelect?.addEventListener('change', () => {
   saveSort(els.sortSelect.value);
   state.page = 1;
@@ -1473,6 +1599,8 @@ els.sheetsSyncBtn?.addEventListener('click', async () => {
       updateSheetsUi(res.status);
     }
     logSheetsResult(res, 'Sheets sync');
+    logSheetsPull(res.pull);
+    if (res.pull?.pulled > 0) await refreshJobs();
     if (res.url) appendLog(`Sheet: ${res.url}`);
   } catch (err) {
     appendLog(`Sheets sync failed: ${err.message}`, 'stderr');
@@ -1633,6 +1761,15 @@ connectStream();
     await refreshMarkets();
     await refreshStatus();
     if (!state.status?.setup?.needsSetup) await refreshJobs();
+    if (state.status?.sheets?.configured) {
+      try {
+        const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
+        logSheetsPull(pull);
+        if (pull.pulled > 0 && !state.status?.setup?.needsSetup) await refreshJobs();
+      } catch (err) {
+        appendLog(`Sheets pull: ${err.message}`, 'stderr');
+      }
+    }
     // Keep Allow paid OFF by default — JobSpy is free. Token presence is not consent to spend.
   } catch (err) {
     appendLog(`Init failed: ${err.message}`, 'stderr');

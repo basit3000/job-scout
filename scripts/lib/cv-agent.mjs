@@ -5,12 +5,18 @@
  *   codex        → OpenAI Codex CLI (`codex exec`)
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { Agent, Cursor, CursorAgentError } from '@cursor/sdk';
 import { ROOT, run } from './common.mjs';
+import { overleafConfigured, syncOverleaf } from './overleaf-cv.mjs';
+import {
+  formatAgentEvent,
+  formatFinishLine,
+} from './cv-agent-log.mjs';
+import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs';
 
 let activeRun = null;
 let activeChild = null;
@@ -238,97 +244,120 @@ export async function saveAgentSession(prepDir, meta) {
   return next;
 }
 
-function skillHint() {
-  if (personalCvSkillPresent()) {
-    return [
-      'Prefer the personal skill at `.agents/skills/cv-tailor.local/` (name: cv-tailor-personal).',
-      'Also read writing rules under that folder. Fall back to `.agents/skills/cv-tailor/` for scripts/checks.',
-    ].join(' ');
-  }
-  return (
-    'Follow `.agents/skills/cv-tailor/SKILL.md` and its references '
-    + '(`writing-rules.md`, `format-benchmarks.md`, `overleaf.md`).'
-  );
+const EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function relToRoot(abs) {
+  return relative(ROOT, abs).replace(/\\/g, '/') || abs;
 }
 
-function buildPrompt({
+export function buildAgentBrief({ cvSource = 'overleaf' } = {}) {
+  const overleaf = cvSource === 'overleaf';
+  return [
+    '# Agent brief — tailor only, do not research',
+    '',
+    'Job Scout already staged evidence and the Overleaf clone. This brief replaces',
+    'SKILL.md / format-benchmarks / gather-evidence for this run.',
+    '',
+    '## Hard rules',
+    '- No invented facts, metrics, employers, dates, or titles.',
+    '- Experience → Education → Projects → Skills (both files).',
+    '- Keep current Experience bullets. Light rewrite only: clause order, posting synonyms,',
+    '  in-line tech already on the CV or in the evidence pack. Same theme and voice.',
+    '- Leave a bullet alone if it already fits. Change about a third to half of them.',
+    '- Portfolio copy is for Projects only — never paste side-project work into employment.',
+    '- Print **Germany** only (never a city). PD-League may cite 82 members and 196 matches.',
+    '  List it as Independent Developer / Personal, never as a company, and not again under Projects.',
+    '- e.solutions is ~90% backend: lead with FastAPI/TypeScript REST, MongoDB, LiteLLM, CI/CD.',
+    '  React/Next.js is API contracts and occasional front-end — not an equal bullet.',
+    '  TypeScript, Jenkins, ArgoCD, LiteLLM (LLM calls) are confirmed. Not agents/RAG/fine-tuning.',
+    '- Vercel, Railway, Cloudflare, AWS EC2 are personal hosting (EC2 also at Psmorfia).',
+    '  Never put them on the e.solutions bullets. Do not list Porkbun on Skills.',
+    '- OpenAI on Translation Service is a personal project, not employment.',
+    '- Target full-stack and applied LLM/automation roles, not research-scientist posts.',
+    '- Do not commit secrets or echo tokens.',
+    overleaf ? '- Edit both `.workspace/overleaf/main.tex` and `ats.tex` (or neither).' : '- Write facts-only Markdown.',
+    '',
+    '## Do not do (already done, or Job Scout does after you finish)',
+    '- Do not read SKILL.md, format-benchmarks.md, or overleaf.md.',
+    '- Do not run gather-evidence.mjs or `gh api`.',
+    '- Do not git clone Overleaf. Do not touch `.cv-workspace/overleaf`.',
+    '- Do not web-search hiring format, ATS blogs, or the job URL unless the posting file is empty.',
+    '- Do not compile LaTeX, run check-onepage.sh / check-ats.sh, or commit/push.',
+    '',
+    '## First screen (this is how 2026 ATS + AI copilots + recruiters decide)',
+    'Three readers, in order: parser → AI summary card → human (~6s on the top third).',
+    'No extra summary paragraph — the headline and the first three current-role bullets are that card.',
+    '1. Headline: honest title close to the posting (never Senior/Staff/Lead) + 3–5 evidenced JD skills.',
+    '2. First three present-role bullets: each is an evidence sentence (duty + the JD tech on the same line).',
+    '3. Every “Already” / “Promote” phrase from keyword-gaps.md must appear in a bullet, not only Skills.',
+    '4. Mirror the posting’s exact wording only where it is already true (REST API ↔ HTTP API, back-end ↔ backend).',
+    '5. German posting: keep English tech names (ATS) and add the German role noun if it is an honest equivalent.',
+    '6. Skills line: JD-matched evidenced tech first; drop tools you would not take an interview question on.',
+    '7. Do not invent metrics. If a real number would win the screen, list it as a question in the report.',
+    '',
+    '## Do',
+    '- Read only the files listed in the prompt, in that order.',
+    '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
+    '- Map posting → evidence, then surgically edit. Write agent-report.md (changes + leftover gaps).',
+    '',
+  ].join('\n');
+}
+
+export function buildAgentPrompt({
   job,
   prepRel,
   jobPostingRel,
   instructionsRel,
+  briefRel,
+  evidenceRel,
+  techStackRel,
+  gapsRel,
+  writingRulesRel,
+  overleafRel,
   cvSource,
-  overleafPush,
   profileName,
   extraInstructions,
 }) {
+  const reads = [
+    briefRel,
+    jobPostingRel,
+    gapsRel,
+    evidenceRel,
+    techStackRel,
+    writingRulesRel,
+    cvSource === 'overleaf'
+      ? `${overleafRel}/main.tex and ${overleafRel}/ats.tex`
+      : 'cv/resume.md',
+  ].filter(Boolean);
+
   const lines = [
-    'You are running Job Scout Prep & CV in agent mode.',
-    skillHint(),
-    '',
-    'Hard rules:',
-    '- No invented facts, metrics, employers, dates, or titles.',
-    '- Experience is always the first body section (then Education → Projects → Skills).',
-    '- Edit both main.tex and ats.tex (or neither) when using Overleaf.',
-    '- Do not commit secrets. Do not echo git tokens or API keys.',
-    '',
-    'Experience bullets (source of truth):',
-    '- Keep the current Overleaf Experience bullets. Do not replace them with a new story.',
-    '- Lightly rewrite them so the same duties lead with what this posting cares about',
-    '  (clause order, in-line tech names already on the CV). Same theme and voice.',
-    '- Never invent duties, tools, team size, or metrics that are not already on the CV',
-    '  or in the evidence pack.',
-    '- Leave a bullet alone if it already fits.',
-    '',
-    'Portfolio:',
-    '- Use portfolio project copy (evidence.md / src/data/projects.js / the live site)',
-    '  for Projects and for stack names those entries already list.',
-    '- Do not paste personal-project work into employment bullets.',
+    'Prep & CV tailor — execute, do not research. Evidence and Overleaf are already staged.',
     '',
     `Candidate: ${profileName || 'from profile.json'}`,
     `Job: ${job.title} @ ${job.company}`,
     `Job URL: ${job.url || '(none)'}`,
-    `CV source setting: ${cvSource}`,
-    `Overleaf push after edit: ${overleafPush ? 'yes' : 'no'}`,
-    `Prep pack directory: ${prepRel}`,
-    `Job posting file (read fully): ${jobPostingRel}`,
+    `CV source: ${cvSource}`,
+    `Prep pack: ${prepRel}`,
+    '',
+    'Read only these, in order:',
+    ...reads.map((p) => `- ${p}`),
   ];
   if (extraInstructions) {
-    lines.push(`Extra instructions from the user: ${extraInstructions}`);
-    lines.push(`Also written to: ${instructionsRel}`);
+    lines.push(`- Extra instructions: ${extraInstructions}`);
+    if (instructionsRel) lines.push(`  (also at ${instructionsRel})`);
   }
   lines.push('');
   if (cvSource === 'overleaf') {
     lines.push(
-      'Overleaf workflow for this repo (Job Scout paths):',
-      '- Credentials are in the environment as OVERLEAF_GIT_TOKEN and OVERLEAF_PROJECT_ID.',
-      '- Use the git clone at `.workspace/overleaf` (create/pull it if needed).',
-      '- URL form: `https://git:$OVERLEAF_GIT_TOKEN@git.overleaf.com/$OVERLEAF_PROJECT_ID`.',
-      '- Surgically edit ats.tex and main.tex for this job.',
-      '- After edits, compile both and confirm each is exactly 1 page (`check-onepage.sh`).',
-      '- If a file overflows: squeeze spacing, then typography (floors 10pt / 0.5in / 0.95),',
-      '  then drop filler adjectives. Do not delete Experience bullets or Education.',
-      '- Run page/ATS checks when practical (scripts under `.agents/skills/cv-tailor/scripts/`).',
-      overleafPush
-        ? '- Commit and push the .tex changes to Overleaf when done.'
-        : '- Do not push; leave edits in the local `.workspace/overleaf` clone.',
-      '- After editing, Job Scout will compile PDFs into the prep pack — still write agent-report.md.',
+      `Surgically edit ${overleafRel}/main.tex and ${overleafRel}/ats.tex for this job.`,
+      'Do not clone, compile, commit, or push. Do not edit `.cv-workspace/overleaf`.',
     );
   } else {
-    lines.push(
-      'Local CV workflow:',
-      '- Source of truth: `cv/resume.md` and/or `profile.json`.',
-      `- Write a tailored one-page CV as Markdown to ${prepRel}/cv.md (facts only).`,
-      '- Follow the same writing rules as the cv-tailor skill.',
-    );
+    lines.push(`Write a tailored one-page Markdown CV to ${prepRel}/cv.md (facts only).`);
   }
   lines.push(
-    '',
-    `When finished, write a short report to ${prepRel}/agent-report.md covering:`,
-    '- What changed (bullet by bullet) and the evidence for each change',
-    '- Gaps / open questions',
-    '- Whether Overleaf was pushed (if applicable)',
-    '',
-    'Do not stop after planning — apply the CV edits.',
+    `Then write ${prepRel}/agent-report.md: what changed (with evidence) and gaps.`,
+    'Apply the edits. Do not stop at a plan.',
   );
   return lines.join('\n');
 }
@@ -340,39 +369,114 @@ function emitFn(onEvent) {
 }
 
 async function streamRun(run, emit) {
-  if (!run.supports('stream')) return;
+  const stats = { tools: 0, started: new Set(), usage: null };
+  if (!run.supports('stream')) return stats;
   try {
     for await (const event of run.stream()) {
-      if (event?.type === 'assistant' && event.message?.content) {
-        for (const block of event.message.content) {
-          if (block?.type === 'text' && block.text) {
-            for (const line of String(block.text).split(/\r?\n/)) {
-              if (line.trim()) emit(line);
-            }
-          }
-        }
-      } else if (event?.type === 'tool_call' || event?.type === 'tool-call') {
-        emit(`tool: ${event.name || event.toolName || 'tool'}`);
-      }
+      const formatted = formatAgentEvent(event, stats);
+      if (formatted) emit(formatted.line, formatted.stream);
     }
   } catch (streamErr) {
     emit(`Stream ended early: ${streamErr.message || streamErr}`, 'stderr');
   }
+  return stats;
 }
 
-async function waitRunResult(run, emit) {
+async function waitRunResult(run, emit, stats = {}) {
   const result = await run.wait();
   if (result.status === 'cancelled') throw new Error('Agent run cancelled');
   if (result.status === 'error') {
     throw new Error(result.error?.message || `Agent run failed (${result.id})`);
   }
-  emit('Agent finished successfully.');
-  if (result.result) {
-    for (const line of String(result.result).slice(0, 2000).split(/\r?\n/)) {
-      if (line.trim()) emit(line);
+  const usage = result.usage || stats.usage || null;
+  emit(
+    formatFinishLine({
+      durationMs: result.durationMs,
+      tools: stats.tools || 0,
+      usage,
+    }),
+    'ok',
+  );
+  return { result, usage, tools: stats.tools || 0 };
+}
+
+function evidenceAgeMs(filePath) {
+  try {
+    return Date.now() - statSync(filePath).mtimeMs;
+  } catch {
+    return Infinity;
+  }
+}
+
+function newestEvidencePath() {
+  const portfolio = process.env.PORTFOLIO_ROOT?.trim();
+  const candidates = [
+    join(ROOT, '.cv-workspace', 'evidence.md'),
+    join(ROOT, '.workspace', 'evidence.md'),
+    portfolio ? join(portfolio, '.cv-workspace', 'evidence.md') : null,
+  ].filter(Boolean);
+  let best = null;
+  let bestAge = Infinity;
+  for (const p of candidates) {
+    if (!existsSync(p)) continue;
+    const age = evidenceAgeMs(p);
+    if (age < bestAge) {
+      best = p;
+      bestAge = age;
     }
   }
-  return result;
+  return best ? { path: best, ageMs: bestAge } : null;
+}
+
+async function refreshEvidence({ profile, emit }) {
+  const existing = newestEvidencePath();
+  if (existing && existing.ageMs < EVIDENCE_MAX_AGE_MS) {
+    const ageLabel = existing.ageMs < 3_600_000
+      ? `${Math.max(1, Math.round(existing.ageMs / 60_000))}m old`
+      : `${Math.round(existing.ageMs / 3_600_000)}h old`;
+    emit(`Evidence cached (${ageLabel}) — ${relToRoot(existing.path)}`, 'meta');
+    return existing.path;
+  }
+
+  emit('Refreshing evidence pack (Node, not the agent)…', 'meta');
+  const username = profile?.githubUsername || process.env.GITHUB_USERNAME || '';
+  const gather = join(ROOT, '.agents', 'skills', 'cv-tailor', 'scripts', 'gather-evidence.mjs');
+  try {
+    const args = [gather];
+    if (username) args.push('--username', username);
+    else args.push('--no-github');
+    const portfolio = process.env.PORTFOLIO_ROOT?.trim();
+    if (portfolio) args.push('--portfolio-root', portfolio);
+    await run(process.execPath, args, { timeout: 180000, cwd: ROOT });
+  } catch (err) {
+    emit(`gather-evidence skipped: ${err.message || err}`, 'stderr');
+    try {
+      await run(process.execPath, [join(ROOT, 'scripts', 'build-evidence.mjs')], {
+        timeout: 60000,
+        cwd: ROOT,
+      });
+    } catch (err2) {
+      emit(`build-evidence skipped: ${err2.message || err2}`, 'stderr');
+    }
+  }
+
+  const after = newestEvidencePath();
+  if (after) {
+    emit(`Evidence ready — ${relToRoot(after.path)}`, 'meta');
+    return after.path;
+  }
+  emit('No evidence.md found — agent will use profile.json / the current CV only.', 'stderr');
+  return null;
+}
+
+async function stageOverleaf(emit) {
+  if (!overleafConfigured()) {
+    throw new Error('CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty');
+  }
+  emit('Pulling Overleaf clone…', 'meta');
+  const sync = await syncOverleaf();
+  emit(`Overleaf ${sync.action} — .workspace/overleaf`, 'meta');
+  return sync;
 }
 
 /**
@@ -467,9 +571,7 @@ async function runCliAgent({
 }
 
 async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvSource }) {
-  emit(`Starting Cursor SDK agent…`);
-  emit(`Model: ${modelId}`);
-  emit(`Skill: ${personalCvSkillPresent() ? 'cv-tailor-personal (local)' : 'cv-tailor (generic)'}`);
+  emit(`Starting Cursor SDK · ${modelId}`, 'meta');
 
   let agent;
   try {
@@ -488,9 +590,9 @@ async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvS
   try {
     const run = await agent.send(prompt);
     activeRun = run;
-    emit(`Agent run ${run.id} (agent ${agent.agentId})`);
-    await streamRun(run, emit);
-    const result = await waitRunResult(run, emit);
+    emit(`Agent run ${run.id}`, 'meta');
+    const stats = await streamRun(run, emit);
+    const { result, usage, tools } = await waitRunResult(run, emit, stats);
     const meta = {
       ok: true,
       provider: 'cursor',
@@ -498,7 +600,9 @@ async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvS
       agentId: agent.agentId,
       status: result.status,
       durationMs: result.durationMs,
-      resultText: result.result || '',
+      tools,
+      usage: usage || null,
+      resultText: String(result.result || '').slice(0, 4000),
       jobId: job.id,
       cvSource,
       model: modelId,
@@ -547,24 +651,103 @@ export async function runCvTailorAgent({
   const prepRel = relative(ROOT, prepDir).replace(/\\/g, '/') || prepDir;
   const jobPostingRel = `${prepRel}/job-posting.md`;
   const instructionsRel = `${prepRel}/instructions.md`;
+  const briefRel = `${prepRel}/agent-brief.md`;
   const instr = String(extraInstructions || '').trim();
 
-  const prompt = buildPrompt({
+  emit(`Provider: ${prov} · staging context outside the model`, 'meta');
+
+  const brief = buildAgentBrief({ cvSource });
+  await writeFile(join(prepDir, 'agent-brief.md'), brief.endsWith('\n') ? brief : `${brief}\n`);
+
+  let evidenceRel = '';
+  try {
+    const evidencePath = await refreshEvidence({ profile, emit });
+    if (evidencePath) evidenceRel = relToRoot(evidencePath);
+  } catch (err) {
+    emit(`Evidence staging failed: ${err.message || err}`, 'stderr');
+  }
+
+  const techStackAbs = join(ROOT, 'cv', 'tech-stack.md');
+  const techStackRel = existsSync(techStackAbs) ? 'cv/tech-stack.md' : '';
+
+  if (cvSource === 'overleaf') {
+    await stageOverleaf(emit);
+  }
+
+  const gapsRel = `${prepRel}/keyword-gaps.md`;
+  try {
+    const cvBits = [];
+    for (const name of ['ats.tex', 'main.tex']) {
+      const p = join(ROOT, '.workspace', 'overleaf', name);
+      if (existsSync(p)) cvBits.push(await readFile(p, 'utf8'));
+    }
+    if (!cvBits.length) {
+      const resume = join(ROOT, 'cv', 'resume.md');
+      if (existsSync(resume)) cvBits.push(await readFile(resume, 'utf8'));
+    }
+    let evidenceText = '';
+    if (evidenceRel) {
+      try {
+        evidenceText = await readFile(join(ROOT, evidenceRel), 'utf8');
+      } catch {
+        /* optional */
+      }
+    }
+    if (techStackRel) {
+      try {
+        evidenceText += `\n${await readFile(join(ROOT, techStackRel), 'utf8')}`;
+      } catch {
+        /* optional */
+      }
+    }
+    const analysis = analyzeKeywordGaps({
+      job,
+      cvText: cvBits.join('\n'),
+      evidenceText,
+      profile: profile || {},
+    });
+    await writeFile(
+      join(prepDir, 'keyword-gaps.md'),
+      formatKeywordGapsMarkdown(analysis, job),
+    );
+    emit(
+      `First-screen gaps: ${analysis.onCv.length} on CV · ${analysis.promote.length} to promote · ${analysis.gaps.length} not evidenced`,
+      'meta',
+    );
+    if (analysis.headline) emit(`Headline target: ${analysis.headline}`, 'meta');
+  } catch (err) {
+    emit(`Keyword-gap staging failed: ${err.message || err}`, 'stderr');
+  }
+
+  const writingRulesAbs = join(ROOT, '.agents', 'skills', 'cv-tailor', 'references', 'writing-rules.md');
+  const writingRulesRel = existsSync(writingRulesAbs)
+    ? '.agents/skills/cv-tailor/references/writing-rules.md'
+    : '';
+
+  const prompt = buildAgentPrompt({
     job,
     prepRel,
     jobPostingRel,
     instructionsRel,
+    briefRel,
+    evidenceRel,
+    techStackRel,
+    gapsRel,
+    writingRulesRel,
+    overleafRel: '.workspace/overleaf',
     cvSource,
-    overleafPush,
     profileName: profile?.name,
     extraInstructions: instr,
   });
 
   const promptPath = join(prepDir, 'agent-prompt.md');
   await writeFile(promptPath, `${prompt}\n`);
-
-  emit(`Provider: ${prov}`);
-  emit(`Skill: ${personalCvSkillPresent() ? 'cv-tailor-personal (local)' : 'cv-tailor (generic)'}`);
+  emit(
+    `Prompt ready (${prompt.length} chars) — agent edits only; Job Scout ${
+      overleafPush && cvSource === 'overleaf' ? 'compiles + pushes after' : 'compiles after'
+    }`,
+    'meta',
+  );
 
   if (prov === 'cursor') {
     const apiKey = process.env.CURSOR_API_KEY?.trim();

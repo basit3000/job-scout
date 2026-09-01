@@ -255,7 +255,9 @@ export function tailorParsedResume(parsed, keywords, profile = {}) {
           profile.links?.linkedin,
           profile.links?.github,
           profile.links?.portfolio || profile.links?.site,
-          profile.location?.current,
+          profile.location?.showOnCv === false
+            ? null
+            : (profile.location?.cvDisplay || profile.location?.current),
         ]
           .filter(Boolean)
           .join(' · '),

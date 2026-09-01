@@ -70,7 +70,7 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 
 ### Google Sheets (optional)
 
-Direct Sheets API (service account — no Zapier). When you mark a job **applied** / **interviewing** / **rejected** / **closed**, Job Scout upserts a row. Tracker also has **Open Sheet** and **Sync to Sheets** (backfill).
+Direct Sheets API (service account — no Zapier). When you mark a job **applied** / **interviewing** / **rejected** / **closed**, Job Scout upserts a row. Rows marked **rejected** in the sheet are pulled back into Job Scout on app open and after **Sync to Sheets**. Tracker also has **Open Sheet** and **Sync to Sheets** (backfill).
 
 1. Create a Google Cloud service account and enable **Google Sheets API**
 2. Download the JSON key to `secrets/google-sheets.json` (gitignored)
@@ -83,7 +83,7 @@ GOOGLE_SHEETS_CREDENTIALS=secrets/google-sheets.json
 GOOGLE_SHEETS_TAB=Applications
 ```
 
-Columns: Job ID, Date, Company, Title, Location, Board, Status, URL, Note, Follow-up, Salary, Remote, Updated at.
+Columns: Date, Company, Title, Applied, Links, Location, Board, Note, Follow-up, Salary, Remote, Updated at.
 
 ## Shared vs local
 

@@ -794,18 +794,27 @@ export async function assembleOverleafAfterAgent({
   push = false,
   job,
   prepDir,
+  onEvent = null,
 }) {
-  const sync = await syncOverleaf();
+  const emit = (line, stream = 'meta') => {
+    if (typeof onEvent === 'function') onEvent({ stream, line: String(line), t: Date.now() });
+  };
+  // Do not pull — the agent just edited `.workspace/overleaf`. A pull would
+  // stash those edits and waste the tailor pass.
+  emit('Fitting Overleaf CVs to one page…');
   const fit = await fitOverleafCvsToOnePage();
-  let pushResult = { pushed: false, reason: 'agent handled edits' };
+  let pushResult = { pushed: false, reason: 'local edits only' };
   if (push) {
+    emit('Pushing Overleaf .tex…');
     pushResult = await pushOverleaf(
       `Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'} (agent)`,
     );
+    emit(pushResult.pushed ? 'Overleaf pushed' : `Overleaf push skipped (${pushResult.reason})`);
   }
+  emit('Compiling Overleaf PDFs into the prep pack…');
   const pdf = await compileOverleafPdfs(prepDir);
   return {
-    sync,
+    sync: { action: 'skipped-after-agent' },
     tailor: { edited: ['agent'], changed: true },
     fit,
     push: pushResult,

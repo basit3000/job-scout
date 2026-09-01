@@ -568,7 +568,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
   });
 }
 
-async function assembleCvFromDisk(job, profile, fit, settings, dir) {
+async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = null) {
   const model = await buildTailoredCvAsync(job, profile, fit);
   let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
   let cvHtml = tailoredCvHtml(model);
@@ -585,6 +585,7 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir) {
       push: settings.overleafPush !== false,
       job,
       prepDir: dir,
+      onEvent: onEvent || settings.onEvent || null,
     });
     const ats = await readOverleafAts();
     if (ats?.text) {
@@ -631,7 +632,12 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     onEvent,
   });
 
-  const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir);
+  onEvent?.({
+    stream: 'meta',
+    line: 'Agent done — compiling PDFs and writing the prep pack…',
+    t: Date.now(),
+  });
+  const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
 
   return finalizePrepPack({
     job,
@@ -663,6 +669,7 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   const settings = { ...(await loadCvSettings()), ...options };
   const extraInstructions = String(options.extraInstructions || '').trim();
   const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
+  settings.onEvent = onEvent;
 
   // Cache short-circuit (explicit)
   if (options.useCache === true || (options.recreate === false && (await hasCachedPdfs(job.id)))) {

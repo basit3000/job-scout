@@ -32,6 +32,13 @@ If the token is missing, stop and say so rather than guessing at credentials. Se
 
 ## Workflow
 
+### Job Scout Prep (skip research)
+
+When the prompt says evidence and Overleaf are already staged, or the prep pack
+has `agent-brief.md`: skip gather-evidence, Overleaf clone, format web-search,
+compile, and push. Read only the listed files, edit `.workspace/overleaf` (not
+`.cv-workspace/overleaf`), write `agent-report.md`. Job Scout finishes the rest.
+
 ### 1. Gather evidence first, always
 
 ```bash

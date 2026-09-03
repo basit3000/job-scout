@@ -64,6 +64,7 @@ export async function htmlFileToPdf(htmlPath, pdfPath) {
         '--headless=new',
         '--disable-gpu',
         '--no-pdf-header-footer',
+        '--no-first-run',
         '--allow-file-access-from-files',
         `--print-to-pdf=${absPdf}`,
         fileUrl(absHtml),

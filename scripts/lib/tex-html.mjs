@@ -165,7 +165,8 @@ function cvShell({
   <meta charset="utf-8" />
   <title>${escapeHtml(name)} — CV</title>
   <style>
-    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10.5pt; max-width: ${isMain ? '780px' : '720px'}; margin: 1.1rem auto; padding: 0 0.75rem 1.5rem; color: #111; line-height: 1.32; }
+    @page { size: A4; margin: 12mm 14mm; }
+    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10pt; max-width: ${isMain ? '780px' : '720px'}; margin: 1.1rem auto; padding: 0 0.75rem 1.5rem; color: #111; line-height: 1.26; }
     h1 { margin: 0; font-size: ${isMain ? '22pt' : '20pt'}; color: ${isMain ? '#006699' : '#111'}; letter-spacing: -0.01em; font-weight: 700; }
     .headline { margin: 0.2rem 0 0.15rem; color: #333; font-size: 11pt; }
     .contact { margin: 0; color: #444; font-size: 9.5pt; }
@@ -192,7 +193,7 @@ function cvShell({
     }
     .toolbar .primary { background: #111; color: #fff; border-color: #111; }
     .pack-note { font-size: 9pt; color: #555; }
-    @media print { .toolbar, .pack-note { display: none !important; } body { margin: 0; max-width: none; } }
+    @media print { .toolbar, .pack-note { display: none !important; } body { margin: 0; padding: 0; max-width: none; font-size: 10pt; line-height: 1.22; } }
   </style>
 </head>
 <body>

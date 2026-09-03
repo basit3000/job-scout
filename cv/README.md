@@ -7,6 +7,7 @@ Edit **`resume.md`** — Prep & CV reorders this file for each job (does not inv
 | File | Notes |
 | --- | --- |
 | `resume.md` | Preferred — plain markdown |
+| `cover-letter.md` | Master cover letter. Keep `[Company]`, `[Role]`, `[Date]`. Optional `:::past` / `:::project` blocks at the bottom are inserted only when the posting mentions their keywords. **Cover letter** in the UI writes PDF + markdown into `downloads/<Company>/`. |
 | `resume.txt` | Plain text export from Word/PDF |
 | `resume.tex` | Single-file LaTeX CV (evidence only unless Overleaf mode) |
 

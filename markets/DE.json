@@ -54,7 +54,12 @@
     "berlinstartupjobs",
     "munichstartup",
     "pegel",
-    "nomado24"
+    "nomado24",
+    "stepstone",
+    "xing",
+    "kimeta",
+    "heise",
+    "germantechjobs"
   ],
   "baytCountry": null,
   "nationalsOnlyPatterns": [
@@ -67,5 +72,5 @@
     "years?\\s*(of\\s*)?(german|germany) experience"
   ],
   "dropNationalsOnlyDefault": false,
-  "_notes": "Indeed/LinkedIn via JobSpy; Arbeitsagentur, Arbeitnow, Berlin Startup Jobs, Munich Startup, Pegel, Nomado24 via free APIs/HTML. German-language titles are common. startup-in-munich.de is a city self-employment office, not a job board."
+  "_notes": "Indeed/LinkedIn via JobSpy; Arbeitsagentur, Arbeitnow, Berlin Startup Jobs, Munich Startup, Pegel, Nomado24, StepStone, Xing, Kimeta, Heise Jobs, GermanTechJobs via free APIs/HTML/RSS. German-language titles are common. startup-in-munich.de is a city self-employment office, not a job board."
 }

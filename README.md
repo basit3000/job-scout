@@ -118,6 +118,11 @@ Toggle portals in the **Portals** tab (or `boards` in `search-profile.json`).
 | Munich Startup | HTML | [munich-startup.de/en/jobs](https://www.munich-startup.de/en) (`DE`) |
 | Pegel | API | [pegel.berlin](https://pegel.berlin) Berlin startup ATS feeds (`DE`) |
 | Nomado24 | API | [nomado24.de](https://www.nomado24.de) DE/EU remote+hybrid (`DE`) |
+| StepStone | HTML | [stepstone.de](https://www.stepstone.de) Germany listings (`DE`) |
+| Xing | HTML | [xing.com/jobs](https://www.xing.com/jobs) DACH professional network (`DE`) |
+| Kimeta | HTML | [kimeta.de](https://www.kimeta.de) German job search engine (`DE`) |
+| Heise Jobs | HTML | [jobs.heise.de](https://jobs.heise.de) IT Stellenmarkt (`DE`) |
+| GermanTechJobs | RSS | [germantechjobs.de](https://germantechjobs.de) salary-transparent tech (`DE`) |
 | ZipRecruiter / Naukri / BDJobs | JobSpy | Regional |
 | Bayt | Apify (paid) | MENA only |
 

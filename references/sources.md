@@ -21,6 +21,11 @@ markets that set `baytCountry` (e.g. UAE, Saudi Arabia).
 | Google Jobs | — | yes | Free JobSpy (`google_search_term`) |
 | Arbeitsagentur | — | API | Free Jobsuche API — market `DE` only |
 | Arbeitnow | — | API | Free Germany-focused board — market `DE` |
+| StepStone | — | HTML | Free DE listings scrape — market `DE` |
+| Xing | — | HTML | Free DACH listings scrape — market `DE` |
+| Kimeta | — | HTML | German job search engine — market `DE` |
+| Heise Jobs | — | HTML | IT Stellenmarkt — market `DE` |
+| GermanTechJobs | — | RSS | Salary-transparent tech/IT — market `DE` |
 | ZipRecruiter | — | yes | Best US/CA |
 | Naukri | — | yes | Best India |
 | BDJobs | — | yes | Bangladesh |

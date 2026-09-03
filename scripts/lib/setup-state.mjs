@@ -32,6 +32,7 @@ const TEMPLATE_COPIES = [
   ['profile.example.json', 'profile.json'],
   ['search-profile.example.json', 'search-profile.json'],
   ['cv/resume.example.md', 'cv/resume.md'],
+  ['cv/cover-letter.example.md', 'cv/cover-letter.md'],
   ['.env.example', '.env'],
   ['state/decisions.example.json', 'state/decisions.json'],
 ];
@@ -290,6 +291,11 @@ export async function applySetup(body = {}) {
       'munichstartup',
       'pegel',
       'nomado24',
+      'stepstone',
+      'xing',
+      'kimeta',
+      'heise',
+      'germantechjobs',
     ]) {
       if (!ids.has(board)) {
         searchProfile.boards.push({ board, queriesFromProfile: true });

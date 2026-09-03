@@ -567,6 +567,7 @@ function renderJob(job, { compact = false } = {}) {
       ${job.isNew ? '<span class="pill new">New</span>' : ''}
       ${langLabel ? `<span class="pill lang-${escapeAttr(job.language)}">${escapeHtml(langLabel)}</span>` : ''}
       ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
+      ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
       ${also.map((s) => `<span class="pill" title="Also seen on">also ${escapeHtml(s)}</span>`).join('')}
       ${flags}
@@ -583,6 +584,7 @@ function renderJob(job, { compact = false } = {}) {
           } ${decision === d ? 'active' : ''}" data-decision="${d}">${d}</button>`,
       ).join('')}
       <button type="button" class="btn small" data-prep>Prep &amp; CV</button>
+      <button type="button" class="btn small" data-cover-letter>Cover letter</button>
       ${
         job.tailoredCv
           ? `<a class="btn small" data-cv href="/api/prep/${encodeURIComponent(job.id)}/cv.html" target="_blank" rel="noopener">CV</a>
@@ -652,6 +654,10 @@ function renderJob(job, { compact = false } = {}) {
       await runPrepFlow(job);
     });
 
+    el.querySelector('[data-cover-letter]')?.addEventListener('click', async () => {
+      await runCoverLetterFlow(job);
+    });
+
     el.querySelector('[data-save-folder]')?.addEventListener('click', async () => {
       try {
         const res = await api('/api/prep/open-folder', {
@@ -699,10 +705,12 @@ function closePrepModal() {
 }
 
 /**
- * Show Prep dialog: Create CV (agent) / Fast / Use existing.
+ * Show Prep / Cover letter dialog.
+ * @param {{ kind?: 'cv'|'cover-letter' }} [opts]
  * @returns {Promise<{ recreate: boolean, mode: 'agent'|'fast', extraInstructions: string } | null>}
  */
-function openPrepModal(job) {
+function openPrepModal(job, opts = {}) {
+  const kind = opts.kind === 'cover-letter' ? 'cover-letter' : 'cv';
   return new Promise((resolve) => {
     if (!els.prepModal) {
       resolve({ recreate: true, mode: 'agent', extraInstructions: '' });
@@ -710,12 +718,21 @@ function openPrepModal(job) {
     }
     const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
     const keyOk = Boolean(state.status?.cursorApiKeyPresent);
-    els.prepModalTitle.textContent = hasCache ? 'Recreate CV?' : 'Prep & CV';
-    els.prepModalHint.textContent = hasCache
-      ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = reorder + light experience-bullet emphasis.`
-      : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword reorder + existing-bullet emphasis.`;
-    els.prepModalUseExisting.hidden = !hasCache;
-    els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create CV';
+    if (kind === 'cover-letter') {
+      els.prepModalTitle.textContent = 'Cover letter';
+      els.prepModalHint.textContent = keyOk
+        ? 'Agent uses the same cv-tailor rules, evidence, and extra instructions as Prep & CV. Fast = keyword draft only.'
+        : 'CURSOR_API_KEY missing — agent will fall back to the keyword draft. Same extra-instruction presets as the CV.';
+      els.prepModalUseExisting.hidden = true;
+      els.prepModalRecreate.textContent = 'Create letter (agent)';
+    } else {
+      els.prepModalTitle.textContent = hasCache ? 'Recreate CV?' : 'Prep & CV';
+      els.prepModalHint.textContent = hasCache
+        ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = reorder + light experience-bullet emphasis. A first create also writes the cover letter, then opens the company folder.`
+        : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. After the CV it generates the cover letter with the same instructions, then opens the folder.`;
+      els.prepModalUseExisting.hidden = !hasCache;
+      els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create CV';
+    }
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
@@ -880,6 +897,19 @@ async function finishPrepUi(job, data) {
     }
     if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
   }
+  if (data.pack?.coverLetterMode) {
+    appendLog(
+      `Cover letter: ${data.pack.coverLetterMode}${
+        data.pack.coverLetterFallback ? ` (fallback: ${data.pack.coverLetterFallback})` : ''
+      }`,
+    );
+  }
+  if (data.pack?.coverLetterError) {
+    appendLog(`Cover letter after Prep failed: ${data.pack.coverLetterError}`, 'stderr');
+  }
+  if (data.pack?.coverLetterPdfError) {
+    appendLog(`Cover letter PDF: ${data.pack.coverLetterPdfError}`, 'stderr');
+  }
   if (data.pack?.relativeDir) {
     appendLog(`Prep pack ready: ${data.pack.relativeDir}`);
   }
@@ -904,6 +934,78 @@ async function finishPrepUi(job, data) {
     appendLog(`Folder open failed: ${err.message}`, 'stderr');
   }
   await refreshJobs();
+}
+
+function applyCoverLetterResult(job, res) {
+  const included = (res.included || []).map((b) => b.id).filter(Boolean);
+  if (res.tailorMode) {
+    appendLog(
+      `Cover letter mode: ${res.tailorMode}${
+        res.fallbackReason ? ` (fallback: ${res.fallbackReason})` : ''
+      }`,
+    );
+  }
+  if (res.extraInstructions) appendLog(`Instructions: ${res.extraInstructions}`);
+  if (included.length) {
+    appendLog(`Included extra experience because the posting asked for it: ${included.join(', ')}`);
+  } else {
+    appendLog('Core letter only — posting did not match earlier jobs or side projects.');
+  }
+  if (res.pdfError) appendLog(`PDF: ${res.pdfError}`, 'stderr');
+  if (res.folder) appendLog(`Saved + opened: ${res.folder}`);
+  const pathsEl = $('companyFolderPaths');
+  if (pathsEl && res.folder) {
+    pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
+      res.folder,
+    )}</code>`;
+  }
+  if (res.letter) {
+    showPrep(
+      {
+        fit: job.fit,
+        pack: {
+          relativeDir: res.relativeDir,
+          coverLetter: res.letter,
+          extraInstructions: res.extraInstructions,
+          tailorMode: res.tailorMode,
+          downloadFolderAbs: res.folder,
+          applyUrl: job.url,
+          jobId: job.id,
+        },
+      },
+      { reveal: false },
+    );
+  }
+}
+
+async function runCoverLetterFlow(job) {
+  const choice = await openPrepModal(job, { kind: 'cover-letter' });
+  if (!choice) return;
+  showLogView();
+  const mode = choice.mode === 'fast' ? 'fast' : 'agent';
+  appendLog(
+    `Generating cover letter for ${job.title} @ ${job.company}${
+      choice.extraInstructions ? ' (with instructions)' : ''
+    }…`,
+  );
+  try {
+    const started = await api('/api/cover-letter', {
+      method: 'POST',
+      body: JSON.stringify({
+        id: job.id,
+        mode,
+        extraInstructions: choice.extraInstructions || '',
+      }),
+    });
+    const res = started.started
+      ? await waitForPrepDone(started.startedAt)
+      : started;
+    if (res?.ok === false) throw new Error(res.error || 'Cover letter failed');
+    applyCoverLetterResult(job, res);
+    await refreshJobs();
+  } catch (err) {
+    appendLog(`Cover letter failed: ${err.message}`, 'stderr');
+  }
 }
 
 async function runPrepFlow(job) {
@@ -987,6 +1089,7 @@ function showPrep(data, { reveal = true } = {}) {
     ${olLine ? `<p class="meta">${escapeHtml(olLine)}</p>` : ''}
     <div class="prep-actions">
       <button type="button" class="btn small primary-link" id="saveCompanyFolder">Save PDFs to company folder</button>
+      <button type="button" class="btn small" id="generateCoverLetter">Generate cover letter</button>
       ${cvMain || cvPdf ? `<a class="btn small" href="${escapeAttr(cvMain || cvPdf)}" target="_blank" rel="noopener">Preview Main</a>` : ''}
       ${cvAts ? `<a class="btn small" href="${escapeAttr(cvAts)}" target="_blank" rel="noopener">Preview ATS</a>` : ''}
       ${cvHtml ? `<a class="btn small" href="${escapeAttr(cvHtml)}" target="_blank" rel="noopener">Open CV.html</a>` : ''}
@@ -1002,7 +1105,7 @@ function showPrep(data, { reveal = true } = {}) {
       }
     </p>
     ${pack.downloadError ? `<p class="meta" style="color:#b00">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
-    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from profile.json).</p>
+    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from profile.json). Cover letter: <code>&lt;Your Name&gt; Cover Letter.pdf</code>.</p>
     <p>Cover letter draft:</p>
     <pre>${escapeHtml(pack.coverLetter || '')}</pre>
     <button type="button" class="btn ghost" id="backToLog">Back to log</button>
@@ -1036,6 +1139,17 @@ function showPrep(data, { reveal = true } = {}) {
       appendLog(`Save folder failed: ${err.message}`, 'stderr');
     }
   });
+  $('generateCoverLetter')?.addEventListener('click', async () => {
+    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
+      .match(/\/api\/prep\/([^/]+)\//)?.[1];
+    const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
+    const job = state.jobs?.find((j) => j.id === id);
+    if (!job && !id) {
+      appendLog('Cover letter: missing job id — open a result and click Cover letter.', 'stderr');
+      return;
+    }
+    await runCoverLetterFlow(job || { id, title: 'this role', company: '', url: pack.applyUrl, fit: data.fit });
+  });
   $('backToLog')?.addEventListener('click', () => {
     showLogView();
   });
@@ -1049,6 +1163,7 @@ async function refreshJobs() {
     const data = await api(`/api/jobs?${queryString()}`, { signal });
     if (signal.aborted) return;
     state.pagination = data.pagination;
+    state.jobs = data.jobs || [];
     els.jobList.innerHTML = '';
 
     if (!data.pagination.total && !data.meta) {

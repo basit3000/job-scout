@@ -1,6 +1,11 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAgentPrompt, buildAgentBrief } from './cv-agent.mjs';
+import {
+  buildAgentPrompt,
+  buildAgentBrief,
+  buildCoverLetterAgentPrompt,
+  buildCoverLetterAgentBrief,
+} from './cv-agent.mjs';
 
 const base = {
   job: { title: 'Full Stack Engineer', company: 'Acme', url: 'https://example.com/job' },
@@ -51,5 +56,33 @@ describe('buildAgentBrief', () => {
     assert.match(brief, /First screen/);
     assert.match(brief, /keyword-gaps\.md/);
     assert.match(brief, /evidence sentence/);
+  });
+});
+
+describe('buildCoverLetterAgentPrompt', () => {
+  it('edits the letter with the same evidence files as the CV', () => {
+    const prompt = buildCoverLetterAgentPrompt({
+      ...base,
+      letterRel: '.workspace/prep/job1/cover-letter.md',
+      cvRel: '.workspace/prep/job1/cv.md',
+      extraInstructions: 'Lead with backend / FastAPI / APIs',
+    });
+    assert.match(prompt, /same skill rules and extra instructions/);
+    assert.match(prompt, /cover-letter\.md/);
+    assert.match(prompt, /keyword-gaps\.md/);
+    assert.match(prompt, /writing-rules\.md/);
+    assert.match(prompt, /Lead with backend/);
+    assert.doesNotMatch(prompt, /Surgically edit \.workspace\/overleaf/);
+  });
+});
+
+describe('buildCoverLetterAgentBrief', () => {
+  it('reuses CV skill rules and letter layout', () => {
+    const brief = buildCoverLetterAgentBrief();
+    assert.match(brief, /No invented facts/);
+    assert.match(brief, /keyword-gaps\.md/);
+    assert.match(brief, /Kind regards/);
+    assert.match(brief, /edit the CV files/);
+    assert.match(brief, /em dashes/);
   });
 });

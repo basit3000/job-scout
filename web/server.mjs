@@ -38,6 +38,8 @@ import {
   overleafStatus,
   exportPrepDownloads,
   revealDownloadsFolder,
+  generateCoverLetterPack,
+  prepDir,
   cursorAgentAvailable,
   listAgentModels,
   listAgentProvidersStatus,
@@ -102,6 +104,16 @@ const prepState = {
   result: null,
   error: null,
 };
+
+/** Save the prep folder on an existing ruling. Do not invent shortlisted. */
+async function attachPrepPath(job, pack) {
+  const current = job?.decision?.decision;
+  if (!current || !pack?.relativeDir) return;
+  await recordDecision(job.id, current, job.decision?.note || '', {
+    prepPath: pack.relativeDir,
+    followUpDate: job.decision?.followUpDate,
+  });
+}
 
 function forceKillFetch(pid, child) {
   try {
@@ -743,10 +755,7 @@ async function handleApi(req, res, url) {
         tailorMode: 'fast',
       });
       try {
-        await recordDecision(job.id, job.decision?.decision || 'shortlisted', job.decision?.note || '', {
-          prepPath: pack.relativeDir,
-          followUpDate: job.decision?.followUpDate,
-        });
+        await attachPrepPath(job, pack);
       } catch {
         /* decision optional */
       }
@@ -756,7 +765,7 @@ async function handleApi(req, res, url) {
 
     if (prepState.running) {
       return json(res, 409, {
-        error: 'A Prep & CV agent run is already in progress',
+        error: 'An agent run is already in progress',
         jobId: prepState.jobId,
       });
     }
@@ -788,10 +797,7 @@ async function handleApi(req, res, url) {
           },
         });
         try {
-          await recordDecision(job.id, job.decision?.decision || 'shortlisted', job.decision?.note || '', {
-            prepPath: pack.relativeDir,
-            followUpDate: job.decision?.followUpDate,
-          });
+          await attachPrepPath(job, pack);
         } catch {
           /* optional */
         }
@@ -902,6 +908,122 @@ async function handleApi(req, res, url) {
     prepState.clients.add(res);
     req.on('close', () => prepState.clients.delete(res));
     return;
+  }
+
+  // POST /api/cover-letter { id, mode, extraInstructions }
+  if (req.method === 'POST' && path === '/api/cover-letter') {
+    const body = await readBody(req);
+    const enriched = await enrichJobs();
+    const job = enriched.jobs.find((j) => j.id === body.id);
+    if (!job) return json(res, 404, { error: 'Job not found in current results' });
+    const profile = await loadJson(join(ROOT, 'profile.json'), null);
+    if (!profile) return json(res, 400, { error: 'profile.json required' });
+    const fit = job.fit || scoreJob(job, profile);
+    const extraInstructions = typeof body.extraInstructions === 'string'
+      ? body.extraInstructions.trim().slice(0, 500)
+      : '';
+    const mode = body.mode === 'fast' ? 'fast' : 'agent';
+    const settings = await loadCvSettings();
+    const dir = prepDir(job.id);
+
+    const packResult = (result) => ({
+      ok: true,
+      letter: result.letter,
+      included: result.included,
+      extraInstructions: result.extraInstructions || extraInstructions || null,
+      tailorMode: result.tailorMode,
+      fallbackReason: result.fallbackReason || null,
+      folder: result.export?.absoluteDir || null,
+      relativeDir: result.export?.relativeDir || null,
+      files: result.export?.files || [],
+      pdfError: result.pdfError || null,
+    });
+
+    if (mode === 'fast') {
+      try {
+        const result = await generateCoverLetterPack(job, profile, fit, {
+          prepDir: dir,
+          extraInstructions,
+          tailorMode: 'fast',
+        });
+        invalidateJobsCache();
+        const payload = packResult(result);
+        if (body.open !== false && payload.folder) revealDownloadsFolder(payload.folder);
+        return json(res, 200, payload);
+      } catch (err) {
+        return json(res, 500, { error: err.message || String(err) });
+      }
+    }
+
+    if (prepState.running) {
+      return json(res, 409, {
+        error: 'An agent run is already in progress',
+        jobId: prepState.jobId,
+      });
+    }
+
+    prepState.running = true;
+    prepState.jobId = job.id;
+    prepState.startedAt = new Date().toISOString();
+    prepState.stopping = false;
+    prepState.buffer = [];
+    prepState.result = null;
+    prepState.error = null;
+
+    void (async () => {
+      try {
+        prepLog(`Cover letter agent starting for ${job.title} @ ${job.company}`, 'meta');
+        const result = await generateCoverLetterPack(job, profile, fit, {
+          prepDir: dir,
+          extraInstructions,
+          tailorMode: 'agent',
+          provider: settings.agentProvider,
+          model: settings.agentModel,
+          onEvent: (entry) => {
+            prepState.buffer.push(entry);
+            if (prepState.buffer.length > 800) prepState.buffer.shift();
+            broadcastPrep('log', entry);
+          },
+        });
+        const payload = {
+          ...packResult(result),
+          jobId: job.id,
+          startedAt: prepState.startedAt,
+          mode: result.tailorMode || 'agent',
+        };
+        if (body.open !== false && payload.folder) revealDownloadsFolder(payload.folder);
+        prepState.result = payload;
+        prepLog(
+          result.fallbackReason
+            ? `Cover letter finished via Fast fallback (${result.fallbackReason}).`
+            : `Cover letter finished (${result.tailorMode || 'agent'}).`,
+        );
+        broadcastPrep('done', payload);
+      } catch (err) {
+        const message = err?.message || String(err);
+        prepState.error = message;
+        prepLog(`Cover letter failed: ${message}`, 'stderr');
+        broadcastPrep('done', {
+          ok: false,
+          error: message,
+          jobId: job.id,
+          startedAt: prepState.startedAt,
+        });
+      } finally {
+        prepState.running = false;
+        prepState.stopping = false;
+        invalidateJobsCache();
+      }
+    })();
+
+    return json(res, 202, {
+      ok: true,
+      started: true,
+      mode: 'agent',
+      jobId: job.id,
+      startedAt: prepState.startedAt,
+      stream: '/api/prep/stream',
+    });
   }
 
   // POST /api/prep/open-folder { id } — export into project downloads/<Company>/ + open Explorer

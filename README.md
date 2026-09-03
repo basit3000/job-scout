@@ -5,7 +5,7 @@ Multi-country job finder for any profession. Local profile + CV → fetch → sh
 Personal data stays on your machine (gitignored). The repo never applies to jobs for you.
 
 ```text
-setup (once)  →  npm start  →  search  →  shortlist / tracker / Prep & CV
+setup (once)  →  npm start  →  search  →  shortlist / tracker / Prep & CV / cover letter
 ```
 
 ## Setup
@@ -21,7 +21,7 @@ npm start                            # → http://localhost:4040
 Requires **Node.js ≥ 22.13** (Cursor SDK).
 
 On first open, a **setup form** asks for name, role, market, titles, skills, and links.  
-It writes local files only: `profile.json`, `search-profile.json`, `cv/resume.md`.
+It writes local files only: `profile.json`, `search-profile.json`, `cv/resume.md`, `cv/cover-letter.md`.
 
 Leave **Allow paid** unchecked for free searches.
 
@@ -47,10 +47,49 @@ Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / 
 light re-emphasis of existing Experience bullets (current CV is source of truth;
 portfolio may add one posting-named tag on Projects). After edits, both Overleaf CVs
 (`main.tex` and `ats.tex`) are compiled and squeezed to **one page** (spacing /
-typography / filler wording — Experience bullets are kept). If the chosen agent is
-unavailable, Prep falls back to Fast.
+typography / filler wording — Experience bullets are kept). A first create also
+writes the cover letter with the same extra instructions, then opens
+`downloads/<Company>/`. If the chosen agent is unavailable, Prep falls back to Fast.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
+
+### Cover letter
+
+Setup copies `cv/cover-letter.example.md` → `cv/cover-letter.md` (gitignored). Replace every `YOUR_*` placeholder with your own wording. Keep `[Company]`, `[Role]`, and `[Date]` — those are filled per job.
+
+The **core** of the letter is always used. Optional blocks after `<!-- optional-blocks` are inserted only when the posting mentions their keywords (up to two `:::past` and two `:::project`). Put the markers where those paragraphs should land:
+
+```md
+<!-- include:past -->
+<!-- include:projects -->
+
+<!-- optional-blocks -->
+:::past acme fastapi postgres
+One sentence about that job. Do not invent metrics.
+:::
+
+:::project translation openai sqlalchemy
+One sentence about that project, only if the posting asks for it.
+:::
+```
+
+`YOUR_*` still in the template → Job Scout falls back to a short generic letter from your profile.
+
+| How | What happens |
+| --- | --- |
+| **Create CV** (first time) | Writes the letter after the CV, then opens the company folder |
+| **Cover letter** on a result | Same modal as Prep — agent or Fast, same extra-instruction presets |
+| **Generate cover letter** in the prep pack | Regenerates just the letter |
+
+**Agent** (default) starts from the keyword draft, then the same cv-tailor agent lightly edits it. **Fast** fills placeholders and matching optional blocks only.
+
+Files in `downloads/<Company>/` (not Windows Downloads):
+
+- `<Your Name> Cover Letter.pdf`
+- `<Your Name> Cover Letter.docx`
+- `<Your Name> Cover Letter.md`
+
+PDF uses Microsoft Word when it is installed; otherwise Chrome/Edge prints the HTML letter. More template notes: `cv/README.md`.
 
 ## Web UI
 
@@ -62,7 +101,7 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 | **Replace results** | Wipe archive before a run (default is merge) |
 | **Stop** | End a run; jobs found so far are saved |
 | **Agent / Agent model** | Prep & CV backend + model |
-| **Results** | Deduped list, fit scores, Prep & CV; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
+| **Results** | Deduped list, fit scores, **Prep & CV** + **Cover letter**; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
 | **Tracker** | Kanban + follow-ups; **Columns** multi-select; optional **Google Sheets** sync for applied pipeline |
 | **Saved answers** | Reusable application form answers |
 | **Portals** | Enable/disable job boards |
@@ -91,10 +130,10 @@ Columns: Date, Company, Title, Applied, Links, Location, Board, Note, Follow-up,
 | --- | --- |
 | examples, `markets/`, `scripts/`, `web/` | `profile.json`, `search-profile.json` |
 | Generic `.agents/skills/cv-tailor/` (`YOUR_*` templates) | `.agents/skills/cv-tailor.local/` (your real CV framing) |
-| `SKILL.md`, `README.md` | `cv/resume.md`, `.env` |
+| `SKILL.md`, `README.md` | `cv/resume.md`, `cv/cover-letter.md`, `.env` |
 | | `state/decisions.json`, `state/saved-answers.json` |
 | | `.workspace/` — fetched jobs, prep packs |
-| | `downloads/` — per-company CV PDFs |
+| | `downloads/` — per-company CV + cover letter |
 | | `secrets/` — Google service-account JSON |
 
 ## Country & boards
@@ -164,6 +203,7 @@ This repo is an Agent Skill (`SKILL.md`). After setup, you can ask the agent to 
   profile.example.json     → template (real profile is gitignored)
   search-profile.example.json
   cv/resume.example.md
+  cv/cover-letter.example.md
   .agents/skills/cv-tailor/ → portable CV tailor skill (YOUR_* placeholders)
   scripts/                 → fetch, setup, evidence, Prep & CV agent backends
   web/                     → UI (npm start → :4040)

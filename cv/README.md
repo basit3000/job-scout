@@ -1,4 +1,4 @@
-# Put your CV here
+# Put your CV and cover letter here
 
 ## Local mode (default)
 
@@ -7,11 +7,33 @@ Edit **`resume.md`** — Prep & CV reorders this file for each job (does not inv
 | File | Notes |
 | --- | --- |
 | `resume.md` | Preferred — plain markdown |
-| `cover-letter.md` | Master cover letter. Keep `[Company]`, `[Role]`, `[Date]`. Optional `:::past` / `:::project` blocks at the bottom are inserted only when the posting mentions their keywords. **Cover letter** in the UI writes PDF + markdown into `downloads/<Company>/`. |
+| `cover-letter.md` | Master cover letter (see below) |
 | `resume.txt` | Plain text export from Word/PDF |
 | `resume.tex` | Single-file LaTeX CV (evidence only unless Overleaf mode) |
 
-First-run UI can create a starter `resume.md`. Personal CV files are gitignored.
+First-run setup copies `resume.example.md` → `resume.md` and `cover-letter.example.md` → `cover-letter.md`. Personal files are gitignored.
+
+### Cover letter template
+
+Keep `[Company]`, `[Role]`, and `[Date]` — Prep / **Cover letter** fill those in. Replace every `YOUR_*` or generation falls back to a generic letter from `profile.json`.
+
+1. Write the **core** (always included): current job, what you want, education/location, sign-off.
+2. Leave `<!-- include:past -->` and `<!-- include:projects -->` where optional paragraphs should go.
+3. After `<!-- optional-blocks`, add earlier jobs and side projects. A block is inserted only when the posting mentions at least one of its keywords (up to two `:::past` and two `:::project`).
+
+```md
+:::past employer-id keyword-one "multi word phrase"
+One true sentence about that job.
+:::
+
+:::project project-id fastapi postgres
+One true sentence about that project.
+:::
+```
+
+Quoted phrases match as a whole (`"machine learning"`); unquoted words match on word boundaries. Do not invent metrics.
+
+**Create CV** writes the letter on first run. **Cover letter** on a result, or **Generate cover letter** in the prep pack, regenerates it. Outputs: `downloads/<Company>/<Your Name> Cover Letter.pdf` (+ `.docx`, `.md`).
 
 Optional: set `"cv": { "updateMaster": true }` in `search-profile.json` to write the tailored order back into `resume.md` (otherwise only the prep pack is updated).
 

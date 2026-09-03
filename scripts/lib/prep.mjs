@@ -19,9 +19,11 @@ import {
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
 import {
   exportCvDownloads,
+  exportCoverLetterDownloads,
   cvFileBaseName,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
+import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
 import {
   cursorAgentAvailable,
   agentRunnerAvailable,
@@ -101,11 +103,13 @@ export async function loadPrepFlagsIndex() {
       const tailoredPdfAts = set.has('cv-ats.pdf');
       const tailoredPdfMain = set.has('cv-main.pdf');
       const tailoredPdf = set.has('cv.pdf') || tailoredPdfAts || tailoredPdfMain;
+      const coverLetter = set.has('cover-letter.md');
       index.set(ent.name, {
         tailoredCv,
         tailoredPdf,
         tailoredPdfAts,
         tailoredPdfMain,
+        coverLetter,
         prepCached: tailoredPdf,
       });
     }),
@@ -119,6 +123,7 @@ export function prepFlagsForJob(index, jobId) {
     tailoredPdf: false,
     tailoredPdfAts: false,
     tailoredPdfMain: false,
+    coverLetter: false,
     prepCached: false,
   };
 }
@@ -149,28 +154,7 @@ export async function loadCvSettings() {
   };
 }
 
-export function buildCoverLetter(job, profile, fit) {
-  const name = profile?.name ?? 'Candidate';
-  const role = profile?.targetRole ?? 'the role';
-  const skills = (fit?.matched?.length ? fit.matched : profile?.skills?.strong ?? []).slice(0, 5);
-  const site = profile?.links?.portfolio || profile?.links?.site || profile?.links?.github || '';
-
-  return `Dear Hiring Team,
-
-I am writing to apply for the ${job.title} position at ${job.company}. I am a ${profile?.headline || role} and this posting aligns with my target role (${role}).
-
-${skills.length ? `Relevant strengths I can bring: ${skills.join(', ')}.` : 'I have attached my CV with project and education detail.'}
-
-${fit?.reasons?.[0] ? `${fit.reasons[0]}.` : ''}
-
-I would welcome the chance to discuss how I can contribute at ${job.company}. Thank you for your consideration.
-
-Kind regards,
-${name}
-${profile?.links?.email ?? ''}
-${site}
-`.trim() + '\n';
-}
+export { buildCoverLetter, generateCoverLetterPack };
 
 export function buildJobPostingMd(job) {
   return `# ${job.title} — ${job.company}
@@ -293,6 +277,8 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
     downloadCvPdf: hasPdf ? `${base}/cv.pdf` : null,
     downloadCvPdfAts: hasAts ? `${base}/cv-ats.pdf?download=1` : null,
     downloadCvPdfMain: hasMain ? `${base}/cv-main.pdf?download=1` : (hasPdf ? `${base}/cv.pdf?download=1` : null),
+    downloadCoverLetter: `${base}/cover-letter.md`,
+    downloadCoverLetterPdf: `${base}/cover-letter.pdf?download=1`,
     downloadLabelMain: `${nice} CV Main.pdf`,
     downloadLabelAts: `${nice} CV.pdf`,
   };
@@ -388,7 +374,7 @@ async function finalizePrepPack({
 }) {
   const files = {
     'job-posting.md': buildJobPostingMd(job),
-    'cover-letter.md': buildCoverLetter(job, profile, fit),
+    'cover-letter.md': await buildCoverLetter(job, profile, fit),
     'cv.md': cvMd,
     'cv.html': cvHtml,
     'requirements.md': requirementsMd,
@@ -681,6 +667,15 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     ? 'fast'
     : 'agent';
 
+  const withLetter = (packPromise) => packPromise.then((pack) => attachCoverLetterAfterPrep(pack, {
+    job,
+    profile,
+    fit,
+    extraInstructions,
+    settings,
+    onEvent,
+  }));
+
   if (requestedMode === 'agent') {
     const avail = await agentRunnerAvailable(settings.agentProvider);
     if (!avail.ok) {
@@ -689,12 +684,12 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
         line: `Agent provider "${avail.provider}" unavailable (${avail.detail}) — falling back to Fast (keyword).`,
         t: Date.now(),
       });
-      return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
+      return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
         fallbackReason: avail.detail,
-      });
+      }));
     }
     try {
-      return await writePrepPackAgent(
+      return await withLetter(writePrepPackAgent(
         job,
         profile,
         fit,
@@ -702,7 +697,7 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
         settings,
         extraInstructions,
         onEvent,
-      );
+      ));
     } catch (err) {
       const msg = err?.message || String(err);
       onEvent?.({
@@ -710,13 +705,65 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
         line: `Agent tailor failed (${msg}) — falling back to Fast (keyword).`,
         t: Date.now(),
       });
-      return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
+      return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
         fallbackReason: msg,
-      });
+      }));
     }
   }
 
-  return writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions);
+  return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions));
+}
+
+async function attachCoverLetterAfterPrep(pack, {
+  job,
+  profile,
+  fit,
+  extraInstructions,
+  settings,
+  onEvent,
+}) {
+  if (!pack || pack.cached) return pack;
+  const dir = pack.dir || prepDir(job.id);
+  const tailorMode = pack.tailorMode === 'fast' ? 'fast' : 'agent';
+  onEvent?.({
+    stream: 'meta',
+    line: 'CV ready — generating cover letter with the same instructions…',
+    t: Date.now(),
+  });
+  try {
+    const letter = await generateCoverLetterPack(job, profile, fit, {
+      prepDir: dir,
+      extraInstructions,
+      tailorMode,
+      provider: settings.agentProvider,
+      model: settings.agentModel,
+      onEvent,
+    });
+    pack.coverLetter = letter.letter;
+    pack.coverLetterIncluded = letter.included;
+    pack.coverLetterMode = letter.tailorMode;
+    pack.coverLetterFallback = letter.fallbackReason || null;
+    pack.coverLetterPdfError = letter.pdfError || null;
+    if (letter.export?.absoluteDir) {
+      pack.downloadFolderAbs = letter.export.absoluteDir;
+      pack.downloadFolder = letter.export.relativeDir;
+    }
+    onEvent?.({
+      stream: 'ok',
+      line: letter.fallbackReason
+        ? `Cover letter finished via Fast fallback (${letter.fallbackReason}).`
+        : `Cover letter finished (${letter.tailorMode}).`,
+      t: Date.now(),
+    });
+  } catch (err) {
+    pack.coverLetterError = err?.message || String(err);
+    onEvent?.({
+      stream: 'stderr',
+      line: `Cover letter after Prep failed: ${pack.coverLetterError}`,
+      t: Date.now(),
+    });
+  }
+  return pack;
 }
 
 export {
@@ -794,11 +841,43 @@ export async function readPrepFile(jobId, filename) {
   }
 }
 
-/** Re-export PDFs into <project-root>/downloads/<Company>/. */
+/** Re-export PDFs + cover letter into <project-root>/downloads/<Company>/. */
 export async function exportPrepDownloads(job, profile) {
   if (!job?.id) return { error: 'job required' };
   const flags = await pdfFlags(job.id);
-  return publishDownloads(job, profile, prepDir(job.id), flags);
+  const dir = prepDir(job.id);
+  const cvExport = await publishDownloads(job, profile, dir, flags);
+
+  let letterMd = '';
+  try {
+    letterMd = await readFile(join(dir, 'cover-letter.md'), 'utf8');
+  } catch {
+    /* none yet */
+  }
+  const letterPdf = join(dir, 'cover-letter.pdf');
+  const letterDocx = join(dir, 'cover-letter.docx');
+  let letterExport = null;
+  if (letterMd) {
+    letterExport = await exportCoverLetterDownloads({
+      company: job.company,
+      profileName: profile?.name,
+      jobTitle: job.title,
+      mdText: letterMd,
+      pdfPath: await fileExists(letterPdf) ? letterPdf : null,
+      docxPath: await fileExists(letterDocx) ? letterDocx : null,
+    });
+  }
+
+  if (cvExport?.error && !letterExport) return cvExport;
+  const files = [...(cvExport?.files || []), ...(letterExport?.files || [])];
+  return {
+    ...(cvExport && !cvExport.error ? cvExport : {}),
+    ...(letterExport || {}),
+    files,
+    absoluteDir: letterExport?.absoluteDir || cvExport?.absoluteDir,
+    relativeDir: letterExport?.relativeDir || cvExport?.relativeDir,
+    error: !files.length ? (cvExport?.error || 'Nothing to export') : null,
+  };
 }
 
 export { overleafStatus, overleafConfigured, revealDownloadsFolder };

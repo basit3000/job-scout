@@ -383,12 +383,13 @@ export function tailoredCvHtml(model) {
   <title>${escapeHtml(profile.name)} — CV</title>
   <style>
     /* ATS-friendly single column — mirrors cv-tailor ats.tex intent */
-    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 11pt; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem 2.5rem; color: #111; line-height: 1.35; }
-    h1 { margin: 0; font-size: 18pt; text-align: center; letter-spacing: -0.01em; }
-    .headline { text-align: center; margin: 0.35rem 0 0.25rem; font-size: 11pt; }
-    .contact { text-align: center; color: #333; font-size: 10pt; margin: 0 0 0.75rem; word-break: break-word; }
-    h2 { margin: 0.85rem 0 0.35rem; font-size: 11pt; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #444; padding-bottom: 2px; }
-    .entry { margin: 0.45rem 0 0.35rem; }
+    @page { size: A4; margin: 12mm 14mm; }
+    body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10.5pt; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem 2.5rem; color: #111; line-height: 1.28; }
+    h1 { margin: 0; font-size: 16pt; text-align: center; letter-spacing: -0.01em; }
+    .headline { text-align: center; margin: 0.25rem 0 0.15rem; font-size: 10.5pt; }
+    .contact { text-align: center; color: #333; font-size: 9.5pt; margin: 0 0 0.45rem; word-break: break-word; }
+    h2 { margin: 0.55rem 0 0.2rem; font-size: 10.5pt; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #444; padding-bottom: 2px; }
+    .entry { margin: 0.28rem 0 0.18rem; }
     .entry-head { display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
     .dates, .sub { color: #333; font-size: 10pt; font-style: italic; }
     .sub { margin: 0.1rem 0 0; font-style: normal; }
@@ -404,7 +405,9 @@ export function tailoredCvHtml(model) {
     .foot { margin-top: 1.25rem; font-size: 8.5pt; color: #666; }
     @media print {
       .toolbar, .pack-note, .foot { display: none !important; }
-      body { margin: 0; max-width: none; font-size: 10.5pt; }
+      body { margin: 0; padding: 0; max-width: none; font-size: 10pt; line-height: 1.22; }
+      h2 { margin: 0.4rem 0 0.12rem; }
+      .entry { margin: 0.18rem 0 0.1rem; }
     }
   </style>
 </head>

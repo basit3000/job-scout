@@ -184,7 +184,7 @@ function buildChecklist(job, profile, { matched, gaps, verdict }) {
       id: 'letter',
       label: 'Cover letter drafted',
       ok: null,
-      detail: 'Included when you generate Prep & CV',
+      detail: 'Cover letter button → agent (same instructions as CV) → company folder',
     },
   ];
 }

@@ -10,6 +10,46 @@ import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
 
+/** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
+async function safeCopyFile(src, dest) {
+  try {
+    await copyFile(src, dest);
+    return dest;
+  } catch (err) {
+    if (err.code === 'EBUSY' || err.code === 'EPERM') {
+      const ext = dest.match(/(\.[^.]+)$/)?.[1] || '';
+      const stem = dest.slice(0, dest.length - ext.length);
+      for (let n = 2; n <= 9; n++) {
+        const alt = `${stem} (${n})${ext}`;
+        try { await copyFile(src, alt); return alt; } catch (e2) {
+          if (e2.code !== 'EBUSY' && e2.code !== 'EPERM') throw e2;
+        }
+      }
+    }
+    throw err;
+  }
+}
+
+/** Write content to dest; if locked, try numbered fallbacks. */
+async function safeWriteFile(dest, content) {
+  try {
+    await writeFile(dest, content);
+    return dest;
+  } catch (err) {
+    if (err.code === 'EBUSY' || err.code === 'EPERM') {
+      const ext = dest.match(/(\.[^.]+)$/)?.[1] || '';
+      const stem = dest.slice(0, dest.length - ext.length);
+      for (let n = 2; n <= 9; n++) {
+        const alt = `${stem} (${n})${ext}`;
+        try { await writeFile(alt, content); return alt; } catch (e2) {
+          if (e2.code !== 'EBUSY' && e2.code !== 'EPERM') throw e2;
+        }
+      }
+    }
+    throw err;
+  }
+}
+
 /** "Ada Lovelace Byron" → "Lovelace Byron" (matches moderncv short name when 3+ parts). */
 export function cvFileBaseName(profileName) {
   const parts = String(profileName || 'Candidate')
@@ -64,15 +104,13 @@ export async function exportCvDownloads({
 
   // ATS / portal file → "<Name> CV.pdf" (no "ATS" in the filename)
   if (atsSrc) {
-    atsOut = join(dir, `${base} CV.pdf`);
-    await copyFile(atsSrc, atsOut);
+    atsOut = await safeCopyFile(atsSrc, join(dir, `${base} CV.pdf`));
     files.push(atsOut);
   }
 
   // Human-facing Main → "<Name> CV Main.pdf"
   if (mainSrc) {
-    mainOut = join(dir, `${base} CV Main.pdf`);
-    await copyFile(mainSrc, mainOut);
+    mainOut = await safeCopyFile(mainSrc, join(dir, `${base} CV Main.pdf`));
     files.push(mainOut);
   }
 
@@ -101,6 +139,71 @@ export async function exportCvDownloads({
     main: mainOut,
     ats: atsOut,
     files,
+    baseName: base,
+    folder,
+  };
+}
+
+/**
+ * Write cover letter into the same downloads/<Company>/ folder as the CV.
+ */
+export async function exportCoverLetterDownloads({
+  company,
+  profileName,
+  jobTitle = '',
+  mdText = '',
+  pdfPath = null,
+  docxPath = null,
+} = {}) {
+  const base = cvFileBaseName(profileName);
+  const folder = safeFolderName(company);
+  const dir = join(downloadsRoot(), folder);
+  await mkdir(dir, { recursive: true });
+
+  const files = [];
+  let mdOut = null;
+  if (mdText) {
+    mdOut = await safeWriteFile(join(dir, `${base} Cover Letter.md`), mdText.endsWith('\n') ? mdText : `${mdText}\n`);
+    files.push(mdOut);
+  }
+  let pdfOut = null;
+  if (pdfPath && existsSync(pdfPath)) {
+    pdfOut = await safeCopyFile(pdfPath, join(dir, `${base} Cover Letter.pdf`));
+    files.push(pdfOut);
+  }
+  let docxOut = null;
+  if (docxPath && existsSync(docxPath)) {
+    docxOut = await safeCopyFile(docxPath, join(dir, `${base} Cover Letter.docx`));
+    files.push(docxOut);
+  }
+
+  const note = [
+    `# ${company}`,
+    '',
+    jobTitle ? `Role: ${jobTitle}` : '',
+    `Exported: ${new Date().toISOString()}`,
+    '',
+    `- \`${base} Cover Letter.md\``,
+    pdfOut ? `- \`${base} Cover Letter.pdf\`` : '',
+    docxOut ? `- \`${base} Cover Letter.docx\`` : '',
+    existsSync(join(dir, `${base} CV.pdf`)) ? `- \`${base} CV.pdf\` — ATS / portals` : '',
+    existsSync(join(dir, `${base} CV Main.pdf`)) ? `- \`${base} CV Main.pdf\` — main / human-facing` : '',
+    '',
+    `Path: \`${dir}\``,
+    '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  await writeFile(join(dir, 'README.md'), `${note}\n`);
+
+  return {
+    dir,
+    relativeDir: `downloads/${folder}`,
+    absoluteDir: dir,
+    files,
+    md: mdOut,
+    pdf: pdfOut,
+    docx: docxOut,
     baseName: base,
     folder,
   };

@@ -5,6 +5,7 @@ cv/*
 !cv/.gitkeep
 !cv/README.md
 !cv/resume.example.md
+!cv/cover-letter.example.md
 state/decisions.json
 state/saved-answers.json
 

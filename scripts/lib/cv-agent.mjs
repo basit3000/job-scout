@@ -362,6 +362,107 @@ export function buildAgentPrompt({
   return lines.join('\n');
 }
 
+/** Same evidence / skill rules as the CV brief, plus letter-specific layout. */
+export function buildCoverLetterAgentBrief() {
+  return [
+    '# Agent brief — cover letter tailor only, do not research',
+    '',
+    'Job Scout already assembled a draft cover letter from cv/cover-letter.md and staged',
+    'the same evidence pack used for Prep & CV. This brief replaces SKILL.md for this run.',
+    '',
+    '## Hard rules (same as the CV)',
+    '- No invented facts, metrics, employers, dates, or titles.',
+    '- Portfolio copy is for side projects only — never paste side-project work into employment.',
+    '- Print **Germany** only (never a city). PD-League may cite 82 members and 196 matches.',
+    '  List it as Independent Developer / Personal, never as a company.',
+    '- e.solutions is ~90% backend: lead with FastAPI/TypeScript REST, MongoDB, LiteLLM, CI/CD.',
+    '  React/Next.js is API contracts and occasional front-end — not an equal claim.',
+    '  TypeScript, Jenkins, ArgoCD, LiteLLM (LLM calls) are confirmed. Not agents/RAG/fine-tuning.',
+    '- Vercel, Railway, Cloudflare, AWS EC2 are personal hosting (EC2 also at Psmorfia).',
+    '  Never put them on the e.solutions sentences. Do not mention Porkbun.',
+    '- OpenAI on Translation Service is a personal project, not employment.',
+    '- Target full-stack and applied LLM/automation roles, not research-scientist posts.',
+    '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
+    '- Follow extra instructions.md the same way the CV tailor would (emphasis, stack, tone).',
+    '- Do not commit secrets or echo tokens.',
+    '',
+    '## Cover letter shape',
+    '- Start with `Application for <Role>` (already filled). No sender header, no date at the top.',
+    '- Keep: greeting, 2–4 body paragraphs, thanks, then sign-off.',
+    '- Sign-off must be exactly: `Kind regards,` then a blank line, then name, email, website',
+    '  each on its own line.',
+    '- Never use em dashes or spaced hyphen asides (`word - word`). Use a comma or rewrite.',
+    '- One page. Do not add a header block or address block.',
+    '- Light rewrite only: lead with posting-matched skills that are already true. Same voice.',
+    '- Drop or shorten a past-job / project sentence if it does not help this posting.',
+    '- Do not invent a new employer, project, or metric to fill a gap. Leave it out.',
+    '',
+    '## Do not do',
+    '- Do not read SKILL.md, format-benchmarks.md, or overleaf.md.',
+    '- Do not run gather-evidence.mjs or `gh api`.',
+    '- Do not git clone Overleaf, compile LaTeX, or edit the CV files.',
+    '- Do not web-search the job URL unless job-posting.md is empty.',
+    '',
+    '## Do',
+    '- Read only the files listed in the prompt, in that order.',
+    '- Map posting → evidence, then surgically edit cover-letter.md.',
+    '- Write cover-letter-report.md (what changed + leftover gaps).',
+    '',
+  ].join('\n');
+}
+
+export function buildCoverLetterAgentPrompt({
+  job,
+  prepRel,
+  jobPostingRel,
+  instructionsRel,
+  briefRel,
+  evidenceRel,
+  techStackRel,
+  gapsRel,
+  writingRulesRel,
+  letterRel,
+  cvRel,
+  profileName,
+  extraInstructions,
+}) {
+  const reads = [
+    briefRel,
+    jobPostingRel,
+    gapsRel,
+    evidenceRel,
+    techStackRel,
+    writingRulesRel,
+    cvRel,
+    letterRel,
+  ].filter(Boolean);
+
+  const lines = [
+    'Cover letter tailor — execute, do not research. Evidence is already staged.',
+    'Use the same skill rules and extra instructions as Prep & CV.',
+    '',
+    `Candidate: ${profileName || 'from profile.json'}`,
+    `Job: ${job.title} @ ${job.company}`,
+    `Job URL: ${job.url || '(none)'}`,
+    `Prep pack: ${prepRel}`,
+    '',
+    'Read only these, in order:',
+    ...reads.map((p) => `- ${p}`),
+  ];
+  if (extraInstructions) {
+    lines.push(`- Extra instructions: ${extraInstructions}`);
+    if (instructionsRel) lines.push(`  (also at ${instructionsRel})`);
+  }
+  lines.push(
+    '',
+    `Surgically edit ${letterRel} so it leads with evidenced skills this posting cares about.`,
+    'Do not invent facts. Do not edit the CV or Overleaf files.',
+    `Then write ${prepRel}/cover-letter-report.md: what changed (with evidence) and gaps.`,
+    'Apply the edits. Do not stop at a plan.',
+  );
+  return lines.join('\n');
+}
+
 function emitFn(onEvent) {
   return (line, stream = 'stdout') => {
     if (typeof onEvent === 'function') onEvent({ stream, line: String(line), t: Date.now() });
@@ -642,7 +743,9 @@ export async function runCvTailorAgent({
   provider = null,
   model = null,
   onEvent = null,
+  task = 'cv',
 } = {}) {
+  const letterTask = task === 'cover-letter';
   const prov = normalizeAgentProvider(provider);
   const modelSel = resolveAgentModel(model, prov);
   const emit = emitFn(onEvent);
@@ -651,13 +754,16 @@ export async function runCvTailorAgent({
   const prepRel = relative(ROOT, prepDir).replace(/\\/g, '/') || prepDir;
   const jobPostingRel = `${prepRel}/job-posting.md`;
   const instructionsRel = `${prepRel}/instructions.md`;
-  const briefRel = `${prepRel}/agent-brief.md`;
+  const briefRel = letterTask ? `${prepRel}/cover-letter-brief.md` : `${prepRel}/agent-brief.md`;
   const instr = String(extraInstructions || '').trim();
 
   emit(`Provider: ${prov} · staging context outside the model`, 'meta');
 
-  const brief = buildAgentBrief({ cvSource });
-  await writeFile(join(prepDir, 'agent-brief.md'), brief.endsWith('\n') ? brief : `${brief}\n`);
+  const brief = letterTask ? buildCoverLetterAgentBrief() : buildAgentBrief({ cvSource });
+  await writeFile(
+    join(prepDir, letterTask ? 'cover-letter-brief.md' : 'agent-brief.md'),
+    brief.endsWith('\n') ? brief : `${brief}\n`,
+  );
 
   let evidenceRel = '';
   try {
@@ -670,7 +776,7 @@ export async function runCvTailorAgent({
   const techStackAbs = join(ROOT, 'cv', 'tech-stack.md');
   const techStackRel = existsSync(techStackAbs) ? 'cv/tech-stack.md' : '';
 
-  if (cvSource === 'overleaf') {
+  if (!letterTask && cvSource === 'overleaf') {
     await stageOverleaf(emit);
   }
 
@@ -724,28 +830,48 @@ export async function runCvTailorAgent({
     ? '.agents/skills/cv-tailor/references/writing-rules.md'
     : '';
 
-  const prompt = buildAgentPrompt({
-    job,
-    prepRel,
-    jobPostingRel,
-    instructionsRel,
-    briefRel,
-    evidenceRel,
-    techStackRel,
-    gapsRel,
-    writingRulesRel,
-    overleafRel: '.workspace/overleaf',
-    cvSource,
-    profileName: profile?.name,
-    extraInstructions: instr,
-  });
+  const cvMdAbs = join(prepDir, 'cv.md');
+  const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md` : '';
+  const prompt = letterTask
+    ? buildCoverLetterAgentPrompt({
+      job,
+      prepRel,
+      jobPostingRel,
+      instructionsRel,
+      briefRel,
+      evidenceRel,
+      techStackRel,
+      gapsRel,
+      writingRulesRel,
+      letterRel: `${prepRel}/cover-letter.md`,
+      cvRel,
+      profileName: profile?.name,
+      extraInstructions: instr,
+    })
+    : buildAgentPrompt({
+      job,
+      prepRel,
+      jobPostingRel,
+      instructionsRel,
+      briefRel,
+      evidenceRel,
+      techStackRel,
+      gapsRel,
+      writingRulesRel,
+      overleafRel: '.workspace/overleaf',
+      cvSource,
+      profileName: profile?.name,
+      extraInstructions: instr,
+    });
 
-  const promptPath = join(prepDir, 'agent-prompt.md');
+  const promptPath = join(prepDir, letterTask ? 'cover-letter-prompt.md' : 'agent-prompt.md');
   await writeFile(promptPath, `${prompt}\n`);
   emit(
-    `Prompt ready (${prompt.length} chars) — agent edits only; Job Scout ${
-      overleafPush && cvSource === 'overleaf' ? 'compiles + pushes after' : 'compiles after'
-    }`,
+    letterTask
+      ? `Prompt ready (${prompt.length} chars) — agent edits cover-letter.md only`
+      : `Prompt ready (${prompt.length} chars) — agent edits only; Job Scout ${
+        overleafPush && cvSource === 'overleaf' ? 'compiles + pushes after' : 'compiles after'
+      }`,
     'meta',
   );
 

@@ -282,7 +282,7 @@
         <h3 id="prepModalTitle">Prep &amp; CV</h3>
         <p id="prepModalHint" class="meta">
           Default: Cursor agent (cv-tailor). Needs <code>CURSOR_API_KEY</code> in <code>.env</code>.
-          Fast = keyword reorder only (no LLM).
+          Fast = keyword reorder only (no LLM). A first Create also writes the cover letter, then opens the folder.
         </p>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
@@ -296,7 +296,7 @@
           <textarea
             id="prepInstrCustom"
             rows="3"
-            placeholder="Optional notes for the agent (or Fast keyword bias)"
+            placeholder="Same notes as Prep & CV — stack emphasis, what to lead with"
             hidden
           ></textarea>
         </label>

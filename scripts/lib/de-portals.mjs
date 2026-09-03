@@ -6,6 +6,11 @@
  * - munichstartup: Munich Startup pinboard (HTML listing)
  * - pegel: Pegel Berlin startup roles API
  * - nomado24: Nomado24 DE/EU remote+hybrid API
+ * - stepstone: StepStone.de HTML search listings
+ * - xing: XING jobs HTML search listings
+ * - kimeta: Kimeta.de Next.js search (packed __PPA__)
+ * - heise: jobs.heise.de Next.js search (same PPA shape as Kimeta)
+ * - germantechjobs: GermanTechJobs.de public RSS
  */
 
 import { jobId, normalise, detectMarketFlags, stripHtml, clean } from './common.mjs';
@@ -477,6 +482,507 @@ export async function fetchNomado24(query, { limit }, market) {
   return out;
 }
 
+const STEPSTONE_ORIGIN = 'https://www.stepstone.de';
+const STEPSTONE_CITY_SLUG = {
+  germany: 'deutschland',
+  deutschland: 'deutschland',
+  berlin: 'berlin',
+  munich: 'muenchen',
+  'münchen': 'muenchen',
+  hamburg: 'hamburg',
+  frankfurt: 'frankfurt-am-main',
+  'frankfurt am main': 'frankfurt-am-main',
+  cologne: 'koeln',
+  'köln': 'koeln',
+  stuttgart: 'stuttgart',
+  düsseldorf: 'duesseldorf',
+  dusseldorf: 'duesseldorf',
+  leipzig: 'leipzig',
+  dresden: 'dresden',
+  hannover: 'hannover',
+  nuremberg: 'nuernberg',
+  nürnberg: 'nuernberg',
+  erfurt: 'erfurt',
+};
+
+export function stepstoneSlug(text) {
+  return clean(text)
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+export function stepstoneCitySlug(where) {
+  const key = clean(where).toLowerCase();
+  if (!key || key === 'remote') return 'deutschland';
+  if (STEPSTONE_CITY_SLUG[key]) return STEPSTONE_CITY_SLUG[key];
+  return stepstoneSlug(key) || 'deutschland';
+}
+
+export function stepstoneSearchUrl(query, page = 1) {
+  const what = stepstoneSlug(query?.what) || 'software-developer';
+  const city = stepstoneCitySlug(query?.where);
+  let url = `${STEPSTONE_ORIGIN}/jobs/${what}/in-${city}`;
+  if (page > 1) url += `?page=${page}`;
+  return url;
+}
+
+export function parseStepstoneAgo(text) {
+  const s = decodeEntities(String(text || '')).toLowerCase();
+  const n = Number((s.match(/(\d+)/) || [])[1] || 1);
+  const d = new Date();
+  if (/stunde|hour/.test(s)) d.setHours(d.getHours() - n);
+  else if (/tag|day/.test(s)) d.setDate(d.getDate() - n);
+  else if (/woche|week/.test(s)) d.setDate(d.getDate() - 7 * n);
+  else if (/monat|month/.test(s)) d.setMonth(d.getMonth() - n);
+  else return null;
+  return d.toISOString();
+}
+
+function tidyField(text) {
+  return decodeEntities(stripHtml(text || ''))
+    .replace(/data-(?:testid|at)="[^"]+"/gi, ' ')
+    .replace(/\btabindex="[^"]*"/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/<[^>]*$/g, '')
+    .replace(/^[>\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function fieldAfter(html, at) {
+  const start = html.search(new RegExp(`data-at="${at}"`));
+  if (start < 0) return '';
+  const from = html.slice(start);
+  const gt = from.indexOf('>');
+  if (gt < 0) return '';
+  const rest = from.slice(gt + 1);
+  const next = rest.search(/data-at="/);
+  const body = next === -1 ? rest.slice(0, 600) : rest.slice(0, next);
+  return tidyField(body);
+}
+
+export function parseStepstoneCard(chunk) {
+  const hrefM = chunk.match(/href="(\/stellenangebote--[^"]+)"/i);
+  const href = hrefM?.[1];
+  if (!href) return null;
+  const idM = href.match(/--(\d+)-inline\.html/i);
+  if (!idM) return null;
+  const titleBlock = chunk.match(/data-testid="job-item-title"[\s\S]*?<\/a>/i);
+  const title = tidyField(titleBlock?.[0] || '');
+  if (!title) return null;
+  const location = fieldAfter(chunk, 'job-item-location');
+  const snippet = fieldAfter(chunk, 'jobcard-content');
+  return {
+    nativeId: idM[1],
+    href,
+    title,
+    company: fieldAfter(chunk, 'job-item-company-name') || null,
+    location: location || null,
+    postedAt: parseStepstoneAgo(fieldAfter(chunk, 'job-item-timeago')),
+    description: snippet || null,
+    remote: /remote|home[\s-]?office|homeoffice/i.test(`${location} ${snippet}`),
+  };
+}
+
+function splitStepstoneCards(html) {
+  const cleaned = String(html || '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+  return cleaned.split(/data-testid="job-item"/).slice(1);
+}
+
+/** StepStone.de search listings (HTML). No public job-search API. */
+export async function fetchStepstone(query, { limit }, market) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const out = [];
+  const seen = new Set();
+  const maxPages = want > 25 ? 2 : 1;
+
+  for (let page = 1; page <= maxPages && out.length < want; page += 1) {
+    const url = stepstoneSearchUrl(query, page);
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': AA_UA,
+        'Accept-Language': 'en,de;q=0.9',
+      },
+    });
+    if (!res.ok) throw new Error(`StepStone HTTP ${res.status}`);
+    const html = await res.text();
+    const cards = splitStepstoneCards(html);
+    if (!cards.length && page === 1) throw new Error('StepStone returned no listings');
+
+    for (const chunk of cards) {
+      const parsed = parseStepstoneCard(chunk);
+      if (!parsed || seen.has(parsed.nativeId)) continue;
+      seen.add(parsed.nativeId);
+      const hay = `${parsed.title} ${parsed.company || ''}`;
+      if (!matchesTextQuery(hay, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      const source = `${market.slug}:stepstone`;
+      const raw = {
+        board: 'stepstone',
+        via: 'html',
+        nativeId: parsed.nativeId,
+        title: parsed.title,
+        company: parsed.company,
+        location: parsed.location,
+        country: market.shortName,
+        remote: parsed.remote,
+        url: `${STEPSTONE_ORIGIN}${parsed.href}`,
+        postedAt: parsed.postedAt,
+        description: parsed.description,
+      };
+      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+      job.flags = detectMarketFlags(job, market);
+      out.push(job);
+      if (out.length >= want) break;
+    }
+  }
+
+  return out;
+}
+
+const XING_ORIGIN = 'https://www.xing.com';
+const KIMETA_ORIGIN = 'https://www.kimeta.de';
+const HEISE_ORIGIN = 'https://jobs.heise.de';
+const GERMANTECH_RSS = 'https://germantechjobs.de/rss';
+
+function nationwideWhere(where) {
+  const key = clean(where).toLowerCase();
+  return !key || key === 'germany' || key === 'deutschland' || key === 'remote';
+}
+
+export function xingSearchUrl(query, page = 1) {
+  const params = new URLSearchParams({ keywords: clean(query?.what) || 'software' });
+  if (!nationwideWhere(query?.where)) params.set('location', clean(query.where));
+  const radius = Number(query?.radiusKm);
+  if (Number.isFinite(radius) && radius > 0) params.set('radius', String(Math.round(radius)));
+  if (page > 1) params.set('page', String(page));
+  return `${XING_ORIGIN}/jobs/search?${params}`;
+}
+
+export function parseXingCard(chunk) {
+  const hrefM = String(chunk || '').match(/href="(\/jobs\/[^"#?]+)"/i);
+  const href = hrefM?.[1];
+  if (!href) return null;
+  const idM = href.match(/-(\d+)\/?$/);
+  if (!idM) return null;
+  const titleBlock = chunk.match(/data-testid="job-teaser-list-title"[^>]*>([\s\S]*?)<\/h2>/i);
+  const title = tidyField(titleBlock?.[1] || '');
+  if (!title) return null;
+  const companyBlock = chunk.match(/job-teaser-list-item-styles__Company[^>]*>([\s\S]*?)<\/p>/i);
+  const imgCompany = chunk.match(/<img[^>]*(?:title|aria-label)="([^"]+)"/i);
+  const company = tidyField(companyBlock?.[1] || '') || tidyField(imgCompany?.[1] || '') || null;
+  const locBlock = chunk.match(/multi-location-display[\s\S]*?<p[^>]*>([\s\S]*?)<\/p>/i);
+  const location =
+    tidyField((locBlock?.[1] || '').replace(/<b[\s\S]*$/i, ''))
+      .replace(/\+\s*\d+\s*more/i, '')
+      .replace(/\u00a0/g, ' ')
+      .trim() || null;
+  const timeM = chunk.match(/<time[^>]*dateTime="([^"]+)"/i);
+  const snippet = [...chunk.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi)]
+    .map((m) => tidyField(m[1]))
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(' ');
+  return {
+    nativeId: idM[1],
+    href,
+    title,
+    company,
+    location,
+    postedAt: timeM?.[1] || null,
+    description: snippet || null,
+    remote: /remote|home[\s-]?office|homeoffice/i.test(`${location || ''} ${snippet} ${title}`),
+  };
+}
+
+function splitXingCards(html) {
+  return String(html || '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .split(/data-testid="job-search-result"/)
+    .slice(1);
+}
+
+/** XING.com/jobs search listings (HTML). No public job-search API. */
+export async function fetchXing(query, { limit }, market) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const out = [];
+  const seen = new Set();
+  const maxPages = want > 25 ? 2 : 1;
+
+  for (let page = 1; page <= maxPages && out.length < want; page += 1) {
+    const url = xingSearchUrl(query, page);
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': AA_UA,
+        'Accept-Language': 'en,de;q=0.9',
+      },
+    });
+    if (!res.ok) throw new Error(`Xing HTTP ${res.status}`);
+    const html = await res.text();
+    const cards = splitXingCards(html);
+    if (!cards.length && page === 1) throw new Error('Xing returned no listings');
+
+    for (const chunk of cards) {
+      const parsed = parseXingCard(chunk);
+      if (!parsed || seen.has(parsed.nativeId)) continue;
+      seen.add(parsed.nativeId);
+      const hay = `${parsed.title} ${parsed.company || ''}`;
+      if (!matchesTextQuery(hay, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      const source = `${market.slug}:xing`;
+      const raw = {
+        board: 'xing',
+        via: 'html',
+        nativeId: parsed.nativeId,
+        title: parsed.title,
+        company: parsed.company,
+        location: parsed.location,
+        country: market.shortName,
+        remote: parsed.remote,
+        url: `${XING_ORIGIN}${parsed.href}`,
+        postedAt: parsed.postedAt,
+        description: parsed.description,
+      };
+      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+      job.flags = detectMarketFlags(job, market);
+      out.push(job);
+      if (out.length >= want) break;
+    }
+  }
+
+  return out;
+}
+
+export function decodePackedJson(codes) {
+  const CHUNK = 24576;
+  let s = '';
+  for (let i = 0; i < codes.length; i += CHUNK) {
+    s += String.fromCharCode(...codes.slice(i, i + CHUNK));
+  }
+  return JSON.parse(s);
+}
+
+export function extractNextPpa(html) {
+  const m = String(html || '').match(/<script[^>]*id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return null;
+  let data;
+  try {
+    data = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+  const ppa = data?.props?.pageProps?.__PPA__;
+  if (Array.isArray(ppa)) return decodePackedJson(ppa);
+  return data?.props?.pageProps ?? null;
+}
+
+export function ppaSearchUrl(origin, query, page = 0) {
+  const params = new URLSearchParams();
+  params.set('q', clean(query?.what) || '');
+  if (!nationwideWhere(query?.where)) params.set('loc', clean(query.where));
+  const radius = Number(query?.radiusKm);
+  if (Number.isFinite(radius) && radius > 0) params.set('r', String(Math.round(radius)));
+  if (page > 0) params.set('page', String(page));
+  return `${origin}/search?${params}`;
+}
+
+export function mapPpaOffer(offer) {
+  if (!offer?.documentId || !offer?.title) return null;
+  const url = offer.offerUrl || offer.offerOriginalUrl;
+  if (!url) return null;
+  const loc = offer.location || null;
+  const snippet = offer.teaser || '';
+  return {
+    nativeId: String(offer.documentId),
+    title: decodeEntities(offer.title),
+    company: offer.companyName ? decodeEntities(offer.companyName) : null,
+    location: loc ? decodeEntities(loc) : null,
+    url,
+    postedAt: offer.firstFound || offer.lastChange || parseStepstoneAgo(offer.publishedString),
+    description: snippet ? stripHtml(decodeEntities(snippet)).slice(0, 4000) : null,
+    remote: /remote|home[\s-]?office|homeoffice/i.test(`${loc || ''} ${snippet}`),
+    employmentType: Array.isArray(offer.hours) ? offer.hours.join(', ') : offer.hours || null,
+  };
+}
+
+async function fetchPpaPortal(origin, board, query, { limit }, market) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const out = [];
+  const seen = new Set();
+  const maxPages = want > 20 ? 3 : 2;
+  const label = board === 'heise' ? 'Heise' : 'Kimeta';
+
+  for (let page = 0; page < maxPages && out.length < want; page += 1) {
+    const url = ppaSearchUrl(origin, query, page);
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'text/html',
+        'User-Agent': AA_UA,
+        'Accept-Language': 'de,en;q=0.9',
+      },
+    });
+    if (!res.ok) throw new Error(`${label} HTTP ${res.status}`);
+    const html = await res.text();
+    const ppa = extractNextPpa(html);
+    const offers = ppa?.searchResults?.jobOffers;
+    if (!Array.isArray(offers) || !offers.length) {
+      if (page === 0) throw new Error(`${label} returned no listings`);
+      break;
+    }
+
+    for (const offer of offers) {
+      const parsed = mapPpaOffer(offer);
+      if (!parsed || seen.has(parsed.nativeId)) continue;
+      seen.add(parsed.nativeId);
+      const hay = `${parsed.title} ${parsed.company || ''}`;
+      if (!matchesTextQuery(hay, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      const source = `${market.slug}:${board}`;
+      const raw = {
+        board,
+        via: 'html',
+        nativeId: parsed.nativeId,
+        title: parsed.title,
+        company: parsed.company,
+        location: parsed.location,
+        country: market.shortName,
+        remote: parsed.remote,
+        url: parsed.url,
+        postedAt: parsed.postedAt,
+        employmentType: parsed.employmentType,
+        description: parsed.description,
+      };
+      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+      job.flags = detectMarketFlags(job, market);
+      out.push(job);
+      if (out.length >= want) break;
+    }
+
+    if (!ppa.searchResults?.canPageMore) break;
+  }
+
+  return out;
+}
+
+export function fetchKimeta(query, opts, market) {
+  return fetchPpaPortal(KIMETA_ORIGIN, 'kimeta', query, opts, market);
+}
+
+export function fetchHeise(query, opts, market) {
+  return fetchPpaPortal(HEISE_ORIGIN, 'heise', query, opts, market);
+}
+
+export function parseGermantechTitle(title) {
+  const s = decodeEntities(title || '').trim();
+  const m = s.match(/^(.*?)\s+@\s+(.*?)(?:\s+\[(.*)\])?\s*$/);
+  if (!m) return { title: s, company: null, salary: null };
+  return { title: m[1].trim(), company: m[2].trim(), salary: m[3] ? m[3].trim() : null };
+}
+
+export function parseRssItems(xml) {
+  const out = [];
+  const re = /<item>([\s\S]*?)<\/item>/gi;
+  let m;
+  while ((m = re.exec(String(xml || '')))) {
+    const block = m[1];
+    const tag = (name) => {
+      const tm = block.match(new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`, 'i'));
+      if (!tm) return '';
+      return decodeEntities(tm[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1').trim());
+    };
+    out.push({
+      title: tag('title'),
+      link: tag('link') || tag('guid'),
+      pubDate: tag('pubDate'),
+      description: tag('description'),
+    });
+  }
+  return out;
+}
+
+function stripTracking(url) {
+  try {
+    const u = new URL(url);
+    for (const key of [...u.searchParams.keys()]) {
+      if (key.toLowerCase().startsWith('utm_')) u.searchParams.delete(key);
+    }
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+let germantechCache = { fetchedAt: 0, items: null };
+const GERMANTECH_TTL_MS = 10 * 60 * 1000;
+
+async function loadGermantechItems() {
+  const now = Date.now();
+  if (germantechCache.items && now - germantechCache.fetchedAt < GERMANTECH_TTL_MS) {
+    return germantechCache.items;
+  }
+  const res = await fetch(GERMANTECH_RSS, {
+    headers: { Accept: 'application/rss+xml, application/xml, text/xml', 'User-Agent': AA_UA },
+  });
+  if (!res.ok) throw new Error(`GermanTechJobs HTTP ${res.status}`);
+  const items = parseRssItems(await res.text());
+  germantechCache = { fetchedAt: now, items };
+  return items;
+}
+
+/** GermanTechJobs.de — salary-transparent tech/IT board via public RSS. */
+export async function fetchGermantechJobs(query, { limit }, market) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const items = await loadGermantechItems();
+  const out = [];
+
+  for (const item of items) {
+    if (out.length >= want) break;
+    const parsed = parseGermantechTitle(item.title);
+    const url = item.link ? stripTracking(item.link) : '';
+    if (!parsed.title || !url) continue;
+    const description = stripHtml(item.description || '').slice(0, 4000);
+    const hay = `${parsed.title} ${parsed.company || ''} ${description}`;
+    if (!matchesTextQuery(hay, query)) continue;
+    const remote = /remote|home[\s-]?office|homeoffice/i.test(hay);
+    if (!matchesWhere(description, remote, query)) continue;
+    const source = `${market.slug}:germantechjobs`;
+    let postedAt = null;
+    if (item.pubDate) {
+      const ms = Date.parse(item.pubDate);
+      if (!Number.isNaN(ms)) postedAt = new Date(ms).toISOString();
+    }
+    const raw = {
+      board: 'germantechjobs',
+      via: 'rss',
+      nativeId: url,
+      title: parsed.title,
+      company: parsed.company,
+      location: remote ? 'Remote, Germany' : 'Germany',
+      country: market.shortName,
+      remote,
+      url,
+      postedAt,
+      salary: parsed.salary,
+      description: description || null,
+    };
+    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+    job.flags = detectMarketFlags(job, market);
+    out.push(job);
+  }
+
+  return out;
+}
+
 export async function fetchGermanyPortal(board, query, opts, market) {
   if (board === 'arbeitsagentur') return fetchArbeitsagentur(query, opts, market);
   if (board === 'arbeitnow') return fetchArbeitnow(query, opts, market);
@@ -484,5 +990,10 @@ export async function fetchGermanyPortal(board, query, opts, market) {
   if (board === 'munichstartup') return fetchMunichStartup(query, opts, market);
   if (board === 'pegel') return fetchPegel(query, opts, market);
   if (board === 'nomado24') return fetchNomado24(query, opts, market);
+  if (board === 'stepstone') return fetchStepstone(query, opts, market);
+  if (board === 'xing') return fetchXing(query, opts, market);
+  if (board === 'kimeta') return fetchKimeta(query, opts, market);
+  if (board === 'heise') return fetchHeise(query, opts, market);
+  if (board === 'germantechjobs') return fetchGermantechJobs(query, opts, market);
   throw new Error(`No Germany portal fetcher for "${board}"`);
 }

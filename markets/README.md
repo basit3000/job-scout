@@ -24,7 +24,7 @@ node scripts/fetch-jobs.mjs --market US
 | `SA` | Saudi Arabia | Bayt, Indeed, LinkedIn |
 | `GB` | United Kingdom | Indeed, LinkedIn |
 | `US` | United States | Indeed, LinkedIn |
-| `DE` | Germany | Indeed, LinkedIn, Arbeitsagentur, Arbeitnow, Berlin Startup Jobs, Munich Startup, Pegel, Nomado24 |
+| `DE` | Germany | Indeed, LinkedIn, Arbeitsagentur, Arbeitnow, Berlin Startup Jobs, Munich Startup, Pegel, Nomado24, StepStone, Xing, Kimeta, Heise Jobs, GermanTechJobs |
 | `IN` | India | Indeed, LinkedIn |
 
 ## Add your own

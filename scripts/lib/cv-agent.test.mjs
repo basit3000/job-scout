@@ -46,7 +46,7 @@ describe('buildAgentPrompt', () => {
 
 describe('buildAgentBrief', () => {
   it('forbids the expensive skill steps', () => {
-    const brief = buildAgentBrief({ cvSource: 'overleaf' });
+    const brief = buildAgentBrief({ cvSource: 'overleaf', localRules: '' });
     assert.match(brief, /Do not read SKILL\.md/);
     assert.match(brief, /Do not run gather-evidence/);
     assert.match(brief, /Do not git clone Overleaf/);
@@ -56,6 +56,20 @@ describe('buildAgentBrief', () => {
     assert.match(brief, /First screen/);
     assert.match(brief, /keyword-gaps\.md/);
     assert.match(brief, /evidence sentence/);
+  });
+
+  it('keeps candidate-specific rules out of the public brief', () => {
+    const brief = buildAgentBrief({ cvSource: 'overleaf', localRules: '' });
+    assert.doesNotMatch(brief, /Candidate-specific rules/);
+  });
+
+  it('appends candidate-specific rules from the local overlay', () => {
+    const brief = buildAgentBrief({
+      cvSource: 'overleaf',
+      localRules: '- Current employer is ~90% backend.',
+    });
+    assert.match(brief, /Candidate-specific rules \(local overlay\)/);
+    assert.match(brief, /~90% backend/);
   });
 });
 
@@ -78,7 +92,7 @@ describe('buildCoverLetterAgentPrompt', () => {
 
 describe('buildCoverLetterAgentBrief', () => {
   it('reuses CV skill rules and letter layout', () => {
-    const brief = buildCoverLetterAgentBrief();
+    const brief = buildCoverLetterAgentBrief({ localRules: '' });
     assert.match(brief, /No invented facts/);
     assert.match(brief, /keyword-gaps\.md/);
     assert.match(brief, /Kind regards/);

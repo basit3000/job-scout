@@ -5,7 +5,7 @@
  *   codex        → OpenAI Codex CLI (`codex exec`)
  */
 
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -224,6 +224,23 @@ export function personalCvSkillPresent() {
   return existsSync(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'SKILL.md'));
 }
 
+const LOCAL_AGENT_RULES = join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md');
+
+export function loadLocalAgentRules() {
+  if (!existsSync(LOCAL_AGENT_RULES)) return '';
+  try {
+    return readFileSync(LOCAL_AGENT_RULES, 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+function withLocalRules(lines, localRules) {
+  const extra = localRules === undefined ? loadLocalAgentRules() : String(localRules || '').trim();
+  if (!extra) return lines.join('\n');
+  return [...lines, '## Candidate-specific rules (local overlay)', extra, ''].join('\n');
+}
+
 export function agentSessionPath(prepDir) {
   return join(prepDir, 'agent-session.json');
 }
@@ -250,9 +267,9 @@ function relToRoot(abs) {
   return relative(ROOT, abs).replace(/\\/g, '/') || abs;
 }
 
-export function buildAgentBrief({ cvSource = 'overleaf' } = {}) {
+export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
   const overleaf = cvSource === 'overleaf';
-  return [
+  return withLocalRules([
     '# Agent brief — tailor only, do not research',
     '',
     'Job Scout already staged evidence and the Overleaf clone. This brief replaces',
@@ -265,15 +282,9 @@ export function buildAgentBrief({ cvSource = 'overleaf' } = {}) {
     '  in-line tech already on the CV or in the evidence pack. Same theme and voice.',
     '- Leave a bullet alone if it already fits. Change about a third to half of them.',
     '- Portfolio copy is for Projects only — never paste side-project work into employment.',
-    '- Print **Germany** only (never a city). Sample League may cite 82 members and 196 matches.',
-    '  List it as Independent Developer / Personal, never as a company, and not again under Projects.',
-    '- current employer is ~90% backend: lead with FastAPI/TypeScript REST, MongoDB, LiteLLM, CI/CD.',
-    '  React/Next.js is API contracts and occasional front-end — not an equal bullet.',
-    '  TypeScript, Jenkins, ArgoCD, LiteLLM (LLM calls) are confirmed. Not agents/RAG/fine-tuning.',
-    '- Vercel, Railway, Cloudflare, AWS EC2 are personal hosting (EC2 also at a previous employer).',
-    '  Never put them on the current employer bullets. Do not list a domain registrar on Skills.',
-    '- OpenAI on Translation Service is a personal project, not employment.',
-    '- Target full-stack and applied LLM/automation roles, not research-scientist posts.',
+    '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
+    '- Do not treat personal side projects or hosting as employment.',
+    '- Do not invent metrics. If a real number would win the screen, list it as a question in the report.',
     '- Do not commit secrets or echo tokens.',
     overleaf ? '- Edit both `.workspace/overleaf/main.tex` and `ats.tex` (or neither).' : '- Write facts-only Markdown.',
     '',
@@ -293,14 +304,13 @@ export function buildAgentBrief({ cvSource = 'overleaf' } = {}) {
     '4. Mirror the posting’s exact wording only where it is already true (REST API ↔ HTTP API, back-end ↔ backend).',
     '5. German posting: keep English tech names (ATS) and add the German role noun if it is an honest equivalent.',
     '6. Skills line: JD-matched evidenced tech first; drop tools you would not take an interview question on.',
-    '7. Do not invent metrics. If a real number would win the screen, list it as a question in the report.',
     '',
     '## Do',
     '- Read only the files listed in the prompt, in that order.',
     '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
     '- Map posting → evidence, then surgically edit. Write agent-report.md (changes + leftover gaps).',
     '',
-  ].join('\n');
+  ], localRules);
 }
 
 export function buildAgentPrompt({
@@ -363,8 +373,8 @@ export function buildAgentPrompt({
 }
 
 /** Same evidence / skill rules as the CV brief, plus letter-specific layout. */
-export function buildCoverLetterAgentBrief() {
-  return [
+export function buildCoverLetterAgentBrief({ localRules } = {}) {
+  return withLocalRules([
     '# Agent brief — cover letter tailor only, do not research',
     '',
     'Job Scout already assembled a draft cover letter from cv/cover-letter.md and staged',
@@ -373,15 +383,8 @@ export function buildCoverLetterAgentBrief() {
     '## Hard rules (same as the CV)',
     '- No invented facts, metrics, employers, dates, or titles.',
     '- Portfolio copy is for side projects only — never paste side-project work into employment.',
-    '- Print **Germany** only (never a city). Sample League may cite 82 members and 196 matches.',
-    '  List it as Independent Developer / Personal, never as a company.',
-    '- current employer is ~90% backend: lead with FastAPI/TypeScript REST, MongoDB, LiteLLM, CI/CD.',
-    '  React/Next.js is API contracts and occasional front-end — not an equal claim.',
-    '  TypeScript, Jenkins, ArgoCD, LiteLLM (LLM calls) are confirmed. Not agents/RAG/fine-tuning.',
-    '- Vercel, Railway, Cloudflare, AWS EC2 are personal hosting (EC2 also at a previous employer).',
-    '  Never put them on the current employer sentences. Do not mention a domain registrar.',
-    '- OpenAI on Translation Service is a personal project, not employment.',
-    '- Target full-stack and applied LLM/automation roles, not research-scientist posts.',
+    '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
+    '- Do not treat personal side projects or hosting as employment.',
     '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
     '- Follow extra instructions.md the same way the CV tailor would (emphasis, stack, tone).',
     '- Do not commit secrets or echo tokens.',
@@ -408,7 +411,7 @@ export function buildCoverLetterAgentBrief() {
     '- Map posting → evidence, then surgically edit cover-letter.md.',
     '- Write cover-letter-report.md (what changed + leftover gaps).',
     '',
-  ].join('\n');
+  ], localRules);
 }
 
 export function buildCoverLetterAgentPrompt({

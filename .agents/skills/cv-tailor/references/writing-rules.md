@@ -102,7 +102,7 @@ version of the same bullet — not a different resume template.
 **Experience source of truth.** The bullets already on the CV (especially current
 employment) are the duties you may re-emphasise. Portfolio copy is extra evidence for
 **Projects** and for naming stack that those project entries already list. Do not invent
-a new current employer (or any other) story from the portfolio.
+a new employment story from the portfolio.
 
 | Allowed | Not allowed |
 | --- | --- |

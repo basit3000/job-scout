@@ -86,5 +86,5 @@ test('enrichProjectsBody handles nested \\cvitem labels', () => {
   );
   assert.equal(changed, true);
   assert.match(out, /Docker/);
-  assert.match(out, /\\href\{https:\/\/example.com/league\}\{Sample League\}/);
+  assert.match(out, /\\href\{https:\/\/example.com\/league\}\{Sample League\}/);
 });

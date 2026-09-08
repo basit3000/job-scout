@@ -1,5 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   parseStepstoneAgo,
   parseStepstoneCard,
@@ -245,5 +248,36 @@ describe('arbeitnow cache', () => {
       globalThis.fetch = orig;
       resetArbeitnowCache();
     }
+  });
+});
+
+const deMarket = JSON.parse(
+  await readFile(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'markets', 'DE.json'), 'utf8'),
+);
+
+describe('Germany country-only location filter', () => {
+  it('keeps German cities and Remote, Germany', async () => {
+    const { isJobInMarket, isMarketLocation } = await import('./common.mjs');
+    assert.equal(isJobInMarket({ location: 'Berlin, Germany', country: 'Germany' }, deMarket), true);
+    assert.equal(isJobInMarket({ location: 'Erfurt', country: 'Germany' }, deMarket), true);
+    assert.equal(isJobInMarket({ location: 'Remote, Germany', remote: true, country: 'Germany' }, deMarket), true);
+    assert.equal(isJobInMarket({ location: 'Thüringen', country: 'Germany' }, deMarket), true);
+    assert.equal(isMarketLocation('Berlin, DE', deMarket), true);
+  });
+
+  it('drops India / Singapore / UK even when country is stamped Germany', async () => {
+    const { isJobInMarket } = await import('./common.mjs');
+    assert.equal(isJobInMarket({ location: 'Bengaluru, India', country: 'Germany', remote: true }, deMarket), false);
+    assert.equal(isJobInMarket({ location: 'Singapore', country: 'Germany' }, deMarket), false);
+    assert.equal(isJobInMarket({ location: 'London, England, United Kingdom', country: 'Germany' }, deMarket), false);
+    assert.equal(isJobInMarket({ location: 'Remote', country: 'Germany', remote: true }, deMarket), false);
+    assert.equal(isJobInMarket({ location: null, country: 'Germany' }, deMarket), false);
+  });
+
+  it('does not treat French de or Rio de Janeiro as Germany', async () => {
+    const { isMarketLocation, isJobInMarket } = await import('./common.mjs');
+    assert.equal(isMarketLocation('Île-de-France', deMarket), false);
+    assert.equal(isMarketLocation('Rio de Janeiro', deMarket), false);
+    assert.equal(isJobInMarket({ location: 'Berlin / London', country: 'Germany' }, deMarket), false);
   });
 });

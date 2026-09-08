@@ -24,7 +24,7 @@ import {
   jobId,
   normalise,
   detectMarketFlags,
-  isMarketLocation,
+  isJobInMarket,
   runApifyActor,
   workspaceDir,
   daysSince,
@@ -336,22 +336,10 @@ function applyFilters(jobs, filters, decided, market) {
     if (mustMatch.length && !mustMatch.some((re) => re.test(job.title))) {
       return (dropped.titleNotMatched++, false);
     }
-    const locationStr = job.location ?? '';
-    const hasLocation = locationStr.trim().length > 0;
-    // A job passes the country check if its location matches the market, OR if it
-    // is genuinely remote with no location string (or just says "Remote" / "Anywhere").
-    // We deliberately do NOT pass remote jobs that have a non-matching location
-    // (e.g. "Remote - London, England") because those are local-to-another-country roles.
-    const locationMatchesMarket =
-      isMarketLocation(locationStr, market)
-      || job.country === market.shortName
-      || job.country === market.name
-      || job.country === market.id;
-    const isRemoteNoLocation =
-      job.remote === true
-      && (!hasLocation || /^remote$/i.test(locationStr.trim()) || /anywhere/i.test(locationStr));
-    const looksLocal = locationMatchesMarket || isRemoteNoLocation;
-    if (countryOnly && !looksLocal) return (dropped.wrongCountry++, false);
+    // Location string is the source of truth. Fetchers stamp job.country with the
+    // search market (always "Germany" on a DE run), so that field must not bypass
+    // the filter — otherwise India/Singapore/UK remotes all survive countryOnly.
+    if (countryOnly && !isJobInMarket(job, market)) return (dropped.wrongCountry++, false);
     if (filters.dropNationalsOnly && job.flags?.includes('nationals-only')) {
       return (dropped.nationalsOnly++, false);
     }

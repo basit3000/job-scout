@@ -193,13 +193,36 @@ export function detectUaeFlags(job) {
   }).map((f) => (f === 'nationals-only' ? 'uae-nationals-only' : f === 'local-experience-required' ? 'uae-experience-required' : f));
 }
 
+function testAnyPattern(text, patterns) {
+  if (!text || !patterns?.length) return false;
+  try {
+    const re = new RegExp(`(?:${patterns.join('|')})`, 'i');
+    return re.test(text);
+  } catch {
+    return false;
+  }
+}
+
 export function isMarketLocation(location, market) {
   if (!location) return false;
-  const patterns = market.locationPatterns ?? [];
-  if (!patterns.length) return false;
-  // Patterns may already include \b / commas; do not wrap again.
-  const re = new RegExp(`(?:${patterns.join('|')})`, 'i');
-  return re.test(location);
+  return testAnyPattern(location, market.locationPatterns ?? []);
+}
+
+/** True when a location string names a country/city outside this market. */
+export function locationMentionsExcluded(location, market) {
+  return testAnyPattern(location, market.excludeLocationPatterns ?? []);
+}
+
+/**
+ * Whether a job is in the chosen market. `job.country` is ignored — fetchers stamp
+ * it with the search market (e.g. always "Germany"), so it is not evidence.
+ * Bare "Remote" / empty location is not enough when countryOnly filtering.
+ */
+export function isJobInMarket(job, market) {
+  const locationStr = String(job?.location ?? '').trim();
+  if (!locationStr) return false;
+  if (locationMentionsExcluded(locationStr, market)) return false;
+  return isMarketLocation(locationStr, market);
 }
 
 /** @deprecated Use isMarketLocation */

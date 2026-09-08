@@ -13,15 +13,16 @@
 //   node .agents/skills/cv-tailor/scripts/gather-evidence.mjs [--username <login>] [--no-github]
 //     [--portfolio-root /path/to/portfolio] [--out-dir .cv-workspace] [--profile profile.json]
 //
-// Portfolio root resolution: --portfolio-root, then PORTFOLIO_ROOT, then the current git
-// root if it has src/data/projects.js, then a sibling ./portfolio directory.
+// Portfolio root: --portfolio-root, then PORTFOLIO_ROOT, then scripts/lib/portfolio.mjs
+// (this repo if it has src/data/projects.js, else sibling ../portfolio).
 
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { looksLikePortfolio, resolvePortfolioRoot as findPortfolioRoot } from '../../../../scripts/lib/portfolio.mjs';
 
 const run = promisify(execFile);
 
@@ -63,21 +64,15 @@ async function gitRoot() {
   }
 }
 
-function looksLikePortfolio(root) {
-  return Boolean(root) && existsSync(join(root, 'src', 'data', 'projects.js'));
-}
-
-async function resolvePortfolioRoot(repo) {
+function pickPortfolioRoot(repo) {
+  const found = findPortfolioRoot({ root: repo, explicit: PORTFOLIO_ROOT_ARG });
   if (PORTFOLIO_ROOT_ARG) {
-    const abs = resolve(PORTFOLIO_ROOT_ARG);
-    if (!looksLikePortfolio(abs)) {
-      warnings.push(`Portfolio root ${abs} has no src/data/projects.js — portfolio sections will be thin.`);
+    if (!looksLikePortfolio(found)) {
+      warnings.push(`Portfolio root ${found} has no src/data/projects.js — portfolio sections will be thin.`);
     }
-    return abs;
+    return found;
   }
-  if (looksLikePortfolio(repo)) return repo;
-  const sibling = join(dirname(repo), 'portfolio');
-  if (looksLikePortfolio(sibling)) return sibling;
+  if (found) return found;
   warnings.push(
     'No portfolio found (no src/data/projects.js here, no PORTFOLIO_ROOT, no ../portfolio). '
     + 'Portfolio projects, certifications, and blog narratives are missing from this pack.',
@@ -541,7 +536,7 @@ function toMarkdown({ generatedAt, portfolio, github, profile, crossRef, warning
 
 async function main() {
   const repo = await gitRoot();
-  const portfolioRoot = await resolvePortfolioRoot(repo);
+  const portfolioRoot = pickPortfolioRoot(repo);
   const outDir = OUT_DIR_ARG ? resolve(OUT_DIR_ARG) : join(portfolioRoot, '.cv-workspace');
   await mkdir(outDir, { recursive: true });
 

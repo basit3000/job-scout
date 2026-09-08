@@ -18,8 +18,9 @@ First-run setup copies `resume.example.md` → `resume.md` and `cover-letter.exa
 Keep `[Company]`, `[Role]`, and `[Date]` — Prep / **Cover letter** fill those in. Replace every `YOUR_*` or generation falls back to a generic letter from `profile.json`.
 
 1. Write the **core** (always included): current job, what you want, education/location, sign-off.
-2. Leave `<!-- include:past -->` and `<!-- include:projects -->` where optional paragraphs should go.
-3. After `<!-- optional-blocks`, add earlier jobs and side projects. A block is inserted only when the posting mentions at least one of its keywords (up to two `:::past` and two `:::project`).
+2. Leave `<!-- include:motive -->`, `<!-- include:past -->`, and `<!-- include:projects -->` where optional paragraphs should go.
+3. After `<!-- optional-blocks`, add earlier jobs, side projects, and optional background. A block is inserted only when the posting mentions at least one of its keywords (up to two `:::motive`, two `:::past`, and two `:::project`).
+4. Put longer background notes in **`cover-letter-notes.md`** (copied from `cover-letter-notes.example.md` on first run). That file is gitignored. The agent may use at most two matching facts from it.
 
 ```md
 :::past employer-id keyword-one "multi word phrase"

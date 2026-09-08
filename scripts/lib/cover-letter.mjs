@@ -26,6 +26,7 @@ const OPTIONAL_DELIM = /<!--\s*optional-blocks[\s\S]*?-->/;
 const BLOCK_RE = /^:::(\S+)\s+(\S+)[ \t]*([^\n]*)\n([\s\S]*?)^:::/gm;
 const INCLUDE_PAST = '<!-- include:past -->';
 const INCLUDE_PROJECTS = '<!-- include:projects -->';
+const INCLUDE_MOTIVE = '<!-- include:motive -->';
 
 function fillPlaceholders(template, job, profile) {
   const date = new Date().toLocaleDateString('en-GB', {
@@ -111,14 +112,17 @@ export function assembleCoverLetter(templateText, job, profile) {
   const haystack = jobHaystack(job);
   const past = pickBlocks(blocks, 'past', haystack, 2);
   const projects = pickBlocks(blocks, 'project', haystack, 2);
+  const motive = pickBlocks(blocks, 'motive', haystack, 2);
 
-  const pastPara = joinBlocks(past, 'That path started earlier.');
+  const pastPara = joinBlocks(past, 'Earlier:');
   const projectPara = joinBlocks(
     projects,
-    'Outside of work I have built the same kind of system end to end.',
+    'I also built similar things myself.',
   );
+  const motivePara = joinBlocks(motive, '');
 
   let letter = core
+    .replace(INCLUDE_MOTIVE, motivePara)
     .replace(INCLUDE_PAST, pastPara)
     .replace(INCLUDE_PROJECTS, projectPara);
   letter = fillPlaceholders(letter, job, profile);
@@ -126,7 +130,7 @@ export function assembleCoverLetter(templateText, job, profile) {
 
   return {
     letter,
-    included: [...past, ...projects].map((b) => ({ id: b.id, slot: b.slot, score: b.score })),
+    included: [...motive, ...past, ...projects].map((b) => ({ id: b.id, slot: b.slot, score: b.score })),
   };
 }
 

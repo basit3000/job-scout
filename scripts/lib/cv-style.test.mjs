@@ -62,6 +62,8 @@ describe('cv-style', () => {
     const md = styleRulesMarkdown({ context: 'letter' });
     for (const p of AI_TELLS.slice(0, 5)) assert.ok(md.includes(p), p);
     assert.match(md, /Body \d+–\d+ words/);
+    assert.match(md, /simple English/i);
+    assert.match(md, /not a native/i);
     assert.ok(!styleRulesMarkdown({ context: 'cv' }).includes('Body '));
   });
 

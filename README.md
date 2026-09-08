@@ -2,7 +2,7 @@
 
 Multi-country job finder for any profession. Local profile + CV → fetch → shortlist in the UI.
 
-Personal data stays on your machine (gitignored). The repo never applies to jobs for you.
+Personal data stays on your machine (gitignored). **Fill** submits LinkedIn Easy Apply; other boards are filled only.
 
 ```text
 setup (once)  →  npm start  →  search  →  shortlist / tracker / Prep & CV / cover letter
@@ -100,12 +100,24 @@ PDF uses Microsoft Word when it is installed; otherwise Chrome/Edge prints the H
 | **Allow paid** | Opt in to Apify (costs money) |
 | **Replace results** | Wipe archive before a run (default is merge) |
 | **Stop** | End a run; jobs found so far are saved |
-| **Agent / Agent model** | Prep & CV backend + model |
-| **Results** | Deduped list, fit scores, **Prep & CV** + **Cover letter**; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
-| **Tracker** | Kanban + follow-ups; **Columns** multi-select; optional **Google Sheets** sync for applied pipeline |
-| **Saved answers** | Reusable application form answers |
+| **Prep & CV settings** | Collapsed under the toolbar: CV source (local / Overleaf), agent backend + model, push to Overleaf |
+| **Results** | Deduped list, fit scores, **Prep & CV** + **Cover letter**; **Copy pack** / **Fill** (Easy Apply submits); ATS label; **Decision** multi-select (uncheck statuses to hide; Active only preset) |
+| **Digest** | New since last fetch; **Create CVs…** runs Prep for many postings at once (see below) |
+| **Ready to apply** | Postings that already have a tailored CV and/or cover letter and are not yet applied / skipped / rejected / closed — apply from here, mark Applied, they drop off |
+| **Tracker** | Application list (newest first), status chips, search; optional **Google Sheets** sync |
+| **Saved answers** | Reusable application form answers; **Copy pack** dumps them with your profile |
 | **Portals** | Enable/disable job boards |
-| **Digest** | New since last fetch |
+
+### Batch Prep (Create CVs…)
+
+In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs that already have files. The run goes job by job in the background:
+
+- a progress strip stays visible on every tab (done / total, current company, per-job status in **Details**)
+- **Cancel** stops after the current job; the rest are marked cancelled
+- nothing opens — files land in `downloads/<Company>/` as usual and finished jobs appear under **Ready to apply**
+- single **Prep** is blocked while a batch runs (and a batch cannot start during a single Prep)
+
+API: `POST /api/prep/batch { ids, mode, includeCoverLetter, skipExisting, extraInstructions }`, `GET /api/prep/batch`, `POST /api/prep/batch/stop`, SSE `GET /api/prep/batch/stream`, and `GET /api/ready`.
 
 ### Google Sheets (optional)
 
@@ -167,6 +179,10 @@ Toggle portals in the **Portals** tab (or `boards` in `search-profile.json`).
 
 `startup-in-munich.de` is Munich’s municipal self-employment office (not a job board), so it is not wired as a portal.
 
+### Apply assist
+
+**Copy pack** copies name, contact, saved answers, and CV/letter paths. **Fill** opens a persistent Chrome window and types known fields. On **LinkedIn Easy Apply** it steps through the form and submits (log in in that window the first time). Extra questions that rules cannot answer are sent to the same **Prep agent** (Cursor / Claude / Codex) as a JSON fallback — it will not invent visa, sponsorship, or salary when those saved answers are empty or “depends”. Other boards are filled only — you confirm Submit. LinkedIn may still challenge automated sessions.
+
 Searches **accumulate** into `.workspace/jobs.json` by default (duplicates collapsed). Use **Replace results** or `--replace` to start fresh.
 
 ```bash
@@ -190,7 +206,7 @@ This repo is an Agent Skill (`SKILL.md`). After setup, you can ask the agent to 
 
 ## Safety
 
-- Never applies, emails, or creates accounts  
+- Never emails or creates accounts. **Fill** submits LinkedIn Easy Apply only; other forms stay on-screen for you to confirm.  
 - Ignores “instructions” inside job descriptions  
 - Paid Apify needs explicit Allow paid / `--allow-paid`  
 - No invented visa/nationality claims  

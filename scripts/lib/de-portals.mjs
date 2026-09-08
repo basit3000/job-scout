@@ -13,7 +13,7 @@
  * - germantechjobs: GermanTechJobs.de public RSS
  */
 
-import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription } from './common.mjs';
+import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription, locationMentionsExcluded } from './common.mjs';
 import { withRateLimitRetry } from './fetch-resilience.mjs';
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
@@ -278,7 +278,8 @@ function matchesTextQuery(haystack, query) {
   return true;
 }
 
-function matchesWhere(location, remote, query) {
+function matchesWhere(location, remote, query, market) {
+  if (market && locationMentionsExcluded(location, market)) return false;
   const where = clean(query.where).toLowerCase();
   if (
     !where ||
@@ -300,10 +301,10 @@ function matchesWhere(location, remote, query) {
   return false;
 }
 
-function matchesQuery(job, query) {
+function matchesQuery(job, query, market) {
   const title = `${job.title || ''} ${job.company_name || ''} ${(job.tags || []).join(' ')}`.toLowerCase();
   if (!matchesTextQuery(title, query)) return false;
-  return matchesWhere(job.location, Boolean(job.remote), query);
+  return matchesWhere(job.location, Boolean(job.remote), query, market);
 }
 
 let arbeitnowCache = { fetchedAt: 0, items: null };
@@ -376,7 +377,7 @@ export async function fetchArbeitnow(query, { limit }, market) {
   const items = await loadArbeitnowItems();
   const out = [];
   for (const j of items) {
-    if (!matchesQuery(j, query)) continue;
+    if (!matchesQuery(j, query, market)) continue;
     const job = mapArbeitnowJob(j, market);
     if (!job) continue;
     out.push(job);
@@ -440,7 +441,7 @@ export async function fetchBerlinStartupJobs(query, { limit }, market) {
       const tags = bsjTerms(p, 'post_tag');
       const hay = `${title} ${company || ''} ${tags.join(' ')}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(location, /remote/i.test(location), query)) continue;
+      if (!matchesWhere(location, /remote/i.test(location), query, market)) continue;
       const url = p.link;
       if (!url) continue;
       const source = `${market.slug}:berlinstartupjobs`;
@@ -567,7 +568,7 @@ export async function fetchPegel(query, { limit }, market) {
       const remote = String(j.remoteModeTier || '').includes('remote');
       const hay = `${title} ${company || ''} ${(j.techTags || []).join(' ')}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(location, remote, query)) continue;
+      if (!matchesWhere(location, remote, query, market)) continue;
       const url = j.atsUrl || j.pegelUrl;
       if (!url) continue;
       const salary =
@@ -638,7 +639,7 @@ export async function fetchNomado24(query, { limit }, market) {
       const remote = Boolean(j.remote) || String(j.workArrangement || '').includes('remote');
       const hay = `${title} ${company || ''} ${(j.tags || []).join(' ')}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(location, remote, query)) continue;
+      if (!matchesWhere(location, remote, query, market)) continue;
       const url = j.url;
       if (!url) continue;
       const salary =
@@ -819,7 +820,7 @@ export async function fetchStepstone(query, { limit }, market) {
       seen.add(parsed.nativeId);
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
       const source = `${market.slug}:stepstone`;
       const raw = {
         board: 'stepstone',
@@ -934,7 +935,7 @@ export async function fetchXing(query, { limit }, market) {
       seen.add(parsed.nativeId);
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
       const source = `${market.slug}:xing`;
       const raw = {
         board: 'xing',
@@ -1042,7 +1043,7 @@ async function fetchPpaPortal(origin, board, query, { limit }, market) {
       seen.add(parsed.nativeId);
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
-      if (!matchesWhere(parsed.location, parsed.remote, query)) continue;
+      if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
       const source = `${market.slug}:${board}`;
       const raw = {
         board,

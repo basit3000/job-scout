@@ -598,6 +598,34 @@ a.btn.primary-link:hover {
   color: var(--ink-soft);
 }
 
+.run-history {
+  margin-top: 0.45rem;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.run-history summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.run-history-list {
+  margin: 0.35rem 0 0;
+  padding-left: 1.1rem;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.run-history-list li {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+#batchModal .run-history {
+  margin-top: 0.75rem;
+}
+
 #batchProgress .batch-list {
   margin-top: 0.6rem;
   max-height: 38vh;

@@ -74,6 +74,7 @@ import {
   pullRejectedFromSheet,
   SHEET_SYNC_DECISIONS,
 } from '../scripts/lib/google-sheets.mjs';
+import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 
 loadDotEnv();
 
@@ -98,6 +99,7 @@ const fetchState = {
   child: null,
   startedAt: null,
   lastCode: null,
+  lastDurationMs: null,
   stopping: false,
   clients: new Set(),
   buffer: [],
@@ -128,7 +130,7 @@ const batchState = {
   includeCoverLetter: true,
   skipExisting: true,
   currentId: null,
-  /** @type {Array<{id:string,title:string,company:string,status:string,error?:string|null,tailorMode?:string|null,note?:string|null}>} */
+  /** @type {Array<{id:string,title:string,company:string,status:string,error?:string|null,tailorMode?:string|null,note?:string|null,startedAt?:string|null,durationMs?:number|null}>} */
   items: [],
   clients: new Set(),
   buffer: [],
@@ -144,6 +146,12 @@ function batchSnapshot({ withItems = true } = {}) {
   for (const it of batchState.items) counts[it.status] = (counts[it.status] || 0) + 1;
   const current = batchState.items.find((it) => it.id === batchState.currentId) || null;
   const finished = counts.done + counts.skipped + counts.failed + counts.cancelled;
+  const timing = batchRunTiming({
+    startedAt: batchState.startedAt,
+    finishedAt: batchState.finishedAt,
+    items: batchState.items,
+    running: batchState.running,
+  });
   return {
     running: batchState.running,
     stopping: batchState.stopping,
@@ -155,6 +163,10 @@ function batchSnapshot({ withItems = true } = {}) {
     total: batchState.items.length,
     finished,
     counts,
+    elapsedMs: timing.elapsedMs,
+    avgMsPerJob: timing.avgMsPerJob,
+    etaMs: timing.etaMs,
+    timedCount: timing.timedCount,
     current: current ? { id: current.id, title: current.title, company: current.company } : null,
     ...(withItems ? { items: batchState.items } : {}),
   };
@@ -168,6 +180,13 @@ function broadcastBatch(event, data) {
     } catch {
       batchState.clients.delete(client);
     }
+  }
+}
+
+function markBatchItemDuration(item) {
+  if (item?.startedAt && item.durationMs == null) {
+    const start = Date.parse(item.startedAt);
+    if (Number.isFinite(start)) item.durationMs = Math.max(0, Date.now() - start);
   }
 }
 
@@ -202,6 +221,8 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
       }
 
       item.status = 'running';
+      item.startedAt = new Date().toISOString();
+      item.durationMs = null;
       batchState.currentId = item.id;
       broadcastBatch('progress', batchSnapshot());
       batchLog(`[${i + 1}/${total}] ${job.company || '—'} — ${job.title}`, 'meta');
@@ -213,6 +234,7 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
           if (hasAll) {
             item.status = 'skipped';
             item.note = 'already has files';
+            markBatchItemDuration(item);
             batchLog(`  skipped — CV${batchState.includeCoverLetter ? ' + letter' : ''} already exist`, 'meta');
             continue;
           }
@@ -239,13 +261,19 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
           item.note = `Fast fallback (${pack.fallbackReason})`;
         }
         if (pack?.coverLetterError) item.note = `letter failed: ${pack.coverLetterError}`;
-        batchLog(`  done (${item.tailorMode})`, 'ok');
+        markBatchItemDuration(item);
+        batchLog(
+          `  done (${item.tailorMode})${item.durationMs != null ? ` · ${formatDuration(item.durationMs)}` : ''}`,
+          'ok',
+        );
       } catch (err) {
         const message = err?.message || String(err);
         item.status = batchState.stopping ? 'cancelled' : 'failed';
         item.error = message;
+        markBatchItemDuration(item);
         batchLog(`  ${item.status}: ${message}`, 'stderr');
       } finally {
+        markBatchItemDuration(item);
         invalidateJobsCache();
         batchState.currentId = null;
         broadcastBatch('progress', batchSnapshot());
@@ -256,10 +284,32 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
     batchState.finishedAt = new Date().toISOString();
     batchState.currentId = null;
     const snap = batchSnapshot();
+    const avgBit = snap.avgMsPerJob != null
+      ? ` · ${formatDuration(snap.avgMsPerJob)}/job (${snap.timedCount} timed)`
+      : '';
     batchLog(
-      `Batch Prep finished: ${snap.counts.done} done · ${snap.counts.skipped} skipped · ${snap.counts.failed} failed · ${snap.counts.cancelled} cancelled`,
+      `Batch Prep finished: ${snap.counts.done} done · ${snap.counts.skipped} skipped · ${snap.counts.failed} failed · ${snap.counts.cancelled} cancelled · ${formatDuration(snap.elapsedMs)}${avgBit}`,
       snap.counts.failed ? 'stderr' : 'ok',
     );
+    try {
+      await appendRunHistory('batch', {
+        startedAt: batchState.startedAt,
+        finishedAt: batchState.finishedAt,
+        durationMs: snap.elapsedMs,
+        avgMsPerJob: snap.avgMsPerJob,
+        timedCount: snap.timedCount,
+        mode: batchState.mode,
+        includeCoverLetter: batchState.includeCoverLetter,
+        skipExisting: batchState.skipExisting,
+        total: snap.total,
+        done: snap.counts.done,
+        skipped: snap.counts.skipped,
+        failed: snap.counts.failed,
+        cancelled: snap.counts.cancelled,
+      });
+    } catch (err) {
+      batchLog(`Could not save run history: ${err.message}`, 'stderr');
+    }
     batchState.stopping = false;
     invalidateJobsCache();
     broadcastBatch('done', batchSnapshot());
@@ -485,6 +535,7 @@ async function getStatus() {
     fetchRunning: Boolean(fetchState.child),
     fetchStartedAt: fetchState.startedAt,
     lastFetchCode: fetchState.lastCode,
+    lastFetchDurationMs: fetchState.lastDurationMs,
     prepRunning: Boolean(prepState.running),
     prepJobId: prepState.jobId,
     prepStartedAt: prepState.startedAt,
@@ -778,11 +829,17 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && path === '/api/digest') {
     const enriched = await enrichJobs();
     const newJobs = enriched.jobs.filter((j) => j.isNew);
+    const history = await loadRunHistory();
     return json(res, 200, {
       digest: enriched.digest,
       newJobs: newJobs.map(toJobListItem),
       count: newJobs.length,
+      history: history.fetch,
     });
+  }
+
+  if (req.method === 'GET' && path === '/api/run-history') {
+    return json(res, 200, await loadRunHistory());
   }
 
   // Jobs with a tailored CV and/or cover letter that are still open to apply to.
@@ -1218,6 +1275,8 @@ async function handleApi(req, res, url) {
         error: null,
         tailorMode: null,
         note: null,
+        startedAt: null,
+        durationMs: null,
       };
     });
 
@@ -1663,6 +1722,7 @@ async function handleApi(req, res, url) {
     fetchState.buffer = [];
     fetchState.startedAt = new Date().toISOString();
     fetchState.lastCode = null;
+    fetchState.lastDurationMs = null;
     fetchState.stopping = false;
 
     const child = spawn(process.execPath, args, {
@@ -1691,6 +1751,9 @@ async function handleApi(req, res, url) {
       fetchState.stopping = false;
       fetchState.child = null;
       fetchState.lastCode = stopped ? null : (code ?? 1);
+      fetchState.lastDurationMs = fetchState.startedAt
+        ? Math.max(0, Date.now() - Date.parse(fetchState.startedAt))
+        : null;
       invalidateJobsCache();
       const entry = {
         stream: stopped ? 'stderr' : 'stdout',
@@ -1705,6 +1768,8 @@ async function handleApi(req, res, url) {
         code: fetchState.lastCode,
         stopped,
         at: new Date().toISOString(),
+        startedAt: fetchState.startedAt,
+        durationMs: fetchState.lastDurationMs,
       });
     });
     child.on('error', (err) => {
@@ -1713,7 +1778,16 @@ async function handleApi(req, res, url) {
       fetchState.lastCode = 1;
       invalidateJobsCache();
       broadcast('log', { stream: 'stderr', line: err.message, t: Date.now() });
-      broadcast('done', { code: 1, stopped: false, at: new Date().toISOString() });
+      fetchState.lastDurationMs = fetchState.startedAt
+        ? Math.max(0, Date.now() - Date.parse(fetchState.startedAt))
+        : null;
+      broadcast('done', {
+        code: 1,
+        stopped: false,
+        at: new Date().toISOString(),
+        startedAt: fetchState.startedAt,
+        durationMs: fetchState.lastDurationMs,
+      });
     });
 
     return json(res, 202, { ok: true, startedAt: fetchState.startedAt, args: args.slice(1) });
@@ -1743,6 +1817,7 @@ async function handleApi(req, res, url) {
       running: Boolean(fetchState.child),
       startedAt: fetchState.startedAt,
       lastCode: fetchState.lastCode,
+      lastDurationMs: fetchState.lastDurationMs,
     });
     for (const entry of fetchState.buffer) sseSend(res, 'log', entry);
     fetchState.clients.add(res);

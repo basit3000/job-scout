@@ -228,6 +228,11 @@
             <div>
               <h2>Digest</h2>
               <p class="meta" id="digestMeta">New postings since the previous fetch.</p>
+              <p class="meta" id="digestTiming" hidden></p>
+              <details class="run-history" id="digestHistoryBox" hidden>
+                <summary>Recent search times</summary>
+                <ul class="run-history-list" id="digestHistoryList"></ul>
+              </details>
             </div>
             <div class="filters">
               <button type="button" class="btn primary" id="batchOpenBtn" title="Create CVs / cover letters for several new postings in one go">Create CVs…</button>
@@ -411,6 +416,10 @@
             <button type="button" class="btn primary" id="batchGoReady" hidden>Open Ready to apply</button>
           </div>
         </div>
+        <details class="run-history" id="batchHistoryBox" hidden>
+          <summary>Recent batch times</summary>
+          <ul class="run-history-list" id="batchHistoryList"></ul>
+        </details>
       </div>
     </div>
 

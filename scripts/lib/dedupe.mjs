@@ -40,6 +40,20 @@ function laterIso(a, b) {
   return new Date(a).getTime() >= new Date(b).getTime() ? a : b;
 }
 
+function textLen(value) {
+  return String(value ?? '').trim().length;
+}
+
+function longerText(a, b) {
+  return textLen(b) > textLen(a) ? (b ?? null) : (a ?? null);
+}
+
+function firstFilled(a, b) {
+  if (a == null || a === '') return b ?? a ?? null;
+  if (typeof a === 'string' && !a.trim()) return b ?? a;
+  return a;
+}
+
 function mergeInto(winner, loser) {
   const alsoOn = [
     ...new Set([
@@ -58,6 +72,14 @@ function mergeInto(winner, loser) {
 
   return {
     ...winner,
+    description: longerText(winner.description, loser.description),
+    salary: firstFilled(winner.salary, loser.salary),
+    seniority: firstFilled(winner.seniority, loser.seniority),
+    employmentType: firstFilled(winner.employmentType, loser.employmentType),
+    location: firstFilled(winner.location, loser.location),
+    postedAt: firstFilled(winner.postedAt, loser.postedAt),
+    nationality: firstFilled(winner.nationality, loser.nationality),
+    yearsExperience: firstFilled(winner.yearsExperience, loser.yearsExperience),
     alsoOn,
     mergedIds,
     firstSeenAt: earlierIso(winner.firstSeenAt, loser.firstSeenAt),

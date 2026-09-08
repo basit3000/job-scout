@@ -13,6 +13,9 @@ import {
   mapPpaOffer,
   parseGermantechTitle,
   parseRssItems,
+  parseNomadoJobHtml,
+  parseMunichJobHtml,
+  extractJsonLdJobDescription,
 } from './de-portals.mjs';
 
 describe('stepstone portal', () => {
@@ -166,5 +169,39 @@ describe('germantechjobs portal', () => {
     assert.equal(items.length, 1);
     assert.equal(items[0].title, 'CIAM Platform Engineer @ Acme GmbH [50.000 - 80.000 €]');
     assert.match(items[0].link, /germantechjobs\.de\/jobs\/acme-ciam/);
+  });
+});
+
+describe('job description parsers', () => {
+  it('reads Nomado24 article job description', () => {
+    const html = `
+      <article>
+        <h1>Engineer</h1>
+        <h2>Job description</h2>
+        <p>Build APIs in Berlin. Remote possible.</p>
+        <ul><li>Python</li><li>FastAPI</li></ul>
+      </article>`;
+    assert.match(parseNomadoJobHtml(html), /Build APIs in Berlin/);
+    assert.match(parseNomadoJobHtml(html), /FastAPI/);
+  });
+
+  it('reads Munich Startup pinboard prose', () => {
+    const html = `
+      <article>
+        <div class="pinboard-prose max-w-none">
+          <h2>What we need</h2>
+          <p>Hands-on robotics engineer in Munich.</p>
+        </div>
+      </article>`;
+    assert.match(parseMunichJobHtml(html), /robotics engineer/);
+    assert.doesNotMatch(parseMunichJobHtml(html), /pinboard-prose/);
+  });
+
+  it('extracts JSON-LD JobPosting description', () => {
+    const html = `<script type="application/ld+json">${JSON.stringify({
+      '@type': 'JobPosting',
+      description: '<p>Own the checkout API.</p>',
+    })}</script>`;
+    assert.match(extractJsonLdJobDescription(html), /checkout API/);
   });
 });

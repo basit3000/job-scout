@@ -13,7 +13,7 @@
  * - germantechjobs: GermanTechJobs.de public RSS
  */
 
-import { jobId, normalise, detectMarketFlags, stripHtml, clean } from './common.mjs';
+import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription } from './common.mjs';
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
 const AA_KEY = 'jobboerse-jobsuche';
@@ -34,6 +34,145 @@ function decodeEntities(text) {
     .replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
+}
+
+async function fetchText(url, { accept = 'text/html', timeoutMs = 8000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: accept,
+        'User-Agent': AA_UA,
+        'Accept-Language': 'en,de;q=0.9',
+      },
+      redirect: 'follow',
+      signal: ctrl.signal,
+    });
+    if (!res.ok) return { ok: false, status: res.status, text: '' };
+    return { ok: true, status: res.status, text: await res.text() };
+  } catch {
+    return { ok: false, status: 0, text: '' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function mapLimit(items, limit, fn) {
+  const list = items ?? [];
+  if (!list.length) return [];
+  const out = new Array(list.length);
+  let i = 0;
+  const n = Math.min(Math.max(1, limit), list.length);
+  await Promise.all(Array.from({ length: n }, async () => {
+    while (i < list.length) {
+      const idx = i;
+      i += 1;
+      out[idx] = await fn(list[idx], idx);
+    }
+  }));
+  return out;
+}
+
+/** JSON-LD JobPosting.description when a board's list API has no body. */
+export function extractJsonLdJobDescription(html) {
+  const blocks = String(html || '').matchAll(
+    /<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const m of blocks) {
+    try {
+      const data = JSON.parse(m[1]);
+      const nodes = Array.isArray(data) ? data : data?.['@graph'] ? data['@graph'] : [data];
+      for (const node of nodes) {
+        const type = Array.isArray(node?.['@type']) ? node['@type'].join(' ') : String(node?.['@type'] || '');
+        if (!/JobPosting/i.test(type)) continue;
+        const text = pickDescription(node.description);
+        if (text) return text;
+      }
+    } catch {
+      /* ignore malformed JSON-LD */
+    }
+  }
+  return null;
+}
+
+export function parseNomadoJobHtml(html) {
+  const article = String(html || '').match(/<article[\s\S]*?<\/article>/i)?.[0] || String(html || '');
+  let start = article.search(/<h2[^>]*>\s*Job description\s*<\/h2>/i);
+  if (start < 0) start = article.search(/<h2[^>]*>\s*Stellenbeschreibung\s*<\/h2>/i);
+  if (start < 0) start = article.search(/<h2[^>]*>\s*Description du poste\s*<\/h2>/i);
+  const body = start >= 0 ? article.slice(start) : article;
+  return pickDescription(body);
+}
+
+export function parseMunichJobHtml(html) {
+  const source = String(html || '');
+  const divStart = source.search(/<div[^>]*class="[^"]*pinboard-prose[^"]*"/i);
+  if (divStart >= 0) {
+    const from = source.slice(divStart);
+    const end = from.search(/<\/article>/i);
+    return pickDescription(end >= 0 ? from.slice(0, end) : from);
+  }
+  return pickDescription(source.match(/<article[\s\S]*?<\/article>/i)?.[0]);
+}
+
+async function fetchPegelDescription(id) {
+  if (!id) return null;
+  const res = await fetchText(`${PEGEL_BASE}/jobs/${encodeURIComponent(id)}`, {
+    accept: 'application/json',
+    timeoutMs: 8000,
+  });
+  if (!res.ok) return null;
+  try {
+    const data = JSON.parse(res.text);
+    const row = data.data ?? data;
+    return pickDescription(row.descriptionPlain, row.descriptionHtml, row.summaryText);
+  } catch {
+    return null;
+  }
+}
+
+async function fetchDescriptionFromUrl(url, board) {
+  if (!url) return null;
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    if (/linkedin\.com$|indeed\.com$|glassdoor\./i.test(host)) return null;
+  } catch {
+    return null;
+  }
+  const res = await fetchText(url);
+  if (!res.ok || !res.text) return null;
+  if (board === 'nomado24') return parseNomadoJobHtml(res.text);
+  if (board === 'munichstartup') return parseMunichJobHtml(res.text);
+  return extractJsonLdJobDescription(res.text) || pickDescription(res.text.match(/<article[\s\S]*?<\/article>/i)?.[0]);
+}
+
+/**
+ * Fill a stored job that has no description (Details expand / re-fetch).
+ * Returns plain text or null. Does not scrape LinkedIn/Indeed.
+ */
+export async function hydrateJobDescription(job) {
+  const existing = String(job?.description || '').trim();
+  if (existing) return existing;
+  const board = job?.board;
+  try {
+    if (board === 'pegel') {
+      const fromApi = await fetchPegelDescription(pegelIdFromJob(job));
+      if (fromApi) return fromApi;
+    }
+    return await fetchDescriptionFromUrl(job?.url, board);
+  } catch {
+    return null;
+  }
+}
+
+function pegelIdFromJob(job) {
+  const native = String(job?.nativeId || '');
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(native)) return native;
+  if (/^[0-9a-f]{8}$/i.test(native)) return native;
+  const url = String(job?.url || '');
+  const m = url.match(/pegel\.berlin\/jobs\/[^/]*?([0-9a-f]{8})(?:\/|$)/i);
+  return m?.[1] || null;
 }
 
 function aaLocation(job) {
@@ -333,7 +472,6 @@ export async function fetchMunichStartup(query, { limit }, market) {
       continue;
     }
     const url = `https://www.munich-startup.de${path}`;
-    const source = `${market.slug}:munichstartup`;
     const raw = {
       board: 'munichstartup',
       via: 'html',
@@ -347,13 +485,20 @@ export async function fetchMunichStartup(query, { limit }, market) {
       postedAt: null,
       description: null,
     };
-    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-    job.flags = detectMarketFlags(job, market);
-    out.push(job);
+    out.push(raw);
     if (out.length >= want) break;
   }
 
-  return out;
+  await mapLimit(out, 4, async (raw) => {
+    raw.description = await fetchDescriptionFromUrl(raw.url, 'munichstartup');
+    return raw;
+  });
+
+  return out.map((raw) => {
+    const job = normalise({ ...raw, id: jobId(`${market.slug}:munichstartup`, raw.nativeId), source: `${market.slug}:munichstartup` }, market);
+    job.flags = detectMarketFlags(job, market);
+    return job;
+  });
 }
 
 /** Pegel — curated Berlin startup roles (free read-only API). */
@@ -389,7 +534,6 @@ export async function fetchPegel(query, { limit }, market) {
       if (!matchesWhere(location, remote, query)) continue;
       const url = j.atsUrl || j.pegelUrl;
       if (!url) continue;
-      const source = `${market.slug}:pegel`;
       const salary =
         j.salaryMin != null
           ? `${j.salaryMin}${j.salaryMax != null ? `–${j.salaryMax}` : ''} ${j.salaryCurrency || 'EUR'}`.trim()
@@ -410,14 +554,23 @@ export async function fetchPegel(query, { limit }, market) {
         seniority: j.seniorityRaw || null,
         description: j.summaryText || null,
       };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      out.push(raw);
       if (out.length >= want) break;
     }
   }
 
-  return out;
+  await mapLimit(out, 5, async (raw) => {
+    const fromApi = await fetchPegelDescription(raw.nativeId);
+    if (fromApi) raw.description = fromApi;
+    return raw;
+  });
+
+  return out.map((raw) => {
+    const source = `${market.slug}:pegel`;
+    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+    job.flags = detectMarketFlags(job, market);
+    return job;
+  });
 }
 
 /** Nomado24 — free DE/EU remote + hybrid jobs API (attribution: nomado24.de). */
@@ -452,7 +605,6 @@ export async function fetchNomado24(query, { limit }, market) {
       if (!matchesWhere(location, remote, query)) continue;
       const url = j.url;
       if (!url) continue;
-      const source = `${market.slug}:nomado24`;
       const salary =
         j.salaryMin != null
           ? `${j.salaryMin}${j.salaryMax != null ? `–${j.salaryMax}` : ''} ${j.currency || 'EUR'}`.trim()
@@ -472,14 +624,22 @@ export async function fetchNomado24(query, { limit }, market) {
         salary,
         description: null,
       };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      out.push(raw);
       if (out.length >= want) break;
     }
   }
 
-  return out;
+  await mapLimit(out, 4, async (raw) => {
+    raw.description = await fetchDescriptionFromUrl(raw.url, 'nomado24');
+    return raw;
+  });
+
+  return out.map((raw) => {
+    const source = `${market.slug}:nomado24`;
+    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+    job.flags = detectMarketFlags(job, market);
+    return job;
+  });
 }
 
 const STEPSTONE_ORIGIN = 'https://www.stepstone.de';

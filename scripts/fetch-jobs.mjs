@@ -28,6 +28,7 @@ import {
   runApifyActor,
   workspaceDir,
   daysSince,
+  pickDescription,
 } from './lib/common.mjs';
 import { assertNoPlaceholders, isPlaceholder } from './lib/placeholders.mjs';
 import { renderJobs } from './lib/render.mjs';
@@ -126,7 +127,12 @@ function buildApifyBoards(market) {
         seniority: j.careerLevel ?? null,
         yearsExperience: j.yearsOfExperience ?? null,
         nationality: j.nationality ?? null,
-        description: j.descriptionText || j.descriptionMarkdown || j.descriptionHtml || null,
+        description: pickDescription(
+          j.descriptionText,
+          j.descriptionMarkdown,
+          j.descriptionHtml,
+          j.description,
+        ),
       }),
     },
     linkedin: {
@@ -137,8 +143,8 @@ function buildApifyBoards(market) {
         keywords: query.what,
         location: query.where || market.name,
         maxResults: limit,
-        // enrichDetails is expensive on Apify — off by default; opt in via boardConfig.input
-        enrichDetails: false,
+        // Search listings omit the JD. Override via boardConfig.input.enrichDetails.
+        enrichDetails: true,
         datePosted: 'pastMonth',
         sortBy: 'recent',
         ...(boardConfig.input ?? {}),
@@ -157,7 +163,12 @@ function buildApifyBoards(market) {
         employmentType: j.employmentType ?? null,
         salary: j.salary ?? null,
         seniority: j.seniorityLevel ?? null,
-        description: j.description ?? null,
+        description: pickDescription(
+          j.description,
+          j.descriptionText,
+          j.descriptionHtml,
+          j.jobDescription,
+        ),
       }),
     },
     indeed: {
@@ -193,7 +204,7 @@ function buildApifyBoards(market) {
         postedAt: j.datePosted ?? j.postedAt ?? j.pubDate ?? null,
         employmentType: j.jobType ?? j.employmentType ?? null,
         salary: j.salary ?? j.salaryText ?? null,
-        description: j.description ?? j.jobDescription ?? null,
+        description: pickDescription(j.description, j.jobDescription, j.descriptionText, j.descriptionHtml),
       }),
     },
   };

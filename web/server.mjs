@@ -64,7 +64,7 @@ import {
 } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
 import { compareFit, sortJobs } from '../scripts/lib/job-sort.mjs';
-import { detectPostingLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
+import { detectPostingLanguage, detectGermanRequirement, postingWrittenLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
 import { hydrateJobDescription } from '../scripts/lib/de-portals.mjs';
 import {
   sheetsStatus,
@@ -585,6 +585,8 @@ async function enrichJobs({ force = false } = {}) {
       return {
         ...job,
         language: detectPostingLanguage(job),
+        writtenLanguage: postingWrittenLanguage(job),
+        germanRequired: detectGermanRequirement(job) === 'required',
         decision,
         fit,
         isNew: newSet.has(job.id),

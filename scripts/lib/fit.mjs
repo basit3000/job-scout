@@ -1,7 +1,6 @@
-/**
- * Heuristic fit score against profile.json (and optional evidence text).
- * Verdicts: Strong | Worth a shot | Stretch | No
- */
+/** Heuristic fit score against profile.json (and optional evidence text). */
+export const FIT_VERDICTS = ['Strong', 'Worth a shot', 'Stretch', 'No'];
+
 
 /** Rank for profile.seniority. `any` / unknown / YOUR_* → no title penalty. */
 export const SENIORITY_RANK = {
@@ -25,7 +24,6 @@ export function profileSeniorityRank(seniority) {
   return Object.prototype.hasOwnProperty.call(SENIORITY_RANK, key) ? SENIORITY_RANK[key] : null;
 }
 
-/** Rank implied by a job title, or null when the title has no seniority word. */
 export function jobTitleSeniorityRank(title) {
   const t = String(title ?? '');
   if (/\b(principal|partner|distinguished|fellow)\b/i.test(t)) return 6;
@@ -96,7 +94,6 @@ export function scoreJob(job, profile, evidenceText = '') {
   const reasons = [];
   let score = 40;
 
-  // Title alignment
   const titleHit =
     (target && new RegExp(escapeRe(target), 'i').test(job.title))
     || titles.some((t) => t.length > 2 && new RegExp(escapeRe(t), 'i').test(job.title));

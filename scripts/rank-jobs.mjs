@@ -27,7 +27,7 @@ function renderShortlist(ranked, meta, summary) {
   push();
   push(`Candidate: **${meta.candidate || '—'}** — target: **${meta.targetRole || '—'}**`);
   push(`Market: **${meta.marketName || meta.market || '—'}**`);
-  push(`${summary.total} ranked · Strong ${summary.counts.Strong ?? 0} · Worth a shot ${summary.counts['Worth a shot'] ?? 0} · Stretch ${summary.counts.Stretch ?? 0}`);
+  push(`${summary.total} ranked · Strong ${summary.counts.Strong ?? 0} · Worth a shot ${summary.counts['Worth a shot'] ?? 0} · Stretch ${summary.counts.Stretch ?? 0} · No ${summary.counts.No ?? 0}`);
   push();
   push('These are relevance-ranked candidates with short blurbs. Open Apply yourself — nothing is submitted for you.');
   push();
@@ -86,7 +86,7 @@ async function main() {
 
   console.log(`Wrote ${join(outDir, 'shortlist.json')}`);
   console.log(`Wrote ${join(outDir, 'shortlist.md')}`);
-  console.log(`Ranked ${ranked.length}: Strong=${summary.counts.Strong} Worth=${summary.counts['Worth a shot']} Stretch=${summary.counts.Stretch}`);
+  console.log(`Ranked ${ranked.length}: Strong=${summary.counts.Strong} Worth=${summary.counts['Worth a shot']} Stretch=${summary.counts.Stretch} No=${summary.counts.No}`);
 }
 
 main().catch((err) => {

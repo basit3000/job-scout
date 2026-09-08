@@ -14,6 +14,7 @@
  */
 
 import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription } from './common.mjs';
+import { withRateLimitRetry } from './fetch-resilience.mjs';
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
 const AA_KEY = 'jobboerse-jobsuche';
@@ -305,47 +306,82 @@ function matchesQuery(job, query) {
   return matchesWhere(job.location, Boolean(job.remote), query);
 }
 
-/** Arbeitnow public board — Germany-heavy tech/remote listings. Client-side filter. */
-export async function fetchArbeitnow(query, { limit }, market) {
-  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
-  const out = [];
-  const maxPages = 3;
+let arbeitnowCache = { fetchedAt: 0, items: null };
+const ARBEITNOW_TTL_MS = 10 * 60 * 1000;
+const ARBEITNOW_MAX_PAGES = 10;
 
-  for (let page = 1; page <= maxPages && out.length < want; page += 1) {
+export function resetArbeitnowCache() {
+  arbeitnowCache = { fetchedAt: 0, items: null };
+}
+
+async function fetchArbeitnowPage(page) {
+  return withRateLimitRetry(async () => {
     const res = await fetch(`https://www.arbeitnow.com/api/job-board-api?page=${page}`, {
       headers: { Accept: 'application/json', 'User-Agent': AA_UA },
     });
     if (!res.ok) throw new Error(`Arbeitnow HTTP ${res.status}`);
-    const data = await res.json();
-    const items = data.data ?? [];
-    if (!items.length) break;
+    return res.json();
+  });
+}
 
-    for (const j of items) {
-      if (!matchesQuery(j, query)) continue;
-      const url = j.url;
-      if (!url) continue;
-      const source = `${market.slug}:arbeitnow`;
-      const raw = {
-        board: 'arbeitnow',
-        via: 'api',
-        nativeId: j.slug || url,
-        title: j.title,
-        company: j.company_name,
-        location: j.location || (j.remote ? 'Remote' : null),
-        country: market.shortName,
-        remote: Boolean(j.remote),
-        url,
-        postedAt: j.created_at ? new Date(Number(j.created_at) * 1000).toISOString() : null,
-        employmentType: Array.isArray(j.job_types) && j.job_types.length ? j.job_types.join(', ') : null,
-        description: decodeArbeitnowHtml(j.description).slice(0, 4000),
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
-      if (out.length >= want) break;
-    }
+/** Pull the global Arbeitnow feed once, then filter in memory (it is not a search API). */
+async function loadArbeitnowItems() {
+  const now = Date.now();
+  if (arbeitnowCache.items && now - arbeitnowCache.fetchedAt < ARBEITNOW_TTL_MS) {
+    return arbeitnowCache.items;
   }
+  const items = [];
+  for (let page = 1; page <= ARBEITNOW_MAX_PAGES; page += 1) {
+    let data;
+    try {
+      data = await fetchArbeitnowPage(page);
+    } catch (err) {
+      if (items.length) break;
+      throw err;
+    }
+    const batch = data?.data ?? [];
+    if (!batch.length) break;
+    items.push(...batch);
+  }
+  arbeitnowCache = { fetchedAt: now, items };
+  return items;
+}
 
+function mapArbeitnowJob(j, market) {
+  const url = j.url;
+  if (!url) return null;
+  const source = `${market.slug}:arbeitnow`;
+  const raw = {
+    board: 'arbeitnow',
+    via: 'api',
+    nativeId: j.slug || url,
+    title: j.title,
+    company: j.company_name,
+    location: j.location || (j.remote ? 'Remote' : null),
+    country: market.shortName,
+    remote: Boolean(j.remote),
+    url,
+    postedAt: j.created_at ? new Date(Number(j.created_at) * 1000).toISOString() : null,
+    employmentType: Array.isArray(j.job_types) && j.job_types.length ? j.job_types.join(', ') : null,
+    description: decodeArbeitnowHtml(j.description).slice(0, 4000),
+  };
+  const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
+  job.flags = detectMarketFlags(job, market);
+  return job;
+}
+
+/** Arbeitnow public board — Germany-heavy tech/remote listings. Client-side filter. */
+export async function fetchArbeitnow(query, { limit }, market) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const items = await loadArbeitnowItems();
+  const out = [];
+  for (const j of items) {
+    if (!matchesQuery(j, query)) continue;
+    const job = mapArbeitnowJob(j, market);
+    if (!job) continue;
+    out.push(job);
+    if (out.length >= want) break;
+  }
   return out;
 }
 

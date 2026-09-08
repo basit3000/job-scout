@@ -16,6 +16,8 @@ import {
   parseNomadoJobHtml,
   parseMunichJobHtml,
   extractJsonLdJobDescription,
+  fetchArbeitnow,
+  resetArbeitnowCache,
 } from './de-portals.mjs';
 
 describe('stepstone portal', () => {
@@ -203,5 +205,45 @@ describe('job description parsers', () => {
       description: '<p>Own the checkout API.</p>',
     })}</script>`;
     assert.match(extractJsonLdJobDescription(html), /checkout API/);
+  });
+});
+
+describe('arbeitnow cache', () => {
+  const market = { slug: 'germany', shortName: 'Germany', id: 'DE' };
+
+  it('hits the feed once then filters in memory', async () => {
+    resetArbeitnowCache();
+    let calls = 0;
+    const orig = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      calls += 1;
+      const page = Number(String(url).match(/page=(\d+)/)?.[1] || 1);
+      const data = page === 1
+        ? [{
+          title: 'Python Developer',
+          company_name: 'Acme',
+          url: 'https://www.arbeitnow.com/jobs/python-1',
+          slug: 'python-1',
+          location: 'Berlin',
+          remote: false,
+          created_at: 1710000000,
+          job_types: ['full-time'],
+          tags: ['python'],
+          description: 'Build APIs',
+        }]
+        : [];
+      return { ok: true, status: 200, json: async () => ({ data }) };
+    };
+    try {
+      const first = await fetchArbeitnow({ what: 'Python Developer', where: 'Germany' }, { limit: 20 }, market);
+      const second = await fetchArbeitnow({ what: 'Python Developer', where: 'Berlin' }, { limit: 20 }, market);
+      assert.equal(first.length, 1);
+      assert.equal(second.length, 1);
+      assert.equal(first[0].company, 'Acme');
+      assert.equal(calls, 2);
+    } finally {
+      globalThis.fetch = orig;
+      resetArbeitnowCache();
+    }
   });
 });

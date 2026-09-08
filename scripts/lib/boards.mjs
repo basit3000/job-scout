@@ -17,7 +17,7 @@ export const BOARD_CATALOG = [
     apify: true,
     regions: 'Global',
     free: true,
-    note: 'JobSpy free; Apify optional.',
+    note: 'JobSpy first even when Allow paid (saves Apify). Apify only if JobSpy returns 0.',
   },
   {
     id: 'glassdoor',
@@ -26,7 +26,7 @@ export const BOARD_CATALOG = [
     apify: false,
     regions: '20+ countries',
     free: true,
-    note: 'JobSpy only — often blocked (location HTTP 400). Prefer Indeed/Arbeitsagentur for DE.',
+    note: 'Often blocked — leave off. JobSpy only. Prefer Indeed/Arbeitsagentur for DE.',
     flaky: true,
   },
   {
@@ -36,7 +36,7 @@ export const BOARD_CATALOG = [
     apify: false,
     regions: 'Global',
     free: true,
-    note: 'JobSpy only — frequently returns 0 results. Prefer Indeed/LinkedIn.',
+    note: 'Often empty — leave off. JobSpy only. Prefer Indeed/LinkedIn.',
     flaky: true,
   },
   {
@@ -95,7 +95,7 @@ export const BOARD_CATALOG = [
     api: true,
     regions: 'Germany / EU remote',
     free: true,
-    note: 'Free Germany-focused tech board API. Best with market DE.',
+    note: 'Free Germany-focused tech board API (fetched once per run). Best with market DE.',
     needsGermanyMarket: true,
   },
   {

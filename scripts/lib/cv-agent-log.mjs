@@ -1,7 +1,4 @@
-/**
- * Format Cursor SDK stream events for the Job Scout run log.
- * Keeps the website readable: tools + tokens, not dumped thinking.
- */
+import { formatDuration } from './common.mjs';
 
 const DETAIL_KEYS = [
   'path',
@@ -60,16 +57,6 @@ export function formatUsageShort(usage) {
   let s = `${inT.toLocaleString()} in / ${outT.toLocaleString()} out`;
   if (cache) s += ` (${cache.toLocaleString()} cached)`;
   return s;
-}
-
-export function formatDuration(ms) {
-  const n = Number(ms) || 0;
-  if (n < 1000) return `${n}ms`;
-  const sec = Math.round(n / 1000);
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s ? `${m}m ${s}s` : `${m}m`;
 }
 
 export function formatFinishLine({ durationMs, tools, usage } = {}) {

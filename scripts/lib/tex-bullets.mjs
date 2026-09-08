@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT, loadJson } from './common.mjs';
 import { resolvePortfolioRoot } from './portfolio.mjs';
+import { readBraceGroup } from './tex-parse.mjs';
 
 export function tokenizeWords(text) {
   return String(text ?? '')
@@ -159,24 +160,6 @@ export function enrichProjectBullet(bullet, project, keywords) {
     return { text, changed: true };
   }
   return { text: src, changed: false };
-}
-
-function readBraceGroup(src, openIdx) {
-  if (src[openIdx] !== '{') return null;
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i += 1) {
-    const ch = src[i];
-    if (ch === '\\') {
-      i += 1;
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) return { arg: src.slice(openIdx + 1, i), end: i + 1 };
-    }
-  }
-  return null;
 }
 
 export function enrichProjectsBody(body, keywords, projects) {

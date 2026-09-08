@@ -7,7 +7,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
-import { ROOT } from './common.mjs';
+import { ROOT, escapeHtml } from './common.mjs';
 import { htmlFileToPdf } from './pdf.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
@@ -198,14 +198,6 @@ export async function buildCoverLetter(job, profile, fit) {
   return fallbackCoverLetter(job, profile, fit);
 }
 
-function escapeHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 /**
  * Render the plain-text letter as a properly formatted HTML page.
  *
@@ -220,7 +212,6 @@ export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
   const lines = letter.split('\n');
   let i = 0;
 
-  // Subject line ("Application for …")
   while (i < lines.length && !lines[i].trim()) i++;
   let subjectLine = '';
   if (i < lines.length && /^application for/i.test(lines[i].trim())) {
@@ -229,15 +220,12 @@ export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
   }
   while (i < lines.length && !lines[i].trim()) i++;
 
-  // Remaining text: split on blank lines into paragraphs
   const bodyText = lines.slice(i).join('\n').trim();
-  // Split into paragraph groups; within each group preserve line breaks for the sign-off
   const groups = bodyText.split(/\n{2,}/);
 
   const bodyHtml = groups.map((group) => {
     const groupLines = group.split('\n').map((l) => escapeHtml(l.trim())).filter(Boolean);
     if (groupLines.length === 1) return `<p>${groupLines[0]}</p>`;
-    // Multi-line group (e.g. sign-off): render each line separately inside one block
     return `<p>${groupLines.join('<br />')}</p>`;
   }).join('\n');
 
@@ -307,7 +295,6 @@ export async function coverLetterToDocx(letter) {
     });
   }
 
-  // Parse: subject line then body groups
   let i = 0;
   while (i < lines.length && !lines[i].trim()) i++;
 
@@ -319,30 +306,25 @@ export async function coverLetterToDocx(letter) {
   while (i < lines.length && !lines[i].trim()) i++;
 
   const bodyText = lines.slice(i).join('\n').trim();
-  // Split on blank lines; keep internal newlines so sign-off stays multi-line
   const groups = bodyText.split(/\n{2,}/);
 
   const docParas = [];
 
-  // Subject line
   if (subjectLine) {
     docParas.push(bodyPara(subjectLine, { bold: true, after: 220 }));
   }
 
-  // Body groups
   for (const group of groups) {
     const groupLines = group.split('\n').map((l) => l.trim()).filter(Boolean);
     if (groupLines.length === 1) {
       docParas.push(bodyPara(groupLines[0]));
     } else {
-      // Multi-line group (sign-off): each line its own paragraph, tightly spaced
       for (const l of groupLines) {
         docParas.push(new Paragraph({
           children: [textRun(l)],
           spacing: { line: 240, after: 0 },
         }));
       }
-      // Add a small gap after the group
       docParas.push(new Paragraph({ children: [textRun('')], spacing: { after: 80 } }));
     }
   }

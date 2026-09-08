@@ -5,6 +5,7 @@
 import { readFile, writeFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './common.mjs';
+import { scoreText } from './tex-bullets.mjs';
 
 export function resumePaths() {
   return [
@@ -162,20 +163,6 @@ function parseSectionBody(heading, body) {
     entries.push({ title, org, dates, bullets, raw: t });
   }
   return { kind: 'entries', entries, skills: [] };
-}
-
-function words(text) {
-  return String(text ?? '')
-    .toLowerCase()
-    .split(/[^a-z0-9+#.]/i)
-    .filter((w) => w.length >= 3);
-}
-
-function scoreText(text, keywords) {
-  const set = new Set(words(text));
-  let n = 0;
-  for (const k of keywords) if (set.has(k)) n += 1;
-  return n;
 }
 
 function isPersonalOrg(org) {

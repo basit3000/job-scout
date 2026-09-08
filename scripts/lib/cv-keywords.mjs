@@ -354,10 +354,6 @@ export function honestHeadlineTitle(jobTitle, targetRole = 'Software Developer')
   return fallback;
 }
 
-// ---------------------------------------------------------------------------
-// Dynamic extraction from the posting text
-// ---------------------------------------------------------------------------
-
 const LIST_TRIGGERS = /(?:experience (?:with|in|of|using)|knowledge (?:of|in)|familiar(?:ity)? with|proficien(?:t|cy) (?:in|with)|skilled in|working with|background in|expertise in|hands-on (?:with|experience)|tech(?:nology)? stack|our stack|stack:|technologies:|skills:|tools:|kenntnisse (?:in|mit|von)|erfahrung (?:mit|in)|erfahrungen (?:mit|in)|umgang mit|sicherer umgang mit|vertraut mit|technologien:|wir arbeiten mit|unser stack|du arbeitest mit|sie arbeiten mit)\s*:?\s*([^.\n;:]{3,200})/gi;
 
 /** Split "Python, FastAPI and Docker or Kubernetes" into its items. */

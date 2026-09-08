@@ -1,6 +1,6 @@
 import { mkdir, writeFile, readFile, access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { workspaceDir, loadJson, ROOT } from './common.mjs';
+import { workspaceDir, loadJson, ROOT, prepDir } from './common.mjs';
 import {
   buildTailoredCvAsync,
   tailoredCvHtml,
@@ -34,13 +34,12 @@ import {
   normalizeAgentProvider,
 } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
+import { WRITING_RULES_GENERIC } from './cv-style.mjs';
+
+export { prepDir };
 
 function safeId(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
-}
-
-export function prepDir(jobId) {
-  return join(workspaceDir(), 'prep', safeId(jobId));
 }
 
 async function fileExists(path) {
@@ -63,19 +62,6 @@ export async function hasCvPdf(jobId) {
     || (await fileExists(join(dir, 'cv-ats.pdf')))
     || (await fileExists(join(dir, 'cv-main.pdf')))
   );
-}
-
-export async function hasCvPdfAts(jobId) {
-  return fileExists(join(prepDir(jobId), 'cv-ats.pdf'));
-}
-
-export async function hasCvPdfMain(jobId) {
-  return fileExists(join(prepDir(jobId), 'cv-main.pdf'));
-}
-
-/** True if pack already has downloadable PDF(s) — skip compile unless recreate. */
-export async function hasCachedPdfs(jobId) {
-  return hasCvPdf(jobId);
 }
 
 /**
@@ -266,7 +252,7 @@ ${pdfLines.join('\n')}
 - [Checklist](./checklist.md)
 - Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md) (read before sending)
 
-Format: \`references/cv-writing-rules.md\`. Local mode edits from \`cv/resume.md\`.
+Format: \`${WRITING_RULES_GENERIC}\`. Local mode edits from \`cv/resume.md\`.
 ${olLines.join('\n')}
 
 ## Apply
@@ -686,7 +672,7 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   settings.onEvent = onEvent;
 
   // Cache short-circuit (explicit)
-  if (options.useCache === true || (options.recreate === false && (await hasCachedPdfs(job.id)))) {
+  if (options.useCache === true || (options.recreate === false && (await hasCvPdf(job.id)))) {
     const cached = await loadCachedPrepPack(job.id, fit, job, profile);
     if (cached) return cached;
   }

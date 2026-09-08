@@ -1,7 +1,7 @@
 /**
  * Per-job tailored CV — mirrors cv-tailor writing/format rules (see
- * references/cv-writing-rules.md). Prefers cv/resume.md when present; else profile.json.
- * Reorders true facts only; never invents.
+ * `.agents/skills/cv-tailor/references/writing-rules.md`). Prefers cv/resume.md when present;
+ * else profile.json. Reorders true facts only; never invents.
  *
  * Layout (cv-tailor hard rule): Header → Experience → Education → Projects → Skills
  * No summary paragraph. ATS-friendly single column HTML.
@@ -13,31 +13,12 @@ import {
   tailorParsedResume,
   serializeTailoredResume,
 } from './resume-md.mjs';
-
-function words(text) {
-  return String(text ?? '')
-    .toLowerCase()
-    .split(/[^a-z0-9+#.]/i)
-    .filter((w) => w.length >= 3);
-}
-
-function scoreText(text, keywords) {
-  const set = new Set(words(text));
-  let n = 0;
-  for (const k of keywords) if (set.has(k)) n += 1;
-  return n;
-}
+import { scoreText, tokenizeWords } from './tex-bullets.mjs';
+import { escapeHtml } from './common.mjs';
+import { WRITING_RULES_GENERIC } from './cv-style.mjs';
 
 function unique(list) {
   return [...new Set(list.filter(Boolean))];
-}
-
-function escapeHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
 
 const WEAK_START = /^(responsible for|helped with|worked on|assisted|utilised|utilized)\b/i;
@@ -89,7 +70,7 @@ function extractRequirements(job) {
 }
 
 function evidenceForRequirement(req, profile, projects, skills) {
-  const kw = words(req);
+  const kw = tokenizeWords(req);
   const skillHits = skills.filter((s) => scoreText(s, kw) > 0);
   const projectHits = projects
     .filter((p) => scoreText(`${p.title} ${p.org} ${(p.bullets || []).join(' ')}`, kw) > 0)
@@ -109,8 +90,8 @@ function evidenceForRequirement(req, profile, projects, skills) {
 function jobKeywords(job, fit = {}) {
   const desc = `${job.title || ''} ${job.company || ''} ${job.description || ''}`;
   return unique([
-    ...words(desc),
-    ...(fit.matched || []).flatMap((m) => words(m)),
+    ...tokenizeWords(desc),
+    ...(fit.matched || []).flatMap((m) => tokenizeWords(m)),
   ]);
 }
 
@@ -227,7 +208,7 @@ export function buildTailoredCv(job, profile, fit = {}, { resumeText = null } = 
     generatedAt: new Date().toISOString(),
     matchedSkills: (core.highlighted || []).slice(0, 8),
     source: core.source,
-    rules: 'references/cv-writing-rules.md (mirrored from cv-tailor)',
+    rules: WRITING_RULES_GENERIC,
   };
 
   return {

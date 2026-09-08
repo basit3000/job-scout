@@ -4,14 +4,8 @@
 
 import { readFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
-
-function escapeHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
+import { escapeHtml } from './common.mjs';
+import { readBraceGroup } from './tex-parse.mjs';
 
 function photoDataUri(photoPath) {
   if (!photoPath || !existsSync(photoPath)) return null;
@@ -29,25 +23,6 @@ function stripTexComments(tex) {
     .split('\n')
     .map((line) => line.replace(/(^|[^\\])%.*/, '$1'))
     .join('\n');
-}
-
-/** Read `{...}` starting at openIdx (must point at `{`). Returns { arg, end }. */
-function readBraceGroup(src, openIdx) {
-  if (src[openIdx] !== '{') return null;
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i += 1) {
-    const ch = src[i];
-    if (ch === '\\') {
-      i += 1; // skip escaped char
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) return { arg: src.slice(openIdx + 1, i), end: i + 1 };
-    }
-  }
-  return null;
 }
 
 /** Parse `\cmd[opt]{a}{b}...` into args array (skips [optional] args). */

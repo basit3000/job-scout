@@ -7,7 +7,7 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "start": "node scripts/setup.mjs --quiet && node web/server.mjs",
-    "dev": "node scripts/setup.mjs --quiet && node web/server.mjs",
+    "dev": "npm start",
     "fetch": "node scripts/fetch-jobs.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "test": "node --test \"scripts/lib/*.test.mjs\""

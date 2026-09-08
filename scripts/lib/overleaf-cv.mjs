@@ -13,10 +13,13 @@ import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
 import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
+import { readBraceGroup } from './tex-parse.mjs';
 import {
   emphasizeItemizeInBody,
   enrichProjectsBody,
   loadPortfolioFacts,
+  scoreText,
+  tokenizeWords,
 } from './tex-bullets.mjs';
 import { applyNextFitPass, ensureAtsTextLayer, experienceItemCount } from './tex-fit.mjs';
 import { checkAtsText, extractPdfText } from './pdf-text.mjs';
@@ -92,20 +95,6 @@ async function listTexFiles(dir) {
   return names.filter((n) => n.endsWith('.tex'));
 }
 
-function words(text) {
-  return String(text ?? '')
-    .toLowerCase()
-    .split(/[^a-z0-9+#.]/i)
-    .filter((w) => w.length >= 3);
-}
-
-function scoreText(text, keywords) {
-  const set = new Set(words(text));
-  let n = 0;
-  for (const k of keywords) if (set.has(k)) n += 1;
-  return n;
-}
-
 /** Higher = more recent. Prefer \cventry / \role first date arg (MM/YYYY or Present). */
 function experienceDateKey(entry) {
   const m = String(entry || '').match(
@@ -118,25 +107,6 @@ function experienceDateKey(entry) {
   const last = ym[ym.length - 1];
   const [mm, yyyy] = last.split('/').map(Number);
   return yyyy * 100 + mm;
-}
-
-/** Read `{...}` starting at openIdx. Returns { arg, end } or null. */
-function readBraceGroup(src, openIdx) {
-  if (src[openIdx] !== '{') return null;
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i += 1) {
-    const ch = src[i];
-    if (ch === '\\') {
-      i += 1;
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) return { arg: src.slice(openIdx + 1, i), end: i + 1 };
-    }
-  }
-  return null;
 }
 
 function plainSectionTitle(rawTitle) {
@@ -411,7 +381,7 @@ async function repairSkillsIfNeeded(dir, filename) {
 }
 
 function instructionKeywords(extraInstructions) {
-  return words(String(extraInstructions || '').slice(0, 500));
+  return tokenizeWords(String(extraInstructions || '').slice(0, 500));
 }
 
 function stampComments(jobTitle, company, extraInstructions) {
@@ -775,19 +745,6 @@ async function checkPdfTextLayer(pdfPath, texDir) {
   } catch (err) {
     return { ok: false, problems: [`text-layer check failed: ${err.message || err}`], warnings: [], text: '' };
   }
-}
-
-/** @deprecated use compileOverleafPdfs */
-export async function compileOverleafPdf(destPdf) {
-  const dir = dirname(destPdf);
-  const compiled = await compileOverleafPdfs(dir);
-  if (!compiled.ok) return { ok: false, error: compiled.error };
-  return {
-    ok: true,
-    path: destPdf,
-    via: compiled.via,
-    source: compiled.hasAts ? 'ats.tex' : 'main.tex',
-  };
 }
 
 /**

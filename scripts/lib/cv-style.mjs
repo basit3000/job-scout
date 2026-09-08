@@ -5,12 +5,15 @@
  *   - the agent briefs (cv-agent.mjs) print these rules to the model before it writes
  *   - the post-edit gate (cv-verify.mjs) checks the model's output against the same list
  *
- * Three tiers:
+ * Four tiers:
  *   FILLER       — adjectives/adverbs that add no fact. Safe to delete mechanically.
  *   AI_TELLS     — phrasing recruiters now read as generated. Reported line by line.
  *   WEAK_OPENERS — bullet starts that hide the verb. Reported.
  *   INFLATION    — seniority/scale words that are only allowed on real employment.
  */
+
+export const WRITING_RULES_GENERIC = '.agents/skills/cv-tailor/references/writing-rules.md';
+export const WRITING_RULES_LOCAL = '.agents/skills/cv-tailor.local/references/writing-rules.md';
 
 /**
  * Safe to delete anywhere: removing them never changes a fact.

@@ -202,12 +202,6 @@ export async function dismissCookieWall(page, { timeoutMs = 14000 } = {}) {
   return { ok: gone, via: via || (gone ? 'stripped' : null) };
 }
 
-/** @deprecated use dismissCookieWall */
-export async function acceptCookies(page) {
-  const r = await dismissCookieWall(page);
-  return r.ok;
-}
-
 function consentCookie(domain) {
   const now = new Date().toISOString();
   return [

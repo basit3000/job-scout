@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Country-configurable job fetch: Apify primary, JobSpy fallback.
+// Country-configurable job fetch. Default: JobSpy (free). Apify only with --allow-paid.
 //
 //   node scripts/fetch-jobs.mjs
 //   node scripts/fetch-jobs.mjs --market GB

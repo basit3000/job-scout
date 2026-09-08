@@ -55,12 +55,6 @@ export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
 
-/**
- * Retry `fn` once (by default) when the error looks like HTTP 429.
- * @template T
- * @param {() => Promise<T>} fn
- * @param {{ retries?: number, sleepFn?: (ms: number) => Promise<void> }} [opts]
- */
 export async function withRateLimitRetry(fn, { retries = 1, sleepFn = sleep } = {}) {
   let lastErr;
   for (let i = 0; i <= retries; i += 1) {

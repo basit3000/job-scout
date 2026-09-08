@@ -15,7 +15,6 @@ export const value = (name, fallback) => {
   return i !== -1 && args[i + 1] ? args[i + 1] : fallback;
 };
 
-/** Load KEY=VALUE pairs from .env into process.env (does not override existing). */
 export function loadDotEnv(path = join(ROOT, '.env')) {
   if (!existsSync(path)) return false;
   const text = readFileSync(path, 'utf8');
@@ -48,6 +47,30 @@ export async function loadJson(path, fallback) {
 
 export const clean = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
 
+export function escapeHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+export function formatDuration(ms) {
+  const n = Math.max(0, Math.round(Number(ms) || 0));
+  if (n < 1000) return `${n}ms`;
+  const sec = Math.round(n / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (!rm && !s) return `${h}h`;
+  if (!s) return `${h}h ${rm}m`;
+  if (!rm) return `${h}h ${s}s`;
+  return `${h}h ${rm}m ${s}s`;
+}
+
 export const stripHtml = (html) =>
   String(html ?? '')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
@@ -65,7 +88,6 @@ export const stripHtml = (html) =>
 
 export const DESCRIPTION_MAX = 8000;
 
-/** First non-empty HTML/text blob, stripped and capped. Prefers the longest candidate. */
 export function pickDescription(...candidates) {
   let best = '';
   for (const c of candidates) {
@@ -172,7 +194,6 @@ function matchAny(text, patterns) {
   });
 }
 
-/** Detect nationals-only / local-experience / visa / immediate-joiner flags for a market. */
 export function detectMarketFlags(job, market) {
   const text = `${job.title}\n${job.description ?? ''}\n${job.nationality ?? ''}`;
   const flags = [...(job.flags ?? [])];
@@ -183,14 +204,6 @@ export function detectMarketFlags(job, market) {
   }
   if (/immediate joiners?\s*only|joining immediately/i.test(text)) flags.push('immediate-joiner');
   return [...new Set(flags)];
-}
-
-/** @deprecated Use detectMarketFlags */
-export function detectUaeFlags(job) {
-  return detectMarketFlags(job, {
-    nationalsOnlyPatterns: ['uae nationals?\\s*only', 'emirati\\s*only', 'for uae nationals'],
-    localExperiencePatterns: ['uae experience\\s*(required|mandatory)', 'years?\\s*(of\\s*)?uae experience'],
-  }).map((f) => (f === 'nationals-only' ? 'uae-nationals-only' : f === 'local-experience-required' ? 'uae-experience-required' : f));
 }
 
 function testAnyPattern(text, patterns) {
@@ -225,16 +238,6 @@ export function isJobInMarket(job, market) {
   return isMarketLocation(locationStr, market);
 }
 
-/** @deprecated Use isMarketLocation */
-export function isUaeLocation(location) {
-  return isMarketLocation(location, {
-    locationPatterns: [
-      'uae', 'u\\.a\\.e', 'united arab emirates', 'dubai', 'abu dhabi', 'sharjah',
-      'ajman', 'ras al khaimah', 'fujairah', 'umm al', 'al ain', 'du,\\s*ae', 'az,\\s*ae',
-    ],
-  });
-}
-
 export async function runApifyActor(actor, input, { token, timeoutSec = 300 } = {}) {
   const res = await fetch(
     `https://api.apify.com/v2/acts/${actor.replace('/', '~')}/run-sync-get-dataset-items?token=${token}&timeout=${timeoutSec}`,
@@ -253,6 +256,11 @@ export async function runApifyActor(actor, input, { token, timeoutSec = 300 } = 
 
 export function workspaceDir() {
   return join(ROOT, '.workspace');
+}
+
+export function prepDir(jobId) {
+  const id = String(jobId).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+  return join(workspaceDir(), 'prep', id);
 }
 
 export async function listFilesRecursive(dir, pred) {

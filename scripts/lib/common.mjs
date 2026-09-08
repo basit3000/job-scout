@@ -63,6 +63,19 @@ export const stripHtml = (html) =>
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+export const DESCRIPTION_MAX = 8000;
+
+/** First non-empty HTML/text blob, stripped and capped. Prefers the longest candidate. */
+export function pickDescription(...candidates) {
+  let best = '';
+  for (const c of candidates) {
+    if (c == null || c === '') continue;
+    const text = stripHtml(String(c)).trim();
+    if (text.length > best.length) best = text;
+  }
+  return best ? best.slice(0, DESCRIPTION_MAX) : null;
+}
+
 export const daysSince = (iso) => {
   if (!iso) return null;
   const then = new Date(iso).getTime();
@@ -129,6 +142,7 @@ export function normalise(job, market) {
     source: job.source,
     board: job.board ?? null,
     via: job.via ?? null,
+    nativeId: job.nativeId ?? null,
     title: clean(job.title),
     company: clean(job.company) || 'unknown',
     location: clean(job.location) || null,
@@ -142,7 +156,7 @@ export function normalise(job, market) {
     seniority: job.seniority ?? null,
     yearsExperience: job.yearsExperience ?? null,
     nationality: job.nationality ?? null,
-    description: job.description ? stripHtml(job.description).slice(0, 4000) : null,
+    description: pickDescription(job.description),
     alsoOn: [],
     flags: job.flags ?? [],
   };

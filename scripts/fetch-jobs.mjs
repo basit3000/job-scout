@@ -44,6 +44,7 @@ import {
   apifyDatePostedAttempts,
   mapIndeedDatePosted,
 } from './lib/date-posted.mjs';
+import { appendRunHistory, formatDuration, fetchRunTiming } from './lib/run-history.mjs';
 
 loadDotEnv();
 
@@ -463,6 +464,8 @@ async function main() {
   await mkdir(outDir, { recursive: true });
   await clearStopFlag();
   armStopHandlers();
+  const runStartedMs = Date.now();
+  const runStartedAt = new Date(runStartedMs).toISOString();
 
   const decisions = await loadJson(join(ROOT, 'state', 'decisions.json'), { decisions: [] });
   const decided = new Set((decisions.decisions ?? []).map((d) => d.id));
@@ -584,6 +587,9 @@ async function main() {
     const duplicatesRemoved = (kept.length - fresh.length)
       + Math.max(0, previousJobs.length + fresh.length - merged.length);
 
+    const durationMs = Date.now() - runStartedMs;
+    const timing = fetchRunTiming({ durationMs, queriesRun: queryIndex });
+
     const meta = {
       market: market.shortName,
       marketId: market.id,
@@ -591,6 +597,11 @@ async function main() {
       candidate: profile.name ?? null,
       targetRole: profile.targetRole ?? null,
       generatedAt: fetchedAt,
+      startedAt: runStartedAt,
+      durationMs: timing.durationMs,
+      queriesPlanned: totalQueries,
+      queriesRun: timing.queriesRun,
+      avgMsPerQuery: timing.avgMsPerQuery,
       strategy,
       apifyRunsUsed,
       fetched: collected.length,
@@ -604,14 +615,21 @@ async function main() {
       newSinceLastFetch: newIds.length,
     };
 
-    await writeFile(join(outDir, 'jobs.json'), `${JSON.stringify({ ...meta, jobs: merged }, null, 2)}\n`);
-    await writeFile(join(outDir, 'jobs.md'), `${renderJobs(merged, meta)}\n`);
-    await writeFile(join(outDir, 'digest.json'), `${JSON.stringify({
+    const digestPayload = {
       generatedAt: meta.generatedAt,
       previousFetchAt: baseline?.generatedAt ?? null,
       newCount: newIds.length,
       newIds,
-    }, null, 2)}\n`);
+      startedAt: runStartedAt,
+      durationMs: timing.durationMs,
+      queriesPlanned: totalQueries,
+      queriesRun: timing.queriesRun,
+      avgMsPerQuery: timing.avgMsPerQuery,
+    };
+
+    await writeFile(join(outDir, 'jobs.json'), `${JSON.stringify({ ...meta, jobs: merged }, null, 2)}\n`);
+    await writeFile(join(outDir, 'jobs.md'), `${renderJobs(merged, meta)}\n`);
+    await writeFile(join(outDir, 'digest.json'), `${JSON.stringify(digestPayload, null, 2)}\n`);
 
     if (quiet) {
       console.log(
@@ -646,8 +664,33 @@ async function main() {
     }
     const droppedSummary = Object.entries(dropped).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`).join(', ');
     if (droppedSummary) console.log(`  dropped: ${droppedSummary}`);
+    const avgBit = timing.avgMsPerQuery != null
+      ? ` · ${formatDuration(timing.avgMsPerQuery)}/query (${timing.queriesRun} quer${timing.queriesRun === 1 ? 'y' : 'ies'})`
+      : '';
+    console.log(`Duration: ${formatDuration(timing.durationMs)}${avgBit}`);
     if (!process.env.APIFY_TOKEN && market.baytCountry) {
       console.log('\nTip: export APIFY_TOKEN=... and re-run with --allow-paid to enable Bayt.');
+    }
+    try {
+      const history = await appendRunHistory('fetch', {
+        startedAt: runStartedAt,
+        finishedAt: fetchedAt,
+        durationMs: timing.durationMs,
+        avgMsPerQuery: timing.avgMsPerQuery,
+        queriesPlanned: totalQueries,
+        queriesRun: timing.queriesRun,
+        fetched: collected.length,
+        fetchedKept: fresh.length,
+        newCount: newIds.length,
+        stopped,
+        replaced: REPLACE_RESULTS,
+        marketId: market.id,
+        strategy,
+      }, { dir: outDir });
+      digestPayload.recentFetches = history.fetch;
+      await writeFile(join(outDir, 'digest.json'), `${JSON.stringify(digestPayload, null, 2)}\n`);
+    } catch (err) {
+      console.error(`Could not save run history: ${err.message}`);
     }
     return meta;
   }

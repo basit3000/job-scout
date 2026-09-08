@@ -208,9 +208,10 @@ export function styleRulesMarkdown({ context = 'cv' } = {}) {
   const lines = [
     '## Reads human, not generated (checked after you finish)',
     '',
-    'Short declarative sentences. Concrete nouns (the service, the table, the pipeline). Name the',
-    'system that was built, not the quality of the work. Vary sentence length. Never stack three',
-    'adjectives. Do not summarise what the bullets already say.',
+    'Write simple English. Grammatically correct. Short sentences, one idea each. Common words.',
+    'Do not sound like a native copywriter or like ChatGPT. Do not polish the text into fluent idiom.',
+    'Correct grammar only. Name the system (the service, the table, the API), not how good the work is.',
+    'Never stack adjectives. Do not summarise what the bullets already say.',
     '',
     `- Banned filler (deleted mechanically if you use them): ${FILLER.join(', ')}.`,
     `- Banned generated-sounding phrases (reported line by line): ${AI_TELLS.join('; ')}.`,
@@ -225,12 +226,14 @@ export function styleRulesMarkdown({ context = 'cv' } = {}) {
       `- Body ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords} words, ${LETTER_LIMITS.minParagraphs}–${LETTER_LIMITS.maxParagraphs} paragraphs, no sentence over ${LETTER_LIMITS.maxSentenceWords} words.`,
       '- Do not open with "I am writing to apply". Do not close with "I look forward to hearing from you".',
       '- Do not praise the company. Do not state a company fact that is not in the posting.',
-      '- Do not restate the CV; pick the two or three facts this posting asks for and say them plainly.',
+      '- Do not restate the CV; pick the two or three facts this posting asks for and say them in simple sentences.',
+      '- Sound like the candidate: clear, basic, correct. Not a native-speaker cover letter and not an LLM.',
     );
   } else {
     lines.push(
       `- One line per bullet where possible; hard ceiling ${CV_LIMITS.maxBulletChars} characters.`,
       '- Name the technology inside the sentence, not as a trailing "(Python, Docker)" tag.',
+      '- Same voice as a careful non-native: correct grammar, simple words. Do not upgrade into native idiom.',
     );
   }
   lines.push('');

@@ -284,8 +284,9 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     '  If a real number would win the screen, write it as a question in agent-report.md instead.',
     '- Experience → Education → Projects → Skills, in that order, those four names.',
     '- Never drop an Experience bullet. Light rewrite only: clause order, posting synonyms,',
-    '  in-line tech already on the CV or in the evidence pack. Same theme and voice.',
-    '- Headline title is the honest one from keyword-gaps.md — never Senior / Staff / Lead / Principal.',
+    '  in-line tech already on the CV or in the evidence pack. Keep simple English. Do not make it sound',
+    '  more native or more “written by AI”.',
+    '- Headline title is the honest one from keyword-gaps.md. Do not claim a seniority the candidate does not hold.',
     '- Portfolio copy is for Projects only — never paste side-project work into employment.',
     '- Personal projects never carry led / managed / mentored / clients / at scale. "Designed and built, sole author" is the ceiling.',
     '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
@@ -426,17 +427,22 @@ export function buildCoverLetterAgentBrief({ localRules } = {}) {
     '- Line 1 is exactly `Application for <Role>` (already filled). No sender header, no date at the top.',
     '- Greeting, then 3–4 body paragraphs, then the sign-off. Nothing else.',
     `- Body ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords} words. No sentence over ${LETTER_LIMITS.maxSentenceWords} words.`,
-    '- Paragraph 1 (2–3 sentences): the role, and the one thing from current work that answers the posting’s',
-    '  first requirement line. Not “I am writing to apply”. No praise for the company.',
+    '- Paragraph 1 (2–3 sentences): the role, one posting requirement you already meet, and why this',
+    '  is the work you want (the same kind of system you already ship). Not “I am writing to apply”.',
+    '  No praise for the company. Do not invent a company fact that is not in the posting.',
     '- Paragraph 2: two or three concrete facts (system, stack, what it does) that map to requirement lines in',
     '  keyword-gaps.md. Spell the technology the way the posting does.',
-    '- Paragraph 3 (only if the posting asks): the honest context — German level, location, start date, visa.',
+    '- Optional background (cover-letter-notes.md and any :::motive sentences already in the draft):',
+    '  at most two facts, and only when a keyword on that note matches the posting. Skip them if nothing',
+    '  matches. School, childhood, or coursework is not extra years of employment.',
+    '- Paragraph on context (only if the posting asks): German level, location, start date, visa.',
     '- Closing (1–2 sentences): availability and a plain request for a conversation. No “look forward to hearing”.',
     '- Sign-off must be exactly: `Kind regards,` then a blank line, then name, email, website',
     '  each on its own line.',
     '- Never use em dashes or spaced hyphen asides (`word - word`). Use a comma or rewrite.',
     '- One page. Do not add a header block or address block.',
-    '- Light rewrite only: lead with posting-matched skills that are already true. Same voice.',
+    '- Light rewrite only: lead with posting-matched skills that are already true. Simple English.',
+    '  Grammatically correct. Not native-speaker polish and not AI polish.',
     '- Drop or shorten a past-job / project sentence if it does not help this posting.',
     '- Do not invent a new employer, project, or metric to fill a gap. Leave it out.',
     '',
@@ -472,6 +478,7 @@ export function buildCoverLetterAgentPrompt({
   writingRulesRel,
   letterRel,
   cvRel,
+  notesRel,
   profileName,
   extraInstructions,
 }) {
@@ -483,6 +490,7 @@ export function buildCoverLetterAgentPrompt({
     techStackRel,
     writingRulesRel,
     cvRel,
+    notesRel,
     letterRel,
   ].filter(Boolean);
 
@@ -505,6 +513,7 @@ export function buildCoverLetterAgentPrompt({
   lines.push(
     '',
     `Surgically edit ${letterRel} so it leads with evidenced skills this posting cares about.`,
+    'Use at most two optional-background facts from cover-letter-notes.md, and only if they match the posting.',
     'Do not invent facts. Do not edit the CV or Overleaf files.',
     `Then write ${prepRel}/cover-letter-report.md: what changed (with evidence) and gaps.`,
     'Apply the edits. Do not stop at a plan.',
@@ -917,6 +926,15 @@ export async function runCvTailorAgent({
 
   const cvMdAbs = join(prepDir, 'cv.md');
   const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md` : '';
+  let notesRel = '';
+  if (letterTask) {
+    const notesSrc = join(ROOT, 'cv', 'cover-letter-notes.md');
+    if (existsSync(notesSrc)) {
+      const notesText = await readFile(notesSrc, 'utf8');
+      await writeFile(join(prepDir, 'cover-letter-notes.md'), notesText.endsWith('\n') ? notesText : `${notesText}\n`);
+      notesRel = `${prepRel}/cover-letter-notes.md`;
+    }
+  }
   const prompt = letterTask
     ? buildCoverLetterAgentPrompt({
       job,
@@ -930,6 +948,7 @@ export async function runCvTailorAgent({
       writingRulesRel,
       letterRel: `${prepRel}/cover-letter.md`,
       cvRel,
+      notesRel,
       profileName: profile?.name,
       extraInstructions: instr,
     })

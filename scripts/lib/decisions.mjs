@@ -39,12 +39,8 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
 
   let followUpDate = prev?.followUpDate ?? null;
   if (extra.followUpDate !== undefined) followUpDate = extra.followUpDate || null;
-  else if (decision === 'applied' && !followUpDate) {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    followUpDate = d.toISOString().slice(0, 10);
-  } else if (decision === 'skipped' || decision === 'rejected' || decision === 'closed') {
-    if (extra.followUpDate === undefined) followUpDate = null;
+  else if (decision === 'skipped' || decision === 'rejected' || decision === 'closed') {
+    followUpDate = null;
   }
 
   const entry = {

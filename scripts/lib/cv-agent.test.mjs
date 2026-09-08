@@ -61,6 +61,12 @@ describe('buildAgentBrief', () => {
   it('keeps candidate-specific rules out of the public brief', () => {
     const brief = buildAgentBrief({ cvSource: 'overleaf', localRules: '' });
     assert.doesNotMatch(brief, /Candidate-specific rules/);
+    assert.doesNotMatch(brief, /e\.solutions/);
+    assert.doesNotMatch(brief, /A-levels/);
+    const letter = buildCoverLetterAgentBrief({ localRules: '' });
+    assert.doesNotMatch(letter, /e\.solutions/);
+    assert.doesNotMatch(letter, /A-levels/);
+    assert.doesNotMatch(letter, /Claude Code,/);
   });
 
   it('appends candidate-specific rules from the local overlay', () => {
@@ -79,6 +85,7 @@ describe('buildCoverLetterAgentPrompt', () => {
       ...base,
       letterRel: '.workspace/prep/job1/cover-letter.md',
       cvRel: '.workspace/prep/job1/cv.md',
+      notesRel: '.workspace/prep/job1/cover-letter-notes.md',
       extraInstructions: 'Lead with backend / FastAPI / APIs',
     });
     assert.match(prompt, /same skill rules and extra instructions/);
@@ -86,6 +93,7 @@ describe('buildCoverLetterAgentPrompt', () => {
     assert.match(prompt, /keyword-gaps\.md/);
     assert.match(prompt, /writing-rules\.md/);
     assert.match(prompt, /Lead with backend/);
+    assert.match(prompt, /cover-letter-notes\.md/);
     assert.doesNotMatch(prompt, /Surgically edit \.workspace\/overleaf/);
   });
 });
@@ -95,6 +103,7 @@ describe('buildCoverLetterAgentBrief', () => {
     const brief = buildCoverLetterAgentBrief({ localRules: '' });
     assert.match(brief, /No invented facts/);
     assert.match(brief, /keyword-gaps\.md/);
+    assert.match(brief, /cover-letter-notes\.md/);
     assert.match(brief, /Kind regards/);
     assert.match(brief, /edit the CV files/);
     assert.match(brief, /em dashes/);

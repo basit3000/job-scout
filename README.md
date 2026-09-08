@@ -55,21 +55,26 @@ Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PR
 
 ### Cover letter
 
-Setup copies `cv/cover-letter.example.md` → `cv/cover-letter.md` (gitignored). Replace every `YOUR_*` placeholder with your own wording. Keep `[Company]`, `[Role]`, and `[Date]` — those are filled per job.
+Setup copies `cv/cover-letter.example.md` → `cv/cover-letter.md` and `cv/cover-letter-notes.example.md` → `cv/cover-letter-notes.md` (both gitignored). Replace every `YOUR_*` placeholder with your own wording. Keep `[Company]`, `[Role]`, and `[Date]` — those are filled per job.
 
-The **core** of the letter is always used. Optional blocks after `<!-- optional-blocks` are inserted only when the posting mentions their keywords (up to two `:::past` and two `:::project`). Put the markers where those paragraphs should land:
+The **core** of the letter is always used. Optional blocks after `<!-- optional-blocks` are inserted only when the posting mentions their keywords (up to two `:::motive`, two `:::past`, and two `:::project`). Put the markers where those paragraphs should land:
 
 ```md
+<!-- include:motive -->
 <!-- include:past -->
 <!-- include:projects -->
 
 <!-- optional-blocks -->
-:::past acme fastapi postgres
-One sentence about that job. Do not invent metrics.
+:::motive YOUR_MOTIVE_ID YOUR_KEYWORD_1
+YOUR_ONE_SENTENCE_OF_BACKGROUND
 :::
 
-:::project translation openai sqlalchemy
-One sentence about that project, only if the posting asks for it.
+:::past YOUR_EARLIER_EMPLOYER_ID YOUR_KEYWORD_1
+YOUR_SENTENCE_ABOUT_THAT_JOB
+:::
+
+:::project YOUR_PROJECT_ID YOUR_KEYWORD_1
+YOUR_SENTENCE_ABOUT_THAT_PROJECT
 :::
 ```
 

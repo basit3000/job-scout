@@ -21,4 +21,37 @@ describe('assembleCoverLetter', () => {
     assert.match(letter, /Application for Backend Engineer/);
     assert.match(letter, /at Acme/);
   });
+
+  it('inserts a motive block only when the posting mentions its keywords', () => {
+    const template = `Application for [Role]
+
+Core.
+
+<!-- include:motive -->
+
+<!-- optional-blocks -->
+:::motive sample-a sample-a widget
+YOUR_ONE_SENTENCE_OF_BACKGROUND
+:::
+:::motive sample-b sample-b gadget
+YOUR_OTHER_SENTENCE_OF_BACKGROUND
+:::
+`;
+    const a = assembleCoverLetter(
+      template,
+      { title: 'Widget Developer', company: 'Acme', description: 'Build the widget service.' },
+      {},
+    );
+    assert.match(a.letter, /YOUR_ONE_SENTENCE_OF_BACKGROUND/);
+    assert.doesNotMatch(a.letter, /YOUR_OTHER_SENTENCE_OF_BACKGROUND/);
+    assert.equal(a.included.some((b) => b.id === 'sample-a' && b.slot === 'motive'), true);
+
+    const b = assembleCoverLetter(
+      template,
+      { title: 'Gadget Engineer', company: 'Acme', description: 'Own the gadget stack.' },
+      {},
+    );
+    assert.match(b.letter, /YOUR_OTHER_SENTENCE_OF_BACKGROUND/);
+    assert.doesNotMatch(b.letter, /YOUR_ONE_SENTENCE_OF_BACKGROUND/);
+  });
 });

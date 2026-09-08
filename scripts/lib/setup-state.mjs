@@ -33,6 +33,7 @@ const TEMPLATE_COPIES = [
   ['search-profile.example.json', 'search-profile.json'],
   ['cv/resume.example.md', 'cv/resume.md'],
   ['cv/cover-letter.example.md', 'cv/cover-letter.md'],
+  ['cv/cover-letter-notes.example.md', 'cv/cover-letter-notes.md'],
   ['.env.example', '.env'],
   ['state/decisions.example.json', 'state/decisions.json'],
 ];

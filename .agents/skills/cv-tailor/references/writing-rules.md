@@ -130,7 +130,10 @@ and only trim if the one-page check fails.
 
 ## Tone and mechanics
 
-- Past tense, active voice, no first-person pronouns.
+Write simple, grammatically correct English. Short sentences. Common words.
+Do not sound like a native copywriter or like an LLM. Do not add idioms.
+
+- Past tense for past jobs, present tense for current work. No first-person pronouns on the CV.
 - Start bullets with a concrete verb: built, shipped, designed, replaced, automated,
   integrated, migrated. Not "responsible for", "helped with", "worked on".
 - One line per bullet wherever possible; two is the maximum.

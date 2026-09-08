@@ -223,15 +223,96 @@ function countPhrase(haystack, phrase) {
   return n;
 }
 
-export function isGermanPosting(job) {
-  const text = `${job?.title || ''} ${job?.description || ''}`;
-  return /[äöüÄÖÜß]/.test(text)
-    || /\b(m\/w\/d|w\/m\/d|d\/m\/w|kenntnisse|berufserfahrung|bewerbung|vollzeit|festanstellung|softwareentwickler|anforderungen|aufgaben|wir bieten|dein profil|deine aufgaben)\b/i.test(text);
+const DE_TITLE_MARK = /\b(m\/w\/d|w\/m\/d|d\/m\/w|softwareentwickler|anwendungsentwickler|webentwickler|informatiker|fachinformatiker)\b/i;
+const DE_BODY_MARK = /\b(kenntnisse|berufserfahrung|bewerbung|vollzeit|festanstellung|anforderungen|aufgaben|wir bieten|dein profil|deine aufgaben|unser angebot|das bringst du mit|das erwartet dich|bewirb dich|unbefristet|teilzeit|arbeitsort|vergütung)\b/i;
+const DE_STOP = /\b(und|oder|mit|für|von|eine|einen|einer|einem|eines|der|die|das|dem|den|im|am|zum|zur|sich|wir|unser|unsere|unseren|unserem|dein|deine|ihre|ihr|sind|wird|werden|haben|ist|als|auch|bei|nach|über|sowie|bitte|auf|aus)\b/gi;
+const EN_STOP = /\b(the|and|you|your|with|for|our|are|will|this|that|from|have|has|we|be|or|as|on|in|to|of|role|team|experience|requirements|responsibilities|about|what|who)\b/gi;
+
+function matchCount(text, re) {
+  const copy = new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`);
+  return (String(text || '').match(copy) || []).length;
 }
 
-/** Posting language for Results filters: `de` or `en`. */
+/**
+ * Language the ad is *written* in. Umlauts in München/Düsseldorf/company names
+ * do not count as a German posting.
+ */
+export function postingWrittenLanguage(job) {
+  const title = String(job?.title || '');
+  const desc = String(job?.description || '');
+  if (DE_TITLE_MARK.test(title)) return 'de';
+  if (!desc.trim()) return DE_BODY_MARK.test(title) ? 'de' : 'en';
+
+  const deStops = matchCount(desc, DE_STOP);
+  const enStops = matchCount(desc, EN_STOP);
+  const markers = DE_BODY_MARK.test(`${title}\n${desc}`) ? 8 : 0;
+  const umlauts = Math.min(matchCount(desc, /[äöüÄÖÜß]/g), 10);
+  const deScore = deStops + markers + umlauts;
+  if (deScore >= 10 && deScore > enStops * 0.55) return 'de';
+  if (deStops >= 12 && deStops > enStops) return 'de';
+  return 'en';
+}
+
+/** Hard German language requirement vs optional vs none. Does not match "Germany". */
+export function detectGermanRequirement(job) {
+  const text = `${job?.title || ''}\n${job?.description || ''}`.replace(/\s+/g, ' ');
+  if (!text.trim()) return 'none';
+
+  const eitherOk = /\b(?:english or german|german or english|english\s*\/\s*german|german\s*\/\s*english)\b/i.test(text);
+  const hardGerman = /\b(?:c1|c2|b2)\b/i.test(text) && /\b(?:german|deutsch)\b/i.test(text)
+    || /\b(?:fluent(?:ly)?\s+(?:in\s+)?german|verhandlungssicher(?:es|e|em)?\s+deutsch|flie(?:ss|ß)end(?:es|e)?\s+deutsch|muttersprache\s+deutsch|german(?: language)?(?: skills?)? (?:is |are )?(?:required|mandatory)|deutsch ist (?:erforderlich|pflicht))\b/i.test(text);
+
+  if (eitherOk && !hardGerman) return 'none';
+
+  const optional = [
+    /\b(?:german|deutsch(?:kenntnisse)?)\b[^.!?\n]{0,55}\b(?:a plus|plus|nice[- ]to[- ]have|advantage|advantageous|beneficial|preferred|ideally|von vorteil|wünschenswert|optional)\b/i,
+    /\b(?:a plus|plus|nice[- ]to[- ]have|advantage|von vorteil|wünschenswert|optional)\b[^.!?\n]{0,55}\b(?:german|deutsch(?:kenntnisse)?)\b/i,
+  ].some((re) => re.test(text));
+
+  const required = [
+    /\bgerman\s*(?:language\s*)?(?:skills?\s*)?[:()–\-]?\s*(?:min(?:imum|\.)?\s*)?(?:level\s*)?(?:c1|c2|b2)\b/i,
+    /\b(?:min(?:imum|\.)?\s*)?(?:level\s*)?(?:c1|c2|b2)\s*(?:level\s+)?(?:in\s+)?german\b/i,
+    /\bdeutsch(?:kenntnisse)?\s*[:()–\-]?\s*(?:mind(?:est(?:ens)?)?\.?\s*)?(?:niveau\s*)?(?:c1|c2|b2)\b/i,
+    /\b(?:c1|c2|b2)[- ]niveau.{0,24}deutsch/i,
+    /\bniveau\s*(?:c1|c2|b2).{0,24}deutsch/i,
+    /\b(?:fluent(?:ly)?|business[- ]fluent|native|proficient|excellent|very good)\s+(?:in\s+)?german\b/i,
+    /\bfluency in german\b/i,
+    /\bgerman\s+(?:fluency|native(?: speaker)?|speaker)\b/i,
+    /\bgerman[- ]speaking\b/i,
+    /\b(?:must|required to|need to)\s+speak\s+german\b/i,
+    /\bgerman(?: language)?(?: skills?)?\s+(?:is |are )?(?:required|mandatory|a must|necessary|essential)\b/i,
+    /\b(?:required|mandatory|must have|essential)[:\s]+[^.]{0,48}\bgerman\b/i,
+    /\bverhandlungssicher(?:es|e|em)?\s+deutsch/i,
+    /\bflie(?:ss|ß)end(?:es|e)?\s+deutsch/i,
+    /\bdeutschkenntnisse\b/i,
+    /\bmuttersprache\s+deutsch\b/i,
+    /\b(?:sehr\s+)?gute[sn]?\s+deutsch(?:kenntnisse)?\b/i,
+    /\bdeutsch\s+(?:ist\s+)?(?:erforderlich|voraussetzung|pflicht|zwingend|notwendig)\b/i,
+    /\bworking language is german\b/i,
+    /\bgerman as (?:a |the )?working language\b/i,
+    /\b(?:team|company|business) language(?: is|:)\s*german\b/i,
+    /\bsprichst\s+(?:flie(?:ss|ß)end\s+)?deutsch\b/i,
+    /\bdu\s+sprichst\s+deutsch\b/i,
+  ].some((re) => re.test(text));
+
+  if (optional && !hardGerman) return 'optional';
+  if (!required) return 'none';
+  return 'required';
+}
+
+/** True when the ad itself is written in German (CV tailor language). */
+export function isGermanPosting(job) {
+  return postingWrittenLanguage(job) === 'de';
+}
+
+/**
+ * Results/Digest language filter:
+ * `en` = English-written and no hard German requirement (C1/B2/fluent).
+ * `de` = German-written, or English-written that still requires German.
+ */
 export function detectPostingLanguage(job) {
-  return isGermanPosting(job) ? 'de' : 'en';
+  if (postingWrittenLanguage(job) === 'de') return 'de';
+  return detectGermanRequirement(job) === 'required' ? 'de' : 'en';
 }
 
 export function jobMatchesLanguageFilter(job, lang) {

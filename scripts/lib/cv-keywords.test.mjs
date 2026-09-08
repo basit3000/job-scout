@@ -6,6 +6,8 @@ import {
   honestHeadlineTitle,
   isGermanPosting,
   detectPostingLanguage,
+  detectGermanRequirement,
+  postingWrittenLanguage,
   jobMatchesLanguageFilter,
   formatKeywordGapsMarkdown,
 } from './cv-keywords.mjs';
@@ -103,5 +105,48 @@ describe('cv-keywords', () => {
     assert.equal(jobMatchesLanguageFilter({ language: 'de' }, 'de'), true);
     assert.equal(jobMatchesLanguageFilter({ language: 'de' }, 'en'), false);
     assert.equal(jobMatchesLanguageFilter({ title: 'Backend Engineer' }, 'en'), true);
+  });
+
+  it('does not treat umlauts in a city or company as a German-language ad', () => {
+    const job = {
+      title: 'Software Developer ServiceNow (all genders) - Düsseldorf',
+      description: 'You will implement ServiceNow modules with our international team. English is the working language.',
+    };
+    assert.equal(postingWrittenLanguage(job), 'en');
+    assert.equal(isGermanPosting(job), false);
+    assert.equal(detectPostingLanguage(job), 'en');
+  });
+
+  it('puts English ads that require C1/fluent German in the German filter', () => {
+    const c1 = {
+      title: 'Forward Deployed AI Engineer',
+      description: 'You will own APIs and ship with customers. Fluent German and strong English are required.',
+    };
+    assert.equal(postingWrittenLanguage(c1), 'en');
+    assert.equal(detectGermanRequirement(c1), 'required');
+    assert.equal(detectPostingLanguage(c1), 'de');
+    assert.equal(jobMatchesLanguageFilter(c1, 'en'), false);
+    assert.equal(jobMatchesLanguageFilter(c1, 'de'), true);
+
+    const niveau = {
+      title: 'Software Engineer',
+      description: 'Excellent communication skills in English and German (C1 or above). You will own APIs.',
+    };
+    assert.equal(detectPostingLanguage(niveau), 'de');
+  });
+
+  it('keeps English ads when German is only a plus or either language is fine', () => {
+    const plus = {
+      title: 'Backend Engineer',
+      description: 'English is the working language. German is a plus. You will own APIs.',
+    };
+    assert.equal(detectGermanRequirement(plus), 'optional');
+    assert.equal(detectPostingLanguage(plus), 'en');
+
+    const either = {
+      title: 'Software Engineer',
+      description: 'You will own APIs. English or German is fine for daily communication.',
+    };
+    assert.equal(detectPostingLanguage(either), 'en');
   });
 });

@@ -780,7 +780,8 @@ function renderJob(job, { compact = false } = {}) {
     job.board ? `${formatBoard(job.board)}${job.via ? ` via ${job.via}` : ''}` : null,
     job.salary,
   ].filter(Boolean);
-  const langLabel = LANG_LABEL[job.language];
+  const written = job.writtenLanguage || job.language;
+  const langLabel = LANG_LABEL[written];
 
   const also = (job.alsoOn || []).slice(0, 4);
   const flags = (job.flags || []).map((f) => `<span class="flag pill">${escapeHtml(f)}</span>`).join('');
@@ -804,7 +805,8 @@ function renderJob(job, { compact = false } = {}) {
           : ''
       }
       ${job.isNew ? '<span class="pill new">New</span>' : ''}
-      ${langLabel ? `<span class="pill lang-${escapeAttr(job.language)}">${escapeHtml(langLabel)}</span>` : ''}
+      ${langLabel ? `<span class="pill lang-${escapeAttr(written)}">${escapeHtml(langLabel)}</span>` : ''}
+      ${job.germanRequired && written === 'en' ? '<span class="pill lang-de">German required</span>' : ''}
       ${atsPill(job.ats)}
       ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
       ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}

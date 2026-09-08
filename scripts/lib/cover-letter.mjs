@@ -12,9 +12,11 @@ import { htmlFileToPdf } from './pdf.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
   agentRunnerAvailable,
+  currentEvidenceRel,
   runCvTailorAgent,
   seedPrepForAgent,
 } from './cv-agent.mjs';
+import { verifyLetterAfterAgent } from './cv-verify.mjs';
 import {
   Document, Packer, Paragraph, TextRun,
   convertInchesToTwip,
@@ -128,11 +130,13 @@ export function assembleCoverLetter(templateText, job, profile) {
   };
 }
 
-/** Strip em dashes / spaced-hyphen asides after template or LLM edits. */
+/** Strip em dashes / spaced-hyphen asides and exclamation marks after template or LLM edits. */
 export function polishCoverLetter(text) {
   let letter = String(text || '');
   letter = letter.replace(/\s*—\s*/g, ', ');
-  letter = letter.replace(/\s+-\s+(?=[A-Za-z])/g, ', ');
+  letter = letter.replace(/\s+[–-]\s+(?=[A-Za-z])/g, ', ');
+  letter = letter.replace(/(?<!<)!+(?!--)/g, '.'); // keep <!-- --> markers intact
+  letter = letter.replace(/[ \t]{2,}/g, ' ').replace(/ ,/g, ',');
   return letter.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
@@ -151,21 +155,26 @@ function fallbackCoverLetter(job, profile, fit) {
   const skills = (fit?.matched?.length ? fit.matched : profile?.skills?.strong ?? []).slice(0, 5);
   const site = profile?.links?.portfolio || profile?.links?.site || profile?.links?.github || '';
 
-  return `Dear Hiring Team,
+  const stack = skills.length
+    ? `Most of my recent work is in ${skills.slice(0, 3).join(', ')}${skills.length > 3 ? ` and ${skills[3]}` : ''}.`
+    : '';
+  const reason = fit?.reasons?.[0] ? `${String(fit.reasons[0]).replace(/[.!]+$/, '')}.` : '';
 
-I am writing to apply for the ${job.title} position at ${job.company}. I am a ${profile?.headline || role} and this posting aligns with my target role (${role}).
+  return `Application for ${job.title}
 
-${skills.length ? `Relevant strengths I can bring: ${skills.join(', ')}.` : 'I have attached my CV with project and education detail.'}
+Dear Hiring Team,
 
-${fit?.reasons?.[0] ? `${fit.reasons[0]}.` : ''}
+I am a ${profile?.headline || role} applying for the ${job.title} role at ${job.company}. ${stack}
 
-I would welcome the chance to discuss how I can contribute at ${job.company}. Thank you for your consideration.
+${reason}
+
+My CV lists the systems I have built with each of these, with links to the code where it is public. I am available for a call at short notice.
 
 Kind regards,
 ${name}
 ${profile?.links?.email ?? ''}
 ${site}
-`.trim() + '\n';
+`.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
 export async function loadCoverLetterTemplate() {
@@ -490,8 +499,22 @@ export async function generateCoverLetterPack(job, profile, fit, {
           });
           const edited = await readFile(join(dir, 'cover-letter.md'), 'utf8');
           if (edited.trim()) {
-            letter = polishCoverLetter(edited);
-            usedMode = 'agent';
+            const candidate = polishCoverLetter(edited);
+            const gate = await verifyLetterAfterAgent({
+              prepDir: dir,
+              letter: candidate,
+              job,
+              evidencePath: currentEvidenceRel(),
+              extraInstructions: instr,
+              emit: (line, stream = 'meta') => emit({ stream, line, t: Date.now() }),
+            });
+            if (gate.ok) {
+              letter = candidate;
+              usedMode = 'agent';
+            } else {
+              await writeFile(join(dir, 'cover-letter.rejected.md'), candidate);
+              fallbackReason = `quality gate: ${gate.hard[0]}`;
+            }
           }
         } catch (err) {
           fallbackReason = err?.message || String(err);

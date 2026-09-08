@@ -8,8 +8,21 @@ import {
   dropInterestsSection,
   applyNextFitPass,
   experienceItemCount,
+  ensureAtsTextLayer,
   FIT_MARKER_START,
+  ATS_MARKER_START,
 } from './tex-fit.mjs';
+
+test('ensureAtsTextLayer adds the no-hyphenation block once, before the document', () => {
+  const first = ensureAtsTextLayer(SAMPLE);
+  assert.equal(first.changed, true);
+  assert.ok(first.tex.indexOf(ATS_MARKER_START) < first.tex.indexOf('\\begin{document}'));
+  assert.match(first.tex, /\\hyphenpenalty=10000/);
+  const second = ensureAtsTextLayer(first.tex);
+  assert.equal(second.changed, false);
+  assert.equal((second.tex.match(/\\hyphenpenalty=10000/g) || []).length, 1);
+  assert.equal(experienceItemCount(second.tex), experienceItemCount(SAMPLE));
+});
 
 const SAMPLE = String.raw`
 \documentclass[11pt,a4paper]{moderncv}

@@ -6,8 +6,12 @@
  * Education, or project headlines.
  */
 
+import { FILLER as FILLER_WORDS } from './cv-style.mjs';
+
 export const FIT_MARKER_START = '% BEGIN job-scout one-page-fit';
 export const FIT_MARKER_END = '% END job-scout one-page-fit';
+export const ATS_MARKER_START = '% BEGIN job-scout ats-text';
+export const ATS_MARKER_END = '% END job-scout ats-text';
 
 const SPACING_BLOCK = `${FIT_MARKER_START}
 \\linespread{0.95}\\selectfont
@@ -19,8 +23,17 @@ const SPACING_BLOCK = `${FIT_MARKER_START}
 ${FIT_MARKER_END}
 `;
 
-const FILLER =
-  /\b(successfully|effectively|efficiently|highly|various|multiple|several|robust|comprehensive|passionate|results-driven|proven)\b/gi;
+// A parser reads a hyphenated keyword as two words ("Post- greSQL", "Mon- goDB").
+// Forbid hyphenation and let inter-word space stretch instead. Preamble-only, engine-neutral.
+const ATS_BLOCK = `${ATS_MARKER_START}
+\\hyphenpenalty=10000 \\exhyphenpenalty=10000 \\tolerance=3000 \\emergencystretch=3em
+${ATS_MARKER_END}
+`;
+
+const FILLER = new RegExp(
+  `\\b(${[...FILLER_WORDS].sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+  'gi',
+);
 
 function toInches(n, unit) {
   const u = String(unit || 'in').toLowerCase();
@@ -37,6 +50,17 @@ export function injectSpacingFit(tex) {
   if (!/\\begin\{document\}/.test(src)) return { tex: src, changed: false };
   return {
     tex: src.replace(/\\begin\{document\}/, `\\begin{document}\n${SPACING_BLOCK}`),
+    changed: true,
+  };
+}
+
+/** Insert the no-hyphenation block just before \\begin{document}. Idempotent. */
+export function ensureAtsTextLayer(tex) {
+  const src = String(tex ?? '');
+  if (src.includes(ATS_MARKER_START)) return { tex: src, changed: false };
+  if (!/\\begin\{document\}/.test(src)) return { tex: src, changed: false };
+  return {
+    tex: src.replace(/\\begin\{document\}/, `${ATS_BLOCK}\\begin{document}`),
     changed: true,
   };
 }

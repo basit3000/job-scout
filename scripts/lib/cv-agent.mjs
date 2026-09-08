@@ -12,11 +12,14 @@ import { spawn } from 'node:child_process';
 import { Agent, Cursor, CursorAgentError } from '@cursor/sdk';
 import { ROOT, run } from './common.mjs';
 import { overleafConfigured, syncOverleaf } from './overleaf-cv.mjs';
+import { resolvePortfolioRoot } from './portfolio.mjs';
 import {
   formatAgentEvent,
   formatFinishLine,
 } from './cv-agent-log.mjs';
 import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs';
+import { styleRulesMarkdown, LETTER_LIMITS } from './cv-style.mjs';
+import { snapshotCvSources } from './cv-verify.mjs';
 
 let activeRun = null;
 let activeChild = null;
@@ -275,18 +278,22 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     'Job Scout already staged evidence and the Overleaf clone. This brief replaces',
     'SKILL.md / format-benchmarks / gather-evidence for this run.',
     '',
-    '## Hard rules',
-    '- No invented facts, metrics, employers, dates, or titles.',
-    '- Experience → Education → Projects → Skills (both files).',
-    '- Keep current Experience bullets. Light rewrite only: clause order, posting synonyms,',
+    '## Hard rules (each one is checked by a script after you finish; a miss reverts the whole edit)',
+    '- Employers, titles, dates, degrees, schools: byte-for-byte as they are now. No new entries.',
+    '- Numbers: only ones already printed in the evidence pack, the current CV, or profile.json.',
+    '  If a real number would win the screen, write it as a question in agent-report.md instead.',
+    '- Experience → Education → Projects → Skills, in that order, those four names.',
+    '- Never drop an Experience bullet. Light rewrite only: clause order, posting synonyms,',
     '  in-line tech already on the CV or in the evidence pack. Same theme and voice.',
-    '- Leave a bullet alone if it already fits. Change about a third to half of them.',
+    '- Headline title is the honest one from keyword-gaps.md — never Senior / Staff / Lead / Principal.',
     '- Portfolio copy is for Projects only — never paste side-project work into employment.',
+    '- Personal projects never carry led / managed / mentored / clients / at scale. "Designed and built, sole author" is the ceiling.',
     '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
-    '- Do not treat personal side projects or hosting as employment.',
-    '- Do not invent metrics. If a real number would win the screen, list it as a question in the report.',
-    '- Do not commit secrets or echo tokens.',
-    overleaf ? '- Edit both `.workspace/overleaf/main.tex` and `ats.tex` (or neither).' : '- Write facts-only Markdown.',
+    '- Leave a bullet alone if it already fits. Change about a third to half of them.',
+    '- Do not commit secrets or echo tokens. Never leave a `YOUR_` placeholder.',
+    overleaf
+      ? '- Edit both `.workspace/overleaf/main.tex` and `ats.tex` (or neither). Same bullets, same headline in both.'
+      : '- Write facts-only Markdown with the same four section names.',
     '',
     '## Do not do (already done, or Job Scout does after you finish)',
     '- Do not read SKILL.md, format-benchmarks.md, or overleaf.md.',
@@ -298,17 +305,42 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     '## First screen (this is how 2026 ATS + AI copilots + recruiters decide)',
     'Three readers, in order: parser → AI summary card → human (~6s on the top third).',
     'No extra summary paragraph — the headline and the first three current-role bullets are that card.',
-    '1. Headline: honest title close to the posting (never Senior/Staff/Lead) + 3–5 evidenced JD skills.',
+    '1. Headline: honest title close to the posting + 3–5 evidenced JD technologies, heaviest first.',
     '2. First three present-role bullets: each is an evidence sentence (duty + the JD tech on the same line).',
-    '3. Every “Already” / “Promote” phrase from keyword-gaps.md must appear in a bullet, not only Skills.',
-    '4. Mirror the posting’s exact wording only where it is already true (REST API ↔ HTTP API, back-end ↔ backend).',
-    '5. German posting: keep English tech names (ATS) and add the German role noun if it is an honest equivalent.',
-    '6. Skills line: JD-matched evidenced tech first; drop tools you would not take an interview question on.',
+    '3. Every “Already” / “Promote” phrase from keyword-gaps.md appears in a bullet, not only Skills.',
+    '4. Each requirement line in keyword-gaps.md that is honestly true gets one bullet with the same nouns.',
+    '   Experience first, Projects second, Skills last. A requirement that is not true gets nothing.',
+    '5. Mirror the posting’s exact spelling once where it is already true (PostgreSQL not Postgres, CI/CD not CICD,',
+    '   REST API ↔ HTTP API, back-end ↔ backend). Keep the CV’s own spelling elsewhere.',
+    '6. German posting: keep English tech names (ATS) and add the German role noun if it is an honest equivalent.',
+    '7. Skills line: JD-matched evidenced tech first; drop tools you would not take an interview question on.',
+    '',
+    '## Use the evidence pack like this',
+    '- “Project narratives” are the candidate’s own blog posts. Quote build detail from them (stack, architecture,',
+    '  features, constraints) into the matching Projects bullet. Describe what was built, not how good it is.',
+    '- “Employment [candidate-stated]” is the ceiling for employment claims. Re-emphasise; never extend.',
+    '- “[verified]” facts (repos, languages, commit years) may be stated plainly. “[self-reported]” facts may be',
+    '  stated as what the project does, never as a measured result.',
+    '- Anything in the “not evidenced” list of keyword-gaps.md stays off the CV, even as a Skills word.',
+    '',
+    ...styleRulesMarkdown({ context: 'cv' }).split('\n'),
+    '## ATS mechanics (both files)',
+    '- Keep the four section names exactly. Keep `\\role{}{}{}`, `\\edu{}{}{}`, `\\cventry{}` and `\\cvitem{}{}`',
+    '  argument structure intact. No new macros, tables, columns, icons, images, colours, or header/footer text.',
+    '- Write dashes as `--`. No Unicode symbols beyond what is already in the file.',
+    '- One line per bullet where possible. Technology names inside the sentence, not as a trailing tag.',
+    '- One page. If you add a clause, cut a weaker one from the same entry (never an Experience bullet).',
     '',
     '## Do',
     '- Read only the files listed in the prompt, in that order.',
-    '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
-    '- Map posting → evidence, then surgically edit. Write agent-report.md (changes + leftover gaps).',
+    '- Map each requirement line → an evidence line → the bullet you will touch. Then edit.',
+    '- Write agent-report.md: per changed bullet, the evidence line it rests on; then leftover gaps and',
+    '  any number you wished you had (as a question for the candidate).',
+    '',
+    '## After you finish (deterministic quality gate, no model)',
+    'Job Scout diffs your edit against a snapshot. Any hard-rule miss above reverts the whole edit and Prep',
+    'falls back to keyword mode. Filler adjectives from the banned list are deleted mechanically. Generated-sounding',
+    'phrases, weak openers, over-long bullets and main/ats drift are listed in quality-report.md for the candidate.',
     '',
   ], localRules);
 }
@@ -380,18 +412,26 @@ export function buildCoverLetterAgentBrief({ localRules } = {}) {
     'Job Scout already assembled a draft cover letter from cv/cover-letter.md and staged',
     'the same evidence pack used for Prep & CV. This brief replaces SKILL.md for this run.',
     '',
-    '## Hard rules (same as the CV)',
-    '- No invented facts, metrics, employers, dates, or titles.',
+    '## Hard rules (checked by a script after you finish; a miss means the keyword draft ships instead)',
+    '- No invented facts, metrics, employers, dates, or titles. Numbers only if they are already in the',
+    '  evidence pack, the CV, or profile.json. Employers named must exist in the evidence (or be the target company).',
     '- Portfolio copy is for side projects only — never paste side-project work into employment.',
     '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
     '- Do not treat personal side projects or hosting as employment.',
     '- Follow keyword-gaps.md: promote evidenced misses, never fill the “not evidenced” list.',
     '- Follow extra instructions.md the same way the CV tailor would (emphasis, stack, tone).',
-    '- Do not commit secrets or echo tokens.',
+    '- Do not commit secrets or echo tokens. Never leave a `YOUR_` or `[Company]` placeholder.',
     '',
     '## Cover letter shape',
-    '- Start with `Application for <Role>` (already filled). No sender header, no date at the top.',
-    '- Keep: greeting, 2–4 body paragraphs, thanks, then sign-off.',
+    '- Line 1 is exactly `Application for <Role>` (already filled). No sender header, no date at the top.',
+    '- Greeting, then 3–4 body paragraphs, then the sign-off. Nothing else.',
+    `- Body ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords} words. No sentence over ${LETTER_LIMITS.maxSentenceWords} words.`,
+    '- Paragraph 1 (2–3 sentences): the role, and the one thing from current work that answers the posting’s',
+    '  first requirement line. Not “I am writing to apply”. No praise for the company.',
+    '- Paragraph 2: two or three concrete facts (system, stack, what it does) that map to requirement lines in',
+    '  keyword-gaps.md. Spell the technology the way the posting does.',
+    '- Paragraph 3 (only if the posting asks): the honest context — German level, location, start date, visa.',
+    '- Closing (1–2 sentences): availability and a plain request for a conversation. No “look forward to hearing”.',
     '- Sign-off must be exactly: `Kind regards,` then a blank line, then name, email, website',
     '  each on its own line.',
     '- Never use em dashes or spaced hyphen asides (`word - word`). Use a comma or rewrite.',
@@ -400,6 +440,7 @@ export function buildCoverLetterAgentBrief({ localRules } = {}) {
     '- Drop or shorten a past-job / project sentence if it does not help this posting.',
     '- Do not invent a new employer, project, or metric to fill a gap. Leave it out.',
     '',
+    ...styleRulesMarkdown({ context: 'letter' }).split('\n'),
     '## Do not do',
     '- Do not read SKILL.md, format-benchmarks.md, or overleaf.md.',
     '- Do not run gather-evidence.mjs or `gh api`.',
@@ -408,8 +449,13 @@ export function buildCoverLetterAgentBrief({ localRules } = {}) {
     '',
     '## Do',
     '- Read only the files listed in the prompt, in that order.',
-    '- Map posting → evidence, then surgically edit cover-letter.md.',
-    '- Write cover-letter-report.md (what changed + leftover gaps).',
+    '- Map posting requirement lines → evidence, then surgically edit cover-letter.md.',
+    '- Write cover-letter-report.md (what changed + the evidence line behind each claim + leftover gaps).',
+    '',
+    '## After you finish (deterministic quality gate, no model)',
+    'Job Scout checks the letter: first line, sign-off, placeholders, numbers with no source, exclamation marks',
+    '→ any of these ships the keyword draft instead. Generated-sounding phrases, length, and sentence length are',
+    'listed in quality-report.md for the candidate.',
     '',
   ], localRules);
 }
@@ -512,13 +558,12 @@ function evidenceAgeMs(filePath) {
   }
 }
 
+/** Only packs inside this repo — the agent runs with cwd = ROOT and reads relative paths. */
 function newestEvidencePath() {
-  const portfolio = process.env.PORTFOLIO_ROOT?.trim();
   const candidates = [
     join(ROOT, '.cv-workspace', 'evidence.md'),
     join(ROOT, '.workspace', 'evidence.md'),
-    portfolio ? join(portfolio, '.cv-workspace', 'evidence.md') : null,
-  ].filter(Boolean);
+  ];
   let best = null;
   let bestAge = Infinity;
   for (const p of candidates) {
@@ -532,25 +577,56 @@ function newestEvidencePath() {
   return best ? { path: best, ageMs: bestAge } : null;
 }
 
+/** Repo-relative path of the evidence pack the last run staged ('' when none). */
+export function currentEvidenceRel() {
+  const found = newestEvidencePath();
+  return found ? relToRoot(found.path) : '';
+}
+
+/**
+ * A pack that never saw the portfolio (no projects, no narratives) is worse than
+ * regenerating — the agent would tailor from a repo list alone.
+ */
+export function evidenceLooksThin(text) {
+  const src = String(text || '');
+  if (!src.trim()) return true;
+  if (!/^## Portfolio projects/m.test(src)) return false; // build-evidence.mjs format — leave it
+  const section = src.split(/^## Portfolio projects[^\n]*\n/m)[1] || '';
+  const body = section.split(/^## /m)[0] || '';
+  return !/^- \*\*/m.test(body);
+}
+
 async function refreshEvidence({ profile, emit }) {
   const existing = newestEvidencePath();
   if (existing && existing.ageMs < EVIDENCE_MAX_AGE_MS) {
-    const ageLabel = existing.ageMs < 3_600_000
-      ? `${Math.max(1, Math.round(existing.ageMs / 60_000))}m old`
-      : `${Math.round(existing.ageMs / 3_600_000)}h old`;
-    emit(`Evidence cached (${ageLabel}) — ${relToRoot(existing.path)}`, 'meta');
-    return existing.path;
+    let thin = false;
+    try {
+      thin = evidenceLooksThin(readFileSync(existing.path, 'utf8'));
+    } catch {
+      thin = true;
+    }
+    if (!thin) {
+      const ageLabel = existing.ageMs < 3_600_000
+        ? `${Math.max(1, Math.round(existing.ageMs / 60_000))}m old`
+        : `${Math.round(existing.ageMs / 3_600_000)}h old`;
+      emit(`Evidence cached (${ageLabel}) — ${relToRoot(existing.path)}`, 'meta');
+      return existing.path;
+    }
+    emit('Cached evidence has no portfolio projects — regenerating.', 'meta');
   }
 
   emit('Refreshing evidence pack (Node, not the agent)…', 'meta');
   const username = profile?.githubUsername || process.env.GITHUB_USERNAME || '';
   const gather = join(ROOT, '.agents', 'skills', 'cv-tailor', 'scripts', 'gather-evidence.mjs');
   try {
-    const args = [gather];
+    const args = [gather, '--out-dir', join(ROOT, '.cv-workspace')];
     if (username) args.push('--username', username);
     else args.push('--no-github');
-    const portfolio = process.env.PORTFOLIO_ROOT?.trim();
+    const portfolio = resolvePortfolioRoot();
     if (portfolio) args.push('--portfolio-root', portfolio);
+    else emit('No portfolio repo found (set PORTFOLIO_ROOT in .env) — pack will lack project narratives.', 'stderr');
+    const profilePath = join(ROOT, 'profile.json');
+    if (existsSync(profilePath)) args.push('--profile', profilePath);
     await run(process.execPath, args, { timeout: 180000, cwd: ROOT });
   } catch (err) {
     emit(`gather-evidence skipped: ${err.message || err}`, 'stderr');
@@ -782,6 +858,11 @@ export async function runCvTailorAgent({
   if (!letterTask && cvSource === 'overleaf') {
     await stageOverleaf(emit);
   }
+  if (!letterTask) {
+    // The quality gate diffs the agent's edit against this copy after the run.
+    const saved = await snapshotCvSources({ prepDir, cvSource });
+    if (saved.length) emit(`Snapshot for the quality gate: ${saved.join(', ')}`, 'meta');
+  }
 
   const gapsRel = `${prepRel}/keyword-gaps.md`;
   try {
@@ -820,7 +901,7 @@ export async function runCvTailorAgent({
       formatKeywordGapsMarkdown(analysis, job),
     );
     emit(
-      `First-screen gaps: ${analysis.onCv.length} on CV · ${analysis.promote.length} to promote · ${analysis.gaps.length} not evidenced`,
+      `First-screen gaps: ${analysis.onCv.length} on CV · ${analysis.promote.length} to promote · ${analysis.gaps.length} not evidenced · ${analysis.requirements?.length || 0} requirement lines`,
       'meta',
     );
     if (analysis.headline) emit(`Headline target: ${analysis.headline}`, 'meta');
@@ -828,10 +909,11 @@ export async function runCvTailorAgent({
     emit(`Keyword-gap staging failed: ${err.message || err}`, 'stderr');
   }
 
-  const writingRulesAbs = join(ROOT, '.agents', 'skills', 'cv-tailor', 'references', 'writing-rules.md');
-  const writingRulesRel = existsSync(writingRulesAbs)
-    ? '.agents/skills/cv-tailor/references/writing-rules.md'
-    : '';
+  // The personal overlay's writing rules win when present; the generic skill's otherwise.
+  const writingRulesRel = [
+    '.agents/skills/cv-tailor.local/references/writing-rules.md',
+    '.agents/skills/cv-tailor/references/writing-rules.md',
+  ].find((rel) => existsSync(join(ROOT, rel))) || '';
 
   const cvMdAbs = join(prepDir, 'cv.md');
   const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md` : '';

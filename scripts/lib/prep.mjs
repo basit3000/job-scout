@@ -27,11 +27,13 @@ import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
 import {
   cursorAgentAvailable,
   agentRunnerAvailable,
+  currentEvidenceRel,
   runCvTailorAgent,
   seedPrepForAgent,
   loadAgentSession,
   normalizeAgentProvider,
 } from './cv-agent.mjs';
+import { verifyCvAfterAgent } from './cv-verify.mjs';
 
 function safeId(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
@@ -234,6 +236,12 @@ export function buildPrepIndex(job, fit, {
         `- ATS PDF: ${overleaf.pdf?.hasAts ? overleaf.pdf.via || 'yes' : overleaf.pdf?.ats?.error || 'n/a'}`,
         `- Main PDF: ${overleaf.pdf?.hasMain ? overleaf.pdf.via || 'yes' : overleaf.pdf?.main?.error || 'n/a'}`,
         ...(fitNote ? [fitNote] : []),
+        ...(overleaf.pdf?.atsText
+          ? [
+              `- Text layer (what a parser reads, see cv-ats.txt): ${overleaf.pdf.atsText.ok ? 'clean' : `PROBLEMS — ${overleaf.pdf.atsText.problems.join('; ')}`}`,
+              ...overleaf.pdf.atsText.warnings.map((w) => `  - note: ${w}`),
+            ]
+          : []),
       ]
     : [];
 
@@ -256,6 +264,7 @@ ${pdfLines.join('\n')}
 - [Job posting](./job-posting.md)
 - [Cover letter](./cover-letter.md)
 - [Checklist](./checklist.md)
+- Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md) (read before sending)
 
 Format: \`references/cv-writing-rules.md\`. Local mode edits from \`cv/resume.md\`.
 ${olLines.join('\n')}
@@ -620,7 +629,26 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
 
   onEvent?.({
     stream: 'meta',
-    line: 'Agent done — compiling PDFs and writing the prep pack…',
+    line: 'Agent done — running the quality gate…',
+    t: Date.now(),
+  });
+  const gate = await verifyCvAfterAgent({
+    prepDir: dir,
+    cvSource: settings.source,
+    job,
+    profile,
+    evidencePath: currentEvidenceRel(),
+    extraInstructions,
+    emit: (line, stream = 'meta') => onEvent?.({ stream, line, t: Date.now() }),
+  });
+  if (gate.reverted) {
+    const more = gate.hard.length > 1 ? ` (+${gate.hard.length - 1} more in quality-report.md)` : '';
+    throw new Error(`quality gate: ${gate.hard[0]}${more}`);
+  }
+
+  onEvent?.({
+    stream: 'meta',
+    line: 'Quality gate passed — compiling PDFs and writing the prep pack…',
     t: Date.now(),
   });
   const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
@@ -830,6 +858,10 @@ export async function readPrepFile(jobId, filename) {
     'instructions.md',
     'agent-report.md',
     'agent-session.json',
+    'quality-report.md',
+    'keyword-gaps.md',
+    'cover-letter-report.md',
+    'cv-ats.txt',
   ]);
   if (!allowed.has(filename)) return null;
   const path = join(prepDir(jobId), filename);

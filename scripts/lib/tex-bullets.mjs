@@ -10,6 +10,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT, loadJson } from './common.mjs';
+import { resolvePortfolioRoot } from './portfolio.mjs';
 
 export function tokenizeWords(text) {
   return String(text ?? '')
@@ -219,8 +220,7 @@ export function enrichProjectsBody(body, keywords, projects) {
 
 export async function loadPortfolioFacts({ extraRoots = [] } = {}) {
   const roots = [
-    process.env.PORTFOLIO_ROOT,
-    join(ROOT, '..', 'portfolio'),
+    resolvePortfolioRoot(),
     join(ROOT, '.cv-workspace', 'portfolio'),
     ...extraRoots,
   ].filter(Boolean);

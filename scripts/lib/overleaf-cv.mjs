@@ -18,7 +18,8 @@ import {
   enrichProjectsBody,
   loadPortfolioFacts,
 } from './tex-bullets.mjs';
-import { applyNextFitPass, experienceItemCount } from './tex-fit.mjs';
+import { applyNextFitPass, ensureAtsTextLayer, experienceItemCount } from './tex-fit.mjs';
+import { checkAtsText, extractPdfText } from './pdf-text.mjs';
 
 loadDotEnv();
 
@@ -565,6 +566,13 @@ export async function fitOverleafCvsToOnePage() {
   const dir = overleafDir();
   const files = await listTexFiles(dir);
   const targets = ['ats.tex', 'main.tex'].filter((n) => files.includes(n));
+  // The parser copy never hyphenates a keyword. Applied before the page check so the
+  // fit passes see the final line breaks.
+  if (targets.includes('ats.tex')) {
+    const path = join(dir, 'ats.tex');
+    const r = ensureAtsTextLayer(await readFile(path, 'utf8'));
+    if (r.changed) await writeFile(path, r.tex);
+  }
   const perFile = {};
   for (const name of targets) {
     perFile[name] = await fitOneTexToOnePage(dir, name);
@@ -722,6 +730,18 @@ export async function compileOverleafPdfs(prepDir) {
     main: results.main?.pages ?? null,
   };
 
+  // Read the parser copy back the way an ATS does and keep the verdict with the pack.
+  let atsText = null;
+  const parsePath = results.ats?.ok ? join(prepDir, 'cv-ats.pdf') : results.main?.ok ? join(prepDir, 'cv-main.pdf') : null;
+  if (parsePath) {
+    atsText = await checkPdfTextLayer(parsePath, dir);
+    try {
+      await writeFile(join(prepDir, 'cv-ats.txt'), `${atsText.text || ''}\n`);
+    } catch {
+      /* the text dump is a convenience */
+    }
+  }
+
   return {
     ok,
     via,
@@ -732,7 +752,29 @@ export async function compileOverleafPdfs(prepDir) {
     main: results.main,
     alias: results.alias,
     pages,
+    atsText: atsText ? { ok: atsText.ok, problems: atsText.problems, warnings: atsText.warnings } : null,
   };
+}
+
+/** Contact facts to look for in the text layer come from the .tex header itself. */
+async function checkPdfTextLayer(pdfPath, texDir) {
+  try {
+    const { text, pages } = await extractPdfText(pdfPath);
+    const expect = {};
+    try {
+      const ats = await readFile(join(texDir, 'ats.tex'), 'utf8');
+      const email = ats.match(/mailto:([^}\s]+)/);
+      if (email) expect.email = email[1];
+      const phone = ats.match(/(\+\d[\d\s]{7,}\d)/);
+      if (phone) expect.phone = phone[1].trim();
+    } catch {
+      /* optional */
+    }
+    const verdict = checkAtsText(text, expect);
+    return { ...verdict, text, pages };
+  } catch (err) {
+    return { ok: false, problems: [`text-layer check failed: ${err.message || err}`], warnings: [], text: '' };
+  }
 }
 
 /** @deprecated use compileOverleafPdfs */
@@ -813,6 +855,10 @@ export async function assembleOverleafAfterAgent({
   }
   emit('Compiling Overleaf PDFs into the prep pack…');
   const pdf = await compileOverleafPdfs(prepDir);
+  if (pdf.atsText) {
+    if (pdf.atsText.ok) emit(`ATS text layer: clean${pdf.atsText.warnings.length ? ` (${pdf.atsText.warnings.length} note(s) in README)` : ''}`, 'ok');
+    else emit(`ATS text layer: ${pdf.atsText.problems.join('; ')}`, 'stderr');
+  }
   return {
     sync: { action: 'skipped-after-agent' },
     tailor: { edited: ['agent'], changed: true },

@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   analyzeKeywordGaps,
+  cleanJobTitle,
   honestHeadlineTitle,
   isGermanPosting,
   detectPostingLanguage,
@@ -35,9 +36,50 @@ describe('cv-keywords', () => {
     assert.ok(analysis.onCv.includes('FastAPI'));
     assert.ok(analysis.promote.includes('Docker'));
     assert.ok(analysis.gaps.includes('Kubernetes'));
-    assert.ok(analysis.gaps.includes('Ruby') === false); // Ruby is not in the phrase lexicon
+    assert.ok(analysis.gaps.includes('Ruby')); // required, not evidenced → must not be invented
     assert.match(analysis.headline, /Python/);
     assert.doesNotMatch(analysis.headline, /Senior/);
+  });
+
+  it('cleans recruiter noise out of titles before using them as a headline', () => {
+    assert.equal(cleanJobTitle('Fullstack Entwickler*in (m/w/d) - Remote'), 'Fullstack Entwickler');
+    assert.equal(cleanJobTitle('Software Engineer (all genders) | Berlin'), 'Software Engineer');
+    assert.equal(cleanJobTitle('Backend Developer Python 100% Vollzeit'), 'Backend Developer Python');
+    assert.equal(honestHeadlineTitle('Lead Engineer (m/w/d)', 'Software Developer'), 'Software Developer');
+  });
+
+  it('picks up stack names the lexicon does not know', () => {
+    const analysis = analyzeKeywordGaps({
+      job: {
+        title: 'Backend Engineer',
+        description: [
+          'Requirements',
+          '- Experience with Phoenix, Elixir and ClickHouse',
+          '- You have worked with Temporal.io',
+          'Benefits',
+          '- 30 days holiday',
+        ].join('\n'),
+      },
+      cvText: 'Python',
+      evidenceText: '',
+      profile: {},
+    });
+    assert.ok(analysis.gaps.includes('Phoenix'));
+    assert.ok(analysis.gaps.includes('Elixir'));
+    assert.ok(analysis.gaps.includes('ClickHouse'));
+    assert.ok(analysis.gaps.includes('Temporal.io'));
+    assert.ok(analysis.requirements.some((r) => /ClickHouse/.test(r)));
+    assert.ok(!analysis.requirements.some((r) => /holiday/.test(r)));
+  });
+
+  it('matches whole words only', () => {
+    const analysis = analyzeKeywordGaps({
+      job: { title: 'Developer', description: 'Scalable reactive services; Scala is a plus.' },
+      cvText: 'We built scalable reactive services.',
+    });
+    assert.ok(analysis.gaps.includes('Scala'));
+    assert.ok(!analysis.onCv.includes('React'));
+    assert.ok(analysis.optional.includes('Scala'));
   });
 
   it('flags German postings for bilingual pairing', () => {

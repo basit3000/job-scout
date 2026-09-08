@@ -3,6 +3,48 @@
  * Verdicts: Strong | Worth a shot | Stretch | No
  */
 
+/** Rank for profile.seniority. `any` / unknown / YOUR_* → no title penalty. */
+export const SENIORITY_RANK = {
+  internship: 0,
+  intern: 0,
+  entry: 1,
+  junior: 2,
+  mid: 3,
+  'mid-level': 3,
+  senior: 4,
+  staff: 5,
+  lead: 5,
+  principal: 6,
+  executive: 7,
+  any: Number.POSITIVE_INFINITY,
+};
+
+export function profileSeniorityRank(seniority) {
+  const key = String(seniority ?? '').trim().toLowerCase();
+  if (!key || key.startsWith('your_')) return null;
+  return Object.prototype.hasOwnProperty.call(SENIORITY_RANK, key) ? SENIORITY_RANK[key] : null;
+}
+
+/** Rank implied by a job title, or null when the title has no seniority word. */
+export function jobTitleSeniorityRank(title) {
+  const t = String(title ?? '');
+  if (/\b(principal|partner|distinguished|fellow)\b/i.test(t)) return 6;
+  if (/\b(staff|director|head of)\b/i.test(t)) return 5;
+  if (/\b(lead|leiterin|leiter|leitung)\b/i.test(t)) return 5;
+  if (/\bsenior\b|\bsr\.?\b/i.test(t)) return 4;
+  if (/\bmid[- ]level\b|\bmidlevel\b/i.test(t)) return 3;
+  if (/\b(junior|entry[- ]level|graduate|werkstudent|working student|intern)\b/i.test(t)) return 2;
+  return null;
+}
+
+export function jobTitleAboveProfileSeniority(title, seniority) {
+  const want = profileSeniorityRank(seniority);
+  if (want == null || !Number.isFinite(want)) return false;
+  const got = jobTitleSeniorityRank(title);
+  if (got == null) return false;
+  return got > want;
+}
+
 function tokens(text) {
   return String(text ?? '')
     .toLowerCase()
@@ -113,8 +155,7 @@ export function scoreJob(job, profile, evidenceText = '') {
     score += 3;
   }
 
-  const seniority = String(profile?.seniority ?? '').toLowerCase();
-  if (/senior|staff|principal|lead/i.test(job.title) && ['internship', 'entry', 'junior'].includes(seniority)) {
+  if (jobTitleAboveProfileSeniority(job.title, profile?.seniority)) {
     score -= 12;
     gaps.push('Seniority looks above profile target');
   }

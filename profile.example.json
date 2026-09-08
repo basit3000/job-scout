@@ -15,7 +15,7 @@
   },
 
   "seniority": "YOUR_SENIORITY",
-  "_seniority": "Pick one: internship | entry | junior | mid | senior | lead | executive | any",
+  "_seniority": "Pick one: internship | entry | junior | mid | senior | lead | executive | any. Fit scoring down-ranks job titles above this. any = no title penalty.",
 
   "skills": {
     "strong": ["YOUR_CORE_SKILL_1", "YOUR_CORE_SKILL_2", "YOUR_CORE_SKILL_3"],

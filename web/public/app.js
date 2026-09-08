@@ -66,6 +66,9 @@ const els = {
   savePortalsBtn: $('savePortalsBtn'),
   digestList: $('digestList'),
   digestMeta: $('digestMeta'),
+  digestTiming: $('digestTiming'),
+  digestHistoryBox: $('digestHistoryBox'),
+  digestHistoryList: $('digestHistoryList'),
   batchOpenBtn: $('batchOpenBtn'),
   viewReady: $('viewReady'),
   readyBadge: $('readyBadge'),
@@ -104,6 +107,8 @@ const els = {
   batchStop: $('batchStop'),
   batchClose: $('batchClose'),
   batchGoReady: $('batchGoReady'),
+  batchHistoryBox: $('batchHistoryBox'),
+  batchHistoryList: $('batchHistoryList'),
   prepView: $('prepView'),
   sideTitle: $('sideTitle'),
   setupOverlay: $('setupOverlay'),
@@ -214,6 +219,7 @@ let state = {
   batch: null,
   batchDismissed: false,
   batchSeenRunning: false,
+  fetchStartedAt: null,
 };
 
 let jobsAbort = null;
@@ -434,13 +440,133 @@ async function submitDecision(id, decision, job = null) {
   });
 }
 
-function setFetchUi(running) {
+function formatDuration(ms) {
+  const n = Math.max(0, Math.round(Number(ms) || 0));
+  if (n < 1000) return `${n}ms`;
+  const sec = Math.round(n / 1000);
+  if (sec < 60) return `${sec}s`;
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  if (!rm && !s) return `${h}h`;
+  if (!s) return `${h}h ${rm}m`;
+  if (!rm) return `${h}h ${s}s`;
+  return `${h}h ${rm}m ${s}s`;
+}
+
+function liveElapsedMs(startedAt, finishedAt = null) {
+  if (!startedAt) return 0;
+  const start = Date.parse(startedAt);
+  if (!Number.isFinite(start)) return 0;
+  const end = finishedAt ? Date.parse(finishedAt) : Date.now();
+  return Math.max(0, (Number.isFinite(end) ? end : Date.now()) - start);
+}
+
+function formatRunWhen(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString();
+}
+
+function fetchHistoryLine(row) {
+  const bits = [formatRunWhen(row.finishedAt || row.startedAt || row.recordedAt)];
+  if (row.durationMs != null) bits.push(formatDuration(row.durationMs));
+  if (row.avgMsPerQuery != null) bits.push(`${formatDuration(row.avgMsPerQuery)}/query`);
+  if (row.queriesRun != null) {
+    bits.push(`${row.queriesRun} quer${row.queriesRun === 1 ? 'y' : 'ies'}`);
+  }
+  if (typeof row.newCount === 'number') bits.push(`${row.newCount} new`);
+  if (row.stopped) bits.push('stopped early');
+  return bits.join(' · ');
+}
+
+function batchHistoryLine(row) {
+  const bits = [formatRunWhen(row.finishedAt || row.startedAt || row.recordedAt)];
+  bits.push(row.mode === 'fast' ? 'Fast' : 'Agent');
+  if (row.durationMs != null) bits.push(formatDuration(row.durationMs));
+  if (row.avgMsPerJob != null) bits.push(`${formatDuration(row.avgMsPerJob)}/job`);
+  const tail = [];
+  if (row.done) tail.push(`${row.done} done`);
+  if (row.skipped) tail.push(`${row.skipped} skipped`);
+  if (row.failed) tail.push(`${row.failed} failed`);
+  if (tail.length) bits.push(tail.join(', '));
+  return bits.join(' · ');
+}
+
+function renderHistoryList(el, rows, formatLine) {
+  if (!el) return;
+  if (!rows?.length) {
+    el.innerHTML = '<li>No saved runs yet.</li>';
+    return;
+  }
+  el.innerHTML = rows
+    .slice(0, 12)
+    .map((row) => `<li>${escapeHtml(formatLine(row))}</li>`)
+    .join('');
+}
+
+let fetchClock = null;
+let batchClock = null;
+
+function stopFetchClock() {
+  if (fetchClock) {
+    clearInterval(fetchClock);
+    fetchClock = null;
+  }
+}
+
+function startFetchClock(startedAt) {
+  stopFetchClock();
+  const start = startedAt || state.fetchStartedAt;
+  if (!start) {
+    setChip('running', 'Running');
+    return;
+  }
+  state.fetchStartedAt = start;
+  const tick = () => {
+    setChip('running', `Running · ${formatDuration(liveElapsedMs(start))}`);
+  };
+  tick();
+  fetchClock = setInterval(tick, 1000);
+}
+
+function stopBatchClock() {
+  if (batchClock) {
+    clearInterval(batchClock);
+    batchClock = null;
+  }
+}
+
+function tickBatchClock() {
+  if (!state.batch?.running) {
+    stopBatchClock();
+    return;
+  }
+  renderBatchBar(state.batch);
+  if (els.batchProgressLine && els.batchModal && !els.batchModal.hidden && els.batchProgress && !els.batchProgress.hidden) {
+    els.batchProgressLine.textContent = batchSummaryText(state.batch);
+  }
+}
+
+function ensureBatchClock(snap) {
+  if (snap?.running && snap.startedAt) {
+    if (!batchClock) batchClock = setInterval(tickBatchClock, 1000);
+  } else {
+    stopBatchClock();
+  }
+}
+
+function setFetchUi(running, startedAt) {
   els.runBtn.disabled = running;
   if (els.emptyRunBtn) els.emptyRunBtn.disabled = running;
   if (els.stopBtn) {
     els.stopBtn.hidden = !running;
     els.stopBtn.disabled = false;
   }
+  if (running) startFetchClock(startedAt || state.fetchStartedAt || state.status?.fetchStartedAt);
+  else stopFetchClock();
 }
 
 function setChip(stateName, label) {
@@ -699,19 +825,22 @@ function connectStream() {
   es.addEventListener('done', async (ev) => {
     const data = JSON.parse(ev.data);
     setFetchUi(false);
+    const took = data.durationMs != null ? ` · ${formatDuration(data.durationMs)}` : '';
     if (data.stopped) {
-      setChip('idle', 'Stopped');
+      setChip('idle', `Stopped${took}`);
       appendLog('Search stopped. Jobs found before stop were saved into the archive.');
     } else {
-      setChip(data.code === 0 ? 'idle' : 'error', data.code === 0 ? 'Done' : `Exit ${data.code}`);
+      setChip(
+        data.code === 0 ? 'idle' : 'error',
+        data.code === 0 ? `Done${took}` : `Exit ${data.code}${took}`,
+      );
     }
     await refreshAll();
   });
   es.addEventListener('status', (ev) => {
     const data = JSON.parse(ev.data);
     if (data.running) {
-      setChip('running', 'Running');
-      setFetchUi(true);
+      setFetchUi(true, data.startedAt);
     }
   });
   return es;
@@ -1248,7 +1377,7 @@ async function finishPrepUi(job, data) {
   const agent = data.pack?.agent;
   if (agent?.usage || agent?.tools || agent?.durationMs) {
     const bits = [];
-    if (agent.durationMs) bits.push(`${Math.round(agent.durationMs / 1000)}s`);
+    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
     if (agent.tools) bits.push(`${agent.tools} tools`);
     if (agent.usage?.inputTokens != null) {
       bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
@@ -1597,13 +1726,27 @@ function batchPercent(snap) {
   return Math.min(100, Math.round(((finished + running) / snap.total) * 100));
 }
 
+function withLiveBatchTiming(snap) {
+  if (!snap) return snap;
+  const elapsed = liveElapsedMs(snap.startedAt, snap.running ? null : snap.finishedAt);
+  const remaining = Math.max(0, (Number(snap.total) || 0) - (Number(snap.finished) || 0));
+  const etaMs = snap.running && snap.avgMsPerJob && remaining > 0
+    ? snap.avgMsPerJob * remaining
+    : null;
+  return { ...snap, elapsedMs: elapsed, etaMs };
+}
+
 function batchSummaryText(snap) {
   if (!snap) return '';
-  const c = snap.counts || {};
-  const bits = [`${snap.finished || 0} / ${snap.total || 0}`];
-  if (snap.running && snap.current) {
-    bits.push(`${snap.current.company || '—'} — ${snap.current.title || ''}`);
-  } else if (!snap.running) {
+  const live = withLiveBatchTiming(snap);
+  const c = live.counts || {};
+  const bits = [`${live.finished || 0} / ${live.total || 0}`];
+  if (live.elapsedMs) bits.push(formatDuration(live.elapsedMs));
+  if (live.avgMsPerJob != null) bits.push(`${formatDuration(live.avgMsPerJob)}/job`);
+  if (live.running && live.etaMs) bits.push(`~${formatDuration(live.etaMs)} left`);
+  if (live.running && live.current) {
+    bits.push(`${live.current.company || '—'} — ${live.current.title || ''}`);
+  } else if (!live.running) {
     const tail = [];
     if (c.done) tail.push(`${c.done} done`);
     if (c.skipped) tail.push(`${c.skipped} skipped`);
@@ -1611,7 +1754,7 @@ function batchSummaryText(snap) {
     if (c.cancelled) tail.push(`${c.cancelled} cancelled`);
     if (tail.length) bits.push(tail.join(', '));
   }
-  if (snap.running && snap.stopping) bits.push('stopping…');
+  if (live.running && live.stopping) bits.push('stopping…');
   return bits.join(' · ');
 }
 
@@ -1641,16 +1784,24 @@ function renderBatchBar(snap) {
 function renderBatchProgress(snap) {
   if (!els.batchProgress || !snap) return;
   if (els.batchProgressHint) {
+    const live = withLiveBatchTiming(snap);
+    const timing = [
+      live.elapsedMs ? formatDuration(live.elapsedMs) : null,
+      live.avgMsPerJob != null ? `${formatDuration(live.avgMsPerJob)}/job` : null,
+    ].filter(Boolean).join(' · ');
     els.batchProgressHint.textContent = snap.running
-      ? 'Running in the background — you can close this and keep browsing. Files are written to each company folder; nothing opens.'
-      : 'Finished. Prepared postings are listed under Ready to apply.';
+      ? `Running in the background${timing ? ` — ${timing}` : ''}. You can close this and keep browsing. Files are written to each company folder; nothing opens.`
+      : `Finished${timing ? ` — ${timing}` : ''}. Prepared postings are listed under Ready to apply.`;
   }
   if (els.batchProgressFill) els.batchProgressFill.style.width = `${batchPercent(snap)}%`;
   if (els.batchProgressLine) els.batchProgressLine.textContent = batchSummaryText(snap);
   if (els.batchProgressList) {
     els.batchProgressList.innerHTML = (snap.items || [])
       .map((it) => {
-        const detail = it.error || it.note || (it.status === 'done' && it.tailorMode ? it.tailorMode : '');
+        const time = it.durationMs != null ? formatDuration(it.durationMs) : '';
+        const detail = [it.error || it.note || (it.status === 'done' && it.tailorMode ? it.tailorMode : ''), time]
+          .filter(Boolean)
+          .join(' · ');
         return `<div class="batch-item is-${escapeAttr(it.status)}">
           <span class="batch-item-status">${escapeHtml(BATCH_STATUS_LABEL[it.status] || it.status)}</span>
           <span class="batch-item-body">
@@ -1677,6 +1828,7 @@ function applyBatchSnapshot(snap) {
     state.batchSeenRunning = true;
   }
   state.batch = snap;
+  ensureBatchClock(snap);
   renderBatchBar(snap);
   if (els.batchModal && !els.batchModal.hidden && els.batchProgress && !els.batchProgress.hidden) {
     renderBatchProgress(snap);
@@ -1685,6 +1837,7 @@ function applyBatchSnapshot(snap) {
 
 async function onBatchFinished(snap) {
   applyBatchSnapshot(snap);
+  await refreshBatchHistory();
   await refreshStatus();
   await refreshJobs();
   if (state.view === 'digest') await refreshDigest();
@@ -1825,6 +1978,19 @@ function showBatchModal(view) {
     els.batchModalTitle.textContent = view === 'setup' ? 'Create CVs for new postings' : 'Batch Prep';
   }
   if (view === 'progress' && state.batch) renderBatchProgress(state.batch);
+  void refreshBatchHistory();
+}
+
+async function refreshBatchHistory() {
+  if (!els.batchHistoryBox) return;
+  try {
+    const data = await api('/api/run-history');
+    const rows = data.batch || [];
+    els.batchHistoryBox.hidden = rows.length === 0;
+    renderHistoryList(els.batchHistoryList, rows, batchHistoryLine);
+  } catch {
+    if (!els.batchHistoryList?.children.length) els.batchHistoryBox.hidden = true;
+  }
 }
 
 function hideBatchModal() {
@@ -1950,6 +2116,10 @@ async function refreshJobs() {
       when,
     ];
     if (typeof newN === 'number') parts.push(`${newN} new last run`);
+    if (data.meta?.durationMs != null) {
+      parts.push(formatDuration(data.meta.durationMs));
+      if (data.meta.avgMsPerQuery != null) parts.push(`${formatDuration(data.meta.avgMsPerQuery)}/query`);
+    }
     if (dup) parts.push(`${dup} dupes collapsed`);
     if (data.meta?.replaced) parts.push('replaced');
     els.jobsMeta.textContent = parts.join(' · ');
@@ -2090,8 +2260,7 @@ async function refreshStatus() {
   els.alerts.innerHTML = alerts.map((a) => `<div class="alert">${escapeHtml(a)}</div>`).join('');
 
   if (s.fetchRunning) {
-    setChip('running', 'Running');
-    setFetchUi(true);
+    setFetchUi(true, s.fetchStartedAt);
   } else {
     setFetchUi(false);
     if (!els.runBtn.disabled) {
@@ -2346,6 +2515,20 @@ async function refreshDigest() {
   els.digestMeta.textContent = data.digest?.generatedAt
     ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
+  if (els.digestTiming) {
+    const d = data.digest || {};
+    const bits = [];
+    if (d.durationMs != null) bits.push(`Last search ${formatDuration(d.durationMs)}`);
+    if (d.avgMsPerQuery != null) bits.push(`${formatDuration(d.avgMsPerQuery)}/query`);
+    if (d.queriesRun != null) bits.push(`${d.queriesRun} quer${d.queriesRun === 1 ? 'y' : 'ies'}`);
+    els.digestTiming.hidden = bits.length === 0;
+    els.digestTiming.textContent = bits.join(' · ');
+  }
+  if (els.digestHistoryBox) {
+    const rows = data.history || data.digest?.recentFetches || [];
+    els.digestHistoryBox.hidden = rows.length === 0 && !data.digest?.durationMs;
+    renderHistoryList(els.digestHistoryList, rows, fetchHistoryLine);
+  }
   els.digestList.innerHTML = '';
   if (!jobs.length) {
     els.digestList.innerHTML = '<div class="empty"><p>No new postings left to review. Applied jobs are in Tracker.</p></div>';
@@ -2464,8 +2647,8 @@ async function runSearch() {
         .filter(Boolean)
         .join(' · '),
     );
-    setChip('running', 'Running');
-    setFetchUi(true);
+    setChip('running', 'Starting…');
+    setFetchUi(true, new Date().toISOString());
     state.page = 1;
     await api('/api/fetch', {
       method: 'POST',

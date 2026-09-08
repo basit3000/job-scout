@@ -30,28 +30,28 @@ Core.
 <!-- include:motive -->
 
 <!-- optional-blocks -->
-:::motive python python django
-I first used Python in school.
+:::motive sample-a sample-a widget
+YOUR_ONE_SENTENCE_OF_BACKGROUND
 :::
-:::motive java java spring
-University Java coursework.
+:::motive sample-b sample-b gadget
+YOUR_OTHER_SENTENCE_OF_BACKGROUND
 :::
 `;
-    const py = assembleCoverLetter(
+    const a = assembleCoverLetter(
       template,
-      { title: 'Python Developer', company: 'Acme', description: 'Python services and Django.' },
+      { title: 'Widget Developer', company: 'Acme', description: 'Build the widget service.' },
       {},
     );
-    assert.match(py.letter, /Python in school/);
-    assert.doesNotMatch(py.letter, /University Java/);
-    assert.equal(py.included.some((b) => b.id === 'python' && b.slot === 'motive'), true);
+    assert.match(a.letter, /YOUR_ONE_SENTENCE_OF_BACKGROUND/);
+    assert.doesNotMatch(a.letter, /YOUR_OTHER_SENTENCE_OF_BACKGROUND/);
+    assert.equal(a.included.some((b) => b.id === 'sample-a' && b.slot === 'motive'), true);
 
-    const java = assembleCoverLetter(
+    const b = assembleCoverLetter(
       template,
-      { title: 'Java Engineer', company: 'Acme', description: 'Spring Boot on the JVM.' },
+      { title: 'Gadget Engineer', company: 'Acme', description: 'Own the gadget stack.' },
       {},
     );
-    assert.match(java.letter, /University Java/);
-    assert.doesNotMatch(java.letter, /Python in school/);
+    assert.match(b.letter, /YOUR_OTHER_SENTENCE_OF_BACKGROUND/);
+    assert.doesNotMatch(b.letter, /YOUR_ONE_SENTENCE_OF_BACKGROUND/);
   });
 });

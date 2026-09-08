@@ -4,11 +4,9 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Job Scout</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=IBM+Plex+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231f2933'/%3E%3Ccircle cx='14' cy='14' r='6.5' fill='none' stroke='%23fff' stroke-width='3'/%3E%3Cpath d='M19 19l6 6' stroke='%23fff' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="/styles.css" />
   </head>
@@ -16,14 +14,18 @@
     <div class="app">
       <header class="top">
         <div class="brand">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <div>
-            <h1>Job Scout</h1>
-            <p class="brand-sub" id="candidateLine">Local shortlist</p>
-          </div>
+          <h1>Job Scout</h1>
+          <p class="brand-sub" id="candidateLine">Local shortlist</p>
         </div>
+        <div class="run-controls">
+          <span class="chip" id="statusChip" data-state="idle">Idle</span>
+          <button type="button" class="btn danger" id="stopBtn" hidden>Stop</button>
+          <button type="button" class="btn primary" id="runBtn">Run search</button>
+        </div>
+      </header>
 
-        <div class="controls">
+      <section class="toolbar" aria-label="Search settings">
+        <div class="toolbar-row">
           <label class="field">
             <span>Market</span>
             <select id="marketSelect" aria-label="Market"></select>
@@ -37,60 +39,84 @@
             <input type="number" id="maxApifyRuns" min="0" max="200" step="1" />
           </label>
           <label class="field field-num" title="Drop postings older than this many days">
-            <span>Max age</span>
+            <span>Max age (days)</span>
             <input type="number" id="maxAgeDays" min="1" max="365" step="1" />
           </label>
-          <label class="field" title="Local = edit cv/resume.md. Overleaf = pull/edit/push tex + PDF download.">
-            <span>CV source</span>
-            <select id="cvSource" aria-label="CV source">
-              <option value="local">Local resume.md</option>
-              <option value="overleaf">Overleaf</option>
-            </select>
-          </label>
-          <label class="field" title="Which coding agent runs Prep & CV (Create CV). Fast (keyword) ignores this.">
-            <span>Agent</span>
-            <select id="agentProvider" aria-label="Prep agent provider">
-              <option value="cursor">Cursor SDK</option>
-              <option value="claude-code">Claude Code</option>
-              <option value="codex">OpenAI Codex</option>
-            </select>
-          </label>
-          <label class="field" title="Model for the selected agent. Empty = CLI default (Claude Code / Codex).">
-            <span>Agent model</span>
-            <select id="agentModel" aria-label="Prep agent model"></select>
-          </label>
-          <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
-            <input type="checkbox" id="overleafPush" checked />
-            <span>Push Overleaf</span>
-          </label>
-          <label class="toggle" title="Off = free JobSpy. On = may call Apify (costs money).">
-            <input type="checkbox" id="allowPaid" />
-            <span>Allow paid (Apify)</span>
-          </label>
-          <label class="toggle" title="Off = keep previous results and merge (no duplicates). On = wipe archive first.">
-            <input type="checkbox" id="replaceResults" />
-            <span>Replace results</span>
-          </label>
-          <button type="button" class="btn primary" id="runBtn">Run search</button>
-          <button type="button" class="btn danger" id="stopBtn" hidden>Stop</button>
-          <span class="chip" id="statusChip" data-state="idle">Idle</span>
+          <div class="toolbar-toggles">
+            <label class="toggle" title="Off = free JobSpy. On = may call Apify (costs money).">
+              <input type="checkbox" id="allowPaid" />
+              <span>Allow paid (Apify)</span>
+            </label>
+            <label class="toggle" title="Off = keep previous results and merge (no duplicates). On = wipe archive first.">
+              <input type="checkbox" id="replaceResults" />
+              <span>Replace results</span>
+            </label>
+          </div>
         </div>
+        <details class="toolbar-more">
+          <summary>Prep &amp; CV settings</summary>
+          <div class="toolbar-row">
+            <label class="field" title="Local = edit cv/resume.md. Overleaf = pull/edit/push tex + PDF download.">
+              <span>CV source</span>
+              <select id="cvSource" aria-label="CV source">
+                <option value="local">Local resume.md</option>
+                <option value="overleaf">Overleaf</option>
+              </select>
+            </label>
+            <label class="field" title="Which coding agent runs Prep (Create CV / cover letter). Fast (keyword) ignores this.">
+              <span>Agent</span>
+              <select id="agentProvider" aria-label="Prep agent provider">
+                <option value="cursor">Cursor SDK</option>
+                <option value="claude-code">Claude Code</option>
+                <option value="codex">OpenAI Codex</option>
+              </select>
+            </label>
+            <label class="field" title="Model for the selected agent. Empty = CLI default (Claude Code / Codex).">
+              <span>Agent model</span>
+              <select id="agentModel" aria-label="Prep agent model"></select>
+            </label>
+            <div class="toolbar-toggles">
+              <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
+                <input type="checkbox" id="overleafPush" checked />
+                <span>Push to Overleaf</span>
+              </label>
+            </div>
+          </div>
+        </details>
         <p class="plan-hint" id="planHint" hidden></p>
-      </header>
+      </section>
 
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-view="results" role="tab">Results</button>
-        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
-        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
-        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
         <button type="button" class="tab" data-view="digest" role="tab">
           Digest <span class="tab-badge" id="digestBadge" hidden>0</span>
         </button>
+        <button type="button" class="tab" data-view="ready" role="tab">
+          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
+        </button>
+        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
+        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
+        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
       </div>
 
       <div id="alerts" class="alerts"></div>
 
-      <main class="layout">
+      <div id="batchBar" class="batch-bar" hidden role="status" aria-live="polite">
+        <div class="batch-bar-main">
+          <div class="batch-bar-text">
+            <strong id="batchBarTitle">Batch Prep</strong>
+            <span id="batchBarText"></span>
+          </div>
+          <div class="batch-track" aria-hidden="true"><div class="batch-fill" id="batchBarFill"></div></div>
+        </div>
+        <div class="batch-bar-actions">
+          <button type="button" class="btn small" id="batchBarDetails">Details</button>
+          <button type="button" class="btn small danger" id="batchBarCancel">Cancel</button>
+          <button type="button" class="btn small" id="batchBarDismiss" hidden>Dismiss</button>
+        </div>
+      </div>
+
+      <main class="layout" id="layout">
         <section class="jobs-panel" id="viewResults" aria-label="Job results">
           <div class="panel-head">
             <div>
@@ -157,42 +183,31 @@
           <div class="panel-head">
             <div>
               <h2>Tracker</h2>
-              <p class="meta">Your pipeline only — change status here. Not the search archive.</p>
+              <p class="meta" id="trackerMeta">Applications you've marked — not the search archive.</p>
             </div>
             <div class="filters">
+              <input type="search" id="trackerSearch" placeholder="Filter company or title…" />
               <div class="sheets-bar" id="sheetsBar">
                 <a class="btn ghost small" id="sheetsOpenLink" href="#" target="_blank" rel="noopener" hidden>Open Sheet</a>
                 <button type="button" class="btn ghost small" id="sheetsSyncBtn" hidden>Sync to Sheets</button>
               </div>
-              <div class="filter-menu" id="trackerColumnsMenu">
-                <button type="button" class="filter-trigger" id="trackerColumnsBtn" aria-expanded="false" aria-haspopup="true" aria-controls="trackerColumnsPanel">
-                  <span class="filter-trigger-label">Columns</span>
-                  <span class="filter-trigger-count" id="trackerColumnsCount" hidden></span>
-                  <span class="filter-chevron" aria-hidden="true"></span>
-                </button>
-                <div class="filter-panel" id="trackerColumnsPanel" role="group" aria-label="Show tracker columns" hidden>
-                  <p class="filter-panel-hint">Show columns (uncheck to hide)</p>
-                  <div class="filter-checks" id="trackerColumnsChecks"></div>
-                  <div class="filter-panel-actions">
-                    <button type="button" class="btn ghost small" id="trackerColumnsAll">Show all</button>
-                    <button type="button" class="btn ghost small" id="trackerColumnsActive">Active only</button>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
           <p class="meta sheets-hint" id="sheetsHint" hidden></p>
-          <div id="followUpBanner" class="follow-banner" hidden></div>
-          <div id="kanban" class="kanban"></div>
+          <div class="tracker-tabs" id="trackerTabs" role="group" aria-label="Filter by status"></div>
+          <div id="trackerList" class="tracker-list"></div>
         </section>
 
         <section class="jobs-panel" id="viewAnswers" hidden aria-label="Saved answers">
           <div class="panel-head">
             <div>
               <h2>Saved answers</h2>
-              <p class="meta">Reuse on application forms. Stored in state/saved-answers.json.</p>
+              <p class="meta">Reuse on application forms. Stored in state/saved-answers.json. LinkedIn Easy Apply uses these when you click Fill.</p>
             </div>
-            <button type="button" class="btn primary" id="saveAnswersBtn">Save</button>
+            <div class="filters">
+              <button type="button" class="btn ghost" id="copyAnswersBtn">Copy pack</button>
+              <button type="button" class="btn primary" id="saveAnswersBtn">Save</button>
+            </div>
           </div>
           <form id="answersForm" class="answers-form"></form>
         </section>
@@ -214,21 +229,54 @@
               <h2>Digest</h2>
               <p class="meta" id="digestMeta">New postings since the previous fetch.</p>
             </div>
+            <div class="filters">
+              <button type="button" class="btn primary" id="batchOpenBtn" title="Create CVs / cover letters for several new postings in one go">Create CVs…</button>
+            </div>
           </div>
           <div id="digestList" class="job-list"></div>
         </section>
 
-        <aside class="log-panel" aria-label="Run log and prep">
+        <section class="jobs-panel" id="viewReady" hidden aria-label="Ready to apply">
+          <div class="panel-head">
+            <div>
+              <h2>Ready to apply</h2>
+              <p class="meta" id="readyMeta">Postings with a tailored CV or cover letter that you have not applied to yet.</p>
+            </div>
+            <div class="filters">
+              <input type="search" id="readySearch" placeholder="Filter title, company…" />
+            </div>
+          </div>
+          <div id="readyList" class="job-list"></div>
+          <div id="readyEmpty" class="empty" hidden>
+            <h3>Nothing ready yet</h3>
+            <p>Run <strong>Prep</strong> on a result, or <strong>Create CVs…</strong> in Digest. Jobs disappear from here once you mark them Applied, Skipped, Rejected, or Closed.</p>
+          </div>
+        </section>
+
+        <aside class="log-panel" id="logPanel" aria-label="Run log and prep">
           <div class="panel-head">
             <h2 id="sideTitle">Run log</h2>
-            <button type="button" class="btn ghost" id="clearLogBtn">Clear</button>
+            <div class="panel-head-actions">
+              <button type="button" class="btn ghost" id="clearLogBtn">Clear</button>
+              <button
+                type="button"
+                class="btn ghost"
+                id="toggleLogBtn"
+                aria-expanded="true"
+                aria-controls="logBody"
+              >
+                Minimize
+              </button>
+            </div>
           </div>
-          <pre id="logView" class="log-view" aria-live="polite"></pre>
-          <div id="prepView" class="prep-view" hidden></div>
-          <p class="tip" id="apifyTip">
-            Searches are <strong>free</strong> with JobSpy unless you enable Allow paid.
-            Paid mode uses <strong>Apify first</strong> (JobSpy fallback), capped by Max paid / <code>maxApifyRuns</code>.
-          </p>
+          <div id="logBody" class="log-body">
+            <pre id="logView" class="log-view" aria-live="polite"></pre>
+            <div id="prepView" class="prep-view" hidden></div>
+            <p class="tip" id="apifyTip">
+              Searches are <strong>free</strong> with JobSpy unless you enable Allow paid.
+              Paid mode uses <strong>Apify first</strong> (JobSpy fallback), capped by Max paid / <code>maxApifyRuns</code>.
+            </p>
+          </div>
         </aside>
       </main>
     </div>
@@ -279,11 +327,20 @@
 
     <div id="prepModal" class="prep-modal" hidden>
       <div class="prep-modal-card" role="dialog" aria-labelledby="prepModalTitle" aria-modal="true">
-        <h3 id="prepModalTitle">Prep &amp; CV</h3>
+        <h3 id="prepModalTitle">Prep</h3>
         <p id="prepModalHint" class="meta">
-          Default: Cursor agent (cv-tailor). Needs <code>CURSOR_API_KEY</code> in <code>.env</code>.
-          Fast = keyword reorder only (no LLM). A first Create also writes the cover letter, then opens the folder.
+          Pick what to generate. Agent uses cv-tailor. Fast = keyword only (no LLM). Files land in the company folder.
         </p>
+        <div class="prep-modal-checks" role="group" aria-label="What to create">
+          <label class="filter-check">
+            <input type="checkbox" id="prepCreateCv" checked />
+            Create CV
+          </label>
+          <label class="filter-check">
+            <input type="checkbox" id="prepCreateCoverLetter" checked />
+            Create cover letter
+          </label>
+        </div>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
           <select id="prepInstrPreset" aria-label="Instruction preset">
@@ -296,7 +353,7 @@
           <textarea
             id="prepInstrCustom"
             rows="3"
-            placeholder="Same notes as Prep & CV — stack emphasis, what to lead with"
+            placeholder="Stack emphasis, what to lead with…"
             hidden
           ></textarea>
         </label>
@@ -304,7 +361,90 @@
           <button type="button" class="btn ghost" id="prepModalCancel">Cancel</button>
           <button type="button" class="btn" id="prepModalUseExisting" hidden>Use existing</button>
           <button type="button" class="btn" id="prepModalFast">Fast (keyword)</button>
-          <button type="button" class="btn primary" id="prepModalRecreate">Create CV</button>
+          <button type="button" class="btn primary" id="prepModalRecreate">Create</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="batchModal" class="prep-modal" hidden>
+      <div class="prep-modal-card batch-card" role="dialog" aria-labelledby="batchModalTitle" aria-modal="true">
+        <h3 id="batchModalTitle">Create CVs for new postings</h3>
+
+        <div id="batchSetup">
+          <p class="meta" id="batchSetupHint">Pick postings, then run. Files go to the company folders; nothing opens. Finished jobs show up under Ready to apply.</p>
+          <div class="batch-select-actions">
+            <button type="button" class="btn ghost small" id="batchSelectAll">All</button>
+            <button type="button" class="btn ghost small" id="batchSelectNone">None</button>
+            <button type="button" class="btn ghost small" id="batchSelectMissing">Without CV</button>
+            <button type="button" class="btn ghost small" id="batchSelectStrong">Strong fit only</button>
+            <span class="meta" id="batchSelectCount"></span>
+          </div>
+          <div class="batch-list" id="batchSelectList" role="group" aria-label="Postings to prepare"></div>
+          <div class="batch-options">
+            <fieldset class="batch-mode">
+              <legend>Mode</legend>
+              <label class="toggle"><input type="radio" name="batchMode" value="agent" checked /> Agent (cv-tailor)</label>
+              <label class="toggle"><input type="radio" name="batchMode" value="fast" /> Fast (keyword)</label>
+            </fieldset>
+            <label class="toggle"><input type="checkbox" id="batchIncludeLetter" checked /> Cover letter too</label>
+            <label class="toggle"><input type="checkbox" id="batchSkipExisting" checked /> Skip jobs that already have files</label>
+            <label class="prep-modal-field">
+              <span>Extra instructions (optional)</span>
+              <input type="text" id="batchInstructions" maxlength="500" placeholder="Stack emphasis, what to lead with…" />
+            </label>
+          </div>
+          <p id="batchError" class="setup-error" hidden></p>
+          <div class="prep-modal-actions">
+            <button type="button" class="btn ghost" id="batchCancelSetup">Cancel</button>
+            <button type="button" class="btn primary" id="batchStart">Start</button>
+          </div>
+        </div>
+
+        <div id="batchProgress" hidden>
+          <p class="meta" id="batchProgressHint"></p>
+          <div class="batch-track large" aria-hidden="true"><div class="batch-fill" id="batchProgressFill"></div></div>
+          <p class="batch-progress-line" id="batchProgressLine"></p>
+          <div class="batch-list" id="batchProgressList" aria-live="polite"></div>
+          <div class="prep-modal-actions">
+            <button type="button" class="btn danger" id="batchStop">Cancel run</button>
+            <button type="button" class="btn ghost" id="batchClose">Close</button>
+            <button type="button" class="btn primary" id="batchGoReady" hidden>Open Ready to apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="statusModal" class="prep-modal" hidden>
+      <div class="prep-modal-card" role="dialog" aria-labelledby="statusModalTitle" aria-modal="true">
+        <h3 id="statusModalTitle">Set status</h3>
+        <p id="statusModalHint" class="meta">Choose how to track this job.</p>
+        <div id="statusModalChoices" class="status-choices" role="group" aria-label="Job status"></div>
+        <div class="prep-modal-actions">
+          <button type="button" class="btn ghost" id="statusModalCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="applyAssistModal" class="prep-modal" hidden>
+      <div class="prep-modal-card apply-assist-card" role="dialog" aria-labelledby="applyAssistTitle" aria-modal="true">
+        <h3 id="applyAssistTitle">Apply assist</h3>
+        <p id="applyAssistHint" class="meta">
+          LinkedIn Easy Apply is filled and submitted in Chrome. Other sites: fields only.
+        </p>
+        <p id="applyAssistStatus" class="meta"></p>
+        <pre id="applyAssistPack" class="apply-assist-pre"></pre>
+        <p class="meta">
+          Drag this to your bookmarks bar, then click it on the open apply form
+          (needed on LinkedIn / HTTPS listing pages):
+        </p>
+        <p>
+          <a class="bookmarklet-link" id="applyAssistBookmarklet" href="#">Fill Job Scout fields</a>
+        </p>
+        <div class="prep-modal-actions">
+          <button type="button" class="btn ghost" id="applyAssistClose">Close</button>
+          <button type="button" class="btn" id="applyAssistCopy">Copy pack</button>
+          <button type="button" class="btn" id="applyAssistOpenFolder" hidden>Open files folder</button>
+          <button type="button" class="btn primary" id="applyAssistOpen">Open job</button>
         </div>
       </div>
     </div>

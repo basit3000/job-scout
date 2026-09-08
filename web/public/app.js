@@ -38,8 +38,11 @@ const els = {
   pageLabel: $('pageLabel'),
   prevPage: $('prevPage'),
   nextPage: $('nextPage'),
+  layout: $('layout'),
+  logPanel: $('logPanel'),
   logView: $('logView'),
   clearLogBtn: $('clearLogBtn'),
+  toggleLogBtn: $('toggleLogBtn'),
   apifyTip: $('apifyTip'),
   alerts: $('alerts'),
   digestBadge: $('digestBadge'),
@@ -48,25 +51,59 @@ const els = {
   viewAnswers: $('viewAnswers'),
   viewPortals: $('viewPortals'),
   viewDigest: $('viewDigest'),
-  kanban: $('kanban'),
-  followUpBanner: $('followUpBanner'),
+  trackerMeta: $('trackerMeta'),
+  trackerSearch: $('trackerSearch'),
+  trackerTabs: $('trackerTabs'),
+  trackerList: $('trackerList'),
   sheetsBar: $('sheetsBar'),
   sheetsOpenLink: $('sheetsOpenLink'),
   sheetsSyncBtn: $('sheetsSyncBtn'),
   sheetsHint: $('sheetsHint'),
-  trackerColumnsMenu: $('trackerColumnsMenu'),
-  trackerColumnsBtn: $('trackerColumnsBtn'),
-  trackerColumnsPanel: $('trackerColumnsPanel'),
-  trackerColumnsChecks: $('trackerColumnsChecks'),
-  trackerColumnsCount: $('trackerColumnsCount'),
-  trackerColumnsAll: $('trackerColumnsAll'),
-  trackerColumnsActive: $('trackerColumnsActive'),
   answersForm: $('answersForm'),
   saveAnswersBtn: $('saveAnswersBtn'),
+  copyAnswersBtn: $('copyAnswersBtn'),
   portalsList: $('portalsList'),
   savePortalsBtn: $('savePortalsBtn'),
   digestList: $('digestList'),
   digestMeta: $('digestMeta'),
+  batchOpenBtn: $('batchOpenBtn'),
+  viewReady: $('viewReady'),
+  readyBadge: $('readyBadge'),
+  readyMeta: $('readyMeta'),
+  readySearch: $('readySearch'),
+  readyList: $('readyList'),
+  readyEmpty: $('readyEmpty'),
+  batchBar: $('batchBar'),
+  batchBarTitle: $('batchBarTitle'),
+  batchBarText: $('batchBarText'),
+  batchBarFill: $('batchBarFill'),
+  batchBarDetails: $('batchBarDetails'),
+  batchBarCancel: $('batchBarCancel'),
+  batchBarDismiss: $('batchBarDismiss'),
+  batchModal: $('batchModal'),
+  batchModalTitle: $('batchModalTitle'),
+  batchSetup: $('batchSetup'),
+  batchSetupHint: $('batchSetupHint'),
+  batchSelectAll: $('batchSelectAll'),
+  batchSelectNone: $('batchSelectNone'),
+  batchSelectMissing: $('batchSelectMissing'),
+  batchSelectStrong: $('batchSelectStrong'),
+  batchSelectCount: $('batchSelectCount'),
+  batchSelectList: $('batchSelectList'),
+  batchIncludeLetter: $('batchIncludeLetter'),
+  batchSkipExisting: $('batchSkipExisting'),
+  batchInstructions: $('batchInstructions'),
+  batchError: $('batchError'),
+  batchCancelSetup: $('batchCancelSetup'),
+  batchStart: $('batchStart'),
+  batchProgress: $('batchProgress'),
+  batchProgressHint: $('batchProgressHint'),
+  batchProgressFill: $('batchProgressFill'),
+  batchProgressLine: $('batchProgressLine'),
+  batchProgressList: $('batchProgressList'),
+  batchStop: $('batchStop'),
+  batchClose: $('batchClose'),
+  batchGoReady: $('batchGoReady'),
   prepView: $('prepView'),
   sideTitle: $('sideTitle'),
   setupOverlay: $('setupOverlay'),
@@ -83,9 +120,35 @@ const els = {
   prepModalUseExisting: $('prepModalUseExisting'),
   prepModalFast: $('prepModalFast'),
   prepModalRecreate: $('prepModalRecreate'),
+  prepCreateCv: $('prepCreateCv'),
+  prepCreateCoverLetter: $('prepCreateCoverLetter'),
+  statusModal: $('statusModal'),
+  statusModalTitle: $('statusModalTitle'),
+  statusModalHint: $('statusModalHint'),
+  statusModalChoices: $('statusModalChoices'),
+  statusModalCancel: $('statusModalCancel'),
+  applyAssistModal: $('applyAssistModal'),
+  applyAssistTitle: $('applyAssistTitle'),
+  applyAssistHint: $('applyAssistHint'),
+  applyAssistStatus: $('applyAssistStatus'),
+  applyAssistPack: $('applyAssistPack'),
+  applyAssistBookmarklet: $('applyAssistBookmarklet'),
+  applyAssistClose: $('applyAssistClose'),
+  applyAssistCopy: $('applyAssistCopy'),
+  applyAssistOpenFolder: $('applyAssistOpenFolder'),
+  applyAssistOpen: $('applyAssistOpen'),
 };
 
 const DECISIONS = ['shortlisted', 'applied', 'skipped', 'interviewing', 'rejected', 'closed'];
+const DECISION_LABELS = {
+  shortlisted: 'Shortlisted',
+  applied: 'Applied',
+  skipped: 'Skipped',
+  interviewing: 'Interviewing',
+  rejected: 'Rejected',
+  closed: 'Closed',
+};
+const NEGATIVE_DECISIONS = new Set(['skipped', 'rejected', 'closed']);
 /** Results filter keys — "none" = undecided (no decision yet). */
 const DECISION_FILTER_OPTIONS = [
   { id: 'none', label: 'Undecided' },
@@ -96,19 +159,19 @@ const DECISION_FILTER_OPTIONS = [
   { id: 'rejected', label: 'Rejected' },
   { id: 'closed', label: 'Closed' },
 ];
-const TRACKER_COLUMN_OPTIONS = DECISIONS.map((id) => ({
+const TRACKER_STATUS_OPTIONS = DECISIONS.map((id) => ({
   id,
-  label: id.charAt(0).toUpperCase() + id.slice(1),
+  label: DECISION_LABELS[id],
 }));
 /** Tracker default: the live pile, not skipped / rejected / closed. */
 const TRACKER_DEFAULT_VISIBLE = ['shortlisted', 'applied', 'interviewing'];
 /** Preset: hide terminal / done statuses — keep hunting in the active pile. */
 const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
-const TRACKER_COL_LIMIT = 8;
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
 const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
 const LS_SORT = 'jobScout.sort';
 const LS_LANG = 'jobScout.langFilter';
+const LS_LOG_MINIMIZED = 'jobScout.logMinimized';
 const SORT_VALUES = ['fit', 'newest', 'oldest'];
 const LANG_VALUES = ['all', 'en', 'de'];
 const LANG_LABEL = { en: 'English', de: 'German' };
@@ -143,8 +206,14 @@ let state = {
   visibleDecisions: new Set(DECISION_FILTER_OPTIONS.map((o) => o.id)),
   /** @type {Set<string>} */
   trackerVisibleColumns: new Set(TRACKER_DEFAULT_VISIBLE),
-  /** @type {Set<string>} */
-  trackerExpand: new Set(),
+  trackerItems: [],
+  trackerCounts: {},
+  /** Digest jobs currently shown — the pool for Create CVs… */
+  digestJobs: [],
+  /** Last batch snapshot from the server */
+  batch: null,
+  batchDismissed: false,
+  batchSeenRunning: false,
 };
 
 let jobsAbort = null;
@@ -176,7 +245,7 @@ function hiddenFromVisible(allIds, visibleSet) {
 }
 
 function closeFilterMenus(except) {
-  for (const menu of [els.decisionFilterMenu, els.trackerColumnsMenu]) {
+  for (const menu of [els.decisionFilterMenu]) {
     if (!menu || menu === except) continue;
     menu.classList.remove('open');
     const btn = menu.querySelector('.filter-trigger');
@@ -262,20 +331,6 @@ function updateDecisionFilterUi() {
   }
 }
 
-function updateTrackerColumnsUi() {
-  const hidden = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
-  if (els.trackerColumnsCount) {
-    els.trackerColumnsCount.hidden = hidden.length === 0;
-    els.trackerColumnsCount.textContent = hidden.length ? String(hidden.length) : '';
-  }
-  if (els.trackerColumnsBtn) {
-    els.trackerColumnsBtn.classList.toggle('has-filters', hidden.length > 0);
-    els.trackerColumnsBtn.title = hidden.length
-      ? `Hiding columns: ${hidden.join(', ')}`
-      : 'Show or hide tracker columns';
-  }
-}
-
 function onDecisionFilterChange({ rerender = false } = {}) {
   saveSetToStorage(LS_VISIBLE_DECISIONS, state.visibleDecisions);
   if (rerender) {
@@ -292,39 +347,22 @@ function onDecisionFilterChange({ rerender = false } = {}) {
   if (state.view === 'digest') refreshDigest();
 }
 
-function onTrackerColumnsChange({ rerender = false } = {}) {
+function onTrackerStatusChange() {
   saveSetToStorage(LS_TRACKER_COLUMNS, state.trackerVisibleColumns);
-  if (rerender) {
-    renderFilterChecks(
-      els.trackerColumnsChecks,
-      TRACKER_COLUMN_OPTIONS,
-      state.trackerVisibleColumns,
-      () => onTrackerColumnsChange(),
-    );
-  }
-  updateTrackerColumnsUi();
-  state.trackerExpand = new Set();
-  if (state.view === 'tracker') refreshTracker();
+  renderTracker();
 }
 
 function initFilterMenus() {
   const allDecisionIds = DECISION_FILTER_OPTIONS.map((o) => o.id);
   state.visibleDecisions = loadSetFromStorage(LS_VISIBLE_DECISIONS, allDecisionIds);
-  // Migrate old single-checkbox preference
   try {
-    if (localStorage.getItem('jobScout.hideAppliedColumn') === '1') {
-      const migrated = loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS);
-      if (migrated.size === DECISIONS.length) {
-        migrated.delete('applied');
-        state.trackerVisibleColumns = migrated;
-        saveSetToStorage(LS_TRACKER_COLUMNS, migrated);
-      }
-      localStorage.removeItem('jobScout.hideAppliedColumn');
-    } else {
-      state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, TRACKER_DEFAULT_VISIBLE);
-    }
+    const raw = localStorage.getItem(LS_TRACKER_COLUMNS);
+    state.trackerVisibleColumns = raw
+      ? loadSetFromStorage(LS_TRACKER_COLUMNS, DECISIONS)
+      : new Set(TRACKER_DEFAULT_VISIBLE);
+    localStorage.removeItem('jobScout.hideAppliedColumn');
   } catch {
-    state.trackerVisibleColumns = loadSetFromStorage(LS_TRACKER_COLUMNS, TRACKER_DEFAULT_VISIBLE);
+    state.trackerVisibleColumns = new Set(TRACKER_DEFAULT_VISIBLE);
   }
 
   renderFilterChecks(
@@ -333,14 +371,7 @@ function initFilterMenus() {
     state.visibleDecisions,
     () => onDecisionFilterChange(),
   );
-  renderFilterChecks(
-    els.trackerColumnsChecks,
-    TRACKER_COLUMN_OPTIONS,
-    state.trackerVisibleColumns,
-    () => onTrackerColumnsChange(),
-  );
   updateDecisionFilterUi();
-  updateTrackerColumnsUi();
   if (els.sortSelect) els.sortSelect.value = loadSort();
   if (els.langFilter) els.langFilter.value = loadLang();
 
@@ -348,12 +379,7 @@ function initFilterMenus() {
     ev.stopPropagation();
     toggleFilterMenu(els.decisionFilterMenu, els.decisionFilterBtn, els.decisionFilterPanel);
   });
-  els.trackerColumnsBtn?.addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    toggleFilterMenu(els.trackerColumnsMenu, els.trackerColumnsBtn, els.trackerColumnsPanel);
-  });
   els.decisionFilterPanel?.addEventListener('click', (ev) => ev.stopPropagation());
-  els.trackerColumnsPanel?.addEventListener('click', (ev) => ev.stopPropagation());
   document.addEventListener('click', () => closeFilterMenus());
   document.addEventListener('keydown', (ev) => {
     if (ev.key === 'Escape') closeFilterMenus();
@@ -368,14 +394,6 @@ function initFilterMenus() {
       allDecisionIds.filter((id) => !ACTIVE_ONLY_HIDDEN.includes(id)),
     );
     onDecisionFilterChange({ rerender: true });
-  });
-  els.trackerColumnsAll?.addEventListener('click', () => {
-    state.trackerVisibleColumns = new Set(DECISIONS);
-    onTrackerColumnsChange({ rerender: true });
-  });
-  els.trackerColumnsActive?.addEventListener('click', () => {
-    state.trackerVisibleColumns = new Set(TRACKER_DEFAULT_VISIBLE);
-    onTrackerColumnsChange({ rerender: true });
   });
 }
 
@@ -430,6 +448,37 @@ function setChip(stateName, label) {
   els.statusChip.textContent = label;
 }
 
+function loadLogMinimized() {
+  try {
+    return localStorage.getItem(LS_LOG_MINIMIZED) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveLogMinimized(minimized) {
+  try {
+    localStorage.setItem(LS_LOG_MINIMIZED, minimized ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
+
+function applyLogMinimized(minimized) {
+  els.layout?.classList.toggle('log-minimized', minimized);
+  els.logPanel?.classList.toggle('is-minimized', minimized);
+  if (els.toggleLogBtn) {
+    els.toggleLogBtn.textContent = minimized ? 'Expand' : 'Minimize';
+    els.toggleLogBtn.setAttribute('aria-expanded', minimized ? 'false' : 'true');
+  }
+}
+
+function toggleLogMinimized() {
+  const next = !els.logPanel?.classList.contains('is-minimized');
+  applyLogMinimized(next);
+  saveLogMinimized(next);
+}
+
 function appendLog(line, stream = 'stdout') {
   const span = document.createElement('span');
   const cls = { stderr: 'err', err: 'err', tool: 'tool', meta: 'meta', ok: 'ok' }[stream];
@@ -449,6 +498,196 @@ function escapeHtml(s) {
 
 function escapeAttr(s) {
   return escapeHtml(s).replace(/'/g, '&#39;');
+}
+
+async function copyText(text) {
+  const value = String(text || '');
+  try {
+    await navigator.clipboard.writeText(value);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = value;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}
+
+function atsPill(ats) {
+  if (!ats || !ats.label || ats.id === 'none') return '';
+  const kind = ats.kind || 'unknown';
+  return `<span class="pill ats ats-${escapeAttr(kind)}" title="${escapeAttr(ats.hint || ats.label)}">${escapeHtml(ats.label)}</span>`;
+}
+
+let applyAssistContext = { job: null, pack: null, text: '', bookmarklet: '' };
+
+function paintApplyAssist({ title, hint, status, text, bookmarklet, folder, url }) {
+  if (els.applyAssistTitle) els.applyAssistTitle.textContent = title || 'Apply assist';
+  if (els.applyAssistHint) els.applyAssistHint.textContent = hint || 'Fills known fields only. You still click Submit.';
+  if (els.applyAssistStatus) els.applyAssistStatus.textContent = status || '';
+  if (els.applyAssistPack) els.applyAssistPack.textContent = text || '';
+  if (els.applyAssistBookmarklet) {
+    els.applyAssistBookmarklet.href = bookmarklet || '#';
+    els.applyAssistBookmarklet.onclick = (ev) => {
+      if (!bookmarklet || bookmarklet === '#') {
+        ev.preventDefault();
+        return;
+      }
+      // Clicking javascript: here would run on Job Scout. Copy instead.
+      ev.preventDefault();
+      copyText(bookmarklet).then((ok) => {
+        appendLog(ok
+          ? 'Copied Fill bookmarklet — paste as a bookmark, then click it on the apply form.'
+          : 'Could not copy bookmarklet.');
+      });
+    };
+  }
+  if (els.applyAssistOpenFolder) {
+    els.applyAssistOpenFolder.hidden = !folder;
+  }
+  if (els.applyAssistOpen) {
+    els.applyAssistOpen.hidden = !url;
+    els.applyAssistOpen.dataset.url = url || '';
+  }
+}
+
+function showApplyAssistModal() {
+  if (els.applyAssistModal) els.applyAssistModal.hidden = false;
+}
+
+function hideApplyAssistModal() {
+  if (els.applyAssistModal) els.applyAssistModal.hidden = true;
+}
+
+async function fetchApplyAssist(job) {
+  const id = job?.id;
+  if (!id) throw new Error('Missing job id');
+  return api('/api/apply-assist', {
+    method: 'POST',
+    body: JSON.stringify({ id, job: jobSnapshot(job) }),
+  });
+}
+
+async function copyApplyPack(job) {
+  const res = await fetchApplyAssist(job);
+  applyAssistContext = { job, pack: res.pack, text: res.text, bookmarklet: res.bookmarklet };
+  const ok = await copyText(res.text);
+  if (!ok) throw new Error('Clipboard blocked');
+  appendLog(`Copied apply pack for ${job.title || 'job'} (${res.pack?.ats?.label || 'unknown ATS'}).`);
+  return res;
+}
+
+async function fillApply(job) {
+  applyAssistContext = { job, pack: null, text: '', bookmarklet: '' };
+  paintApplyAssist({
+    title: `Fill — ${job.title || 'role'}`,
+    hint: job.ats?.id === 'linkedin'
+      ? 'LinkedIn Easy Apply runs in Chrome and submits. Extra questions use the Prep agent if rules cannot answer. Log in there if asked.'
+      : 'Chrome opens and known fields are filled. You still confirm Submit on non-LinkedIn forms.',
+    status: 'Opening Chrome… For LinkedIn, log in in that window if asked (up to 2 minutes).',
+    text: '',
+    bookmarklet: '',
+    folder: null,
+    url: job.url,
+  });
+  showApplyAssistModal();
+  let res;
+  try {
+    res = await api('/api/apply-assist/fill', {
+      method: 'POST',
+      body: JSON.stringify({ id: job.id, job: jobSnapshot(job) }),
+    });
+  } catch (err) {
+    paintApplyAssist({
+      title: `Fill — ${job.title || 'role'}`,
+      hint: job.ats?.hint || '',
+      status: `Could not start fill: ${err.message}`,
+      text: '',
+      bookmarklet: '',
+      folder: null,
+      url: job.url,
+    });
+    throw err;
+  }
+  applyAssistContext = { job, pack: res.pack, text: res.text, bookmarklet: res.bookmarklet };
+  const fill = res.fill || {};
+  let status;
+  if (fill.needsLogin) {
+    status = fill.message || 'Log into LinkedIn in the Chrome window, then click Fill again.';
+  } else if (fill.needsCookies) {
+    status = fill.message || 'Cookie dialog is still open in Chrome — click Accept there, then Fill again.';
+  } else if (fill.alreadyApplied) {
+    status = 'Already applied on LinkedIn.';
+  } else if (fill.submitted) {
+    status = `Submitted Easy Apply (${fill.filled ?? 0} fields`
+      + (fill.uploaded ? `, ${fill.uploaded} file(s)` : '')
+      + '). Marked Applied.';
+  } else if (fill.needsReview) {
+    status = fill.message || 'Easy Apply needs an answer Chrome could not guess — finish it in that window and Submit.';
+  } else if (res.launched) {
+    status = fill.message
+      || `Opened Chrome and filled ${fill.filled ?? 0} field(s). Review that window.`;
+  } else {
+    status = res.reason || fill.error || 'Fill did not start.';
+  }
+  paintApplyAssist({
+    title: `Fill — ${job.title || 'role'}`,
+    hint: res.pack?.ats?.hint || job.ats?.hint || '',
+    status,
+    text: res.text || '',
+    bookmarklet: res.bookmarklet || '',
+    folder: res.pack?.files?.folderAbs,
+    url: job.url || res.pack?.applyUrl,
+  });
+  appendLog(status);
+  if ((fill.submitted || fill.alreadyApplied) && job.id) {
+    try {
+      const dec = await submitDecision(job.id, 'applied', job);
+      logSheetsResult(dec.sheets, 'Sheets (applied)');
+      await refreshJobs();
+      if (state.view === 'tracker') await refreshTracker();
+      if (state.view === 'ready') await refreshReady();
+    } catch (err) {
+      appendLog(`Could not mark applied: ${err.message}`, 'stderr');
+    }
+  }
+  return res;
+}
+
+function formatShortDate(iso) {
+  if (!iso) return '';
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function formatBoard(board) {
+  if (!board) return '';
+  const known = {
+    linkedin: 'LinkedIn',
+    indeed: 'Indeed',
+    glassdoor: 'Glassdoor',
+    arbeitnow: 'Arbeitnow',
+    arbeitsagentur: 'Arbeitsagentur',
+    nomado24: 'Nomado24',
+    stepstone: 'StepStone',
+    xing: 'Xing',
+    kimeta: 'Kimeta',
+    heise: 'Heise Jobs',
+    germantechjobs: 'GermanTechJobs',
+    berlinstartupjobs: 'Berlin Startup Jobs',
+    munichstartup: 'Munich Startup',
+    pegel: 'Pegel',
+  };
+  const key = String(board).toLowerCase();
+  if (known[key]) return known[key];
+  return board.charAt(0).toUpperCase() + board.slice(1);
 }
 
 function connectStream() {
@@ -538,7 +777,7 @@ function renderJob(job, { compact = false } = {}) {
     job.location,
     job.remote === true ? 'Remote' : null,
     job.ageDays != null ? `${job.ageDays}d ago` : null,
-    job.board ? `${job.board}${job.via ? ` / ${job.via}` : ''}` : null,
+    job.board ? `${formatBoard(job.board)}${job.via ? ` via ${job.via}` : ''}` : null,
     job.salary,
   ].filter(Boolean);
   const langLabel = LANG_LABEL[job.language];
@@ -566,6 +805,7 @@ function renderJob(job, { compact = false } = {}) {
       }
       ${job.isNew ? '<span class="pill new">New</span>' : ''}
       ${langLabel ? `<span class="pill lang-${escapeAttr(job.language)}">${escapeHtml(langLabel)}</span>` : ''}
+      ${atsPill(job.ats)}
       ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
       ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
@@ -577,14 +817,12 @@ function renderJob(job, { compact = false } = {}) {
         ? ''
         : `
     <div class="job-actions">
-      ${DECISIONS.map(
-        (d) =>
-          `<button type="button" class="btn small ${
-            d === 'skipped' || d === 'rejected' || d === 'closed' ? 'danger' : ''
-          } ${decision === d ? 'active' : ''}" data-decision="${d}">${d}</button>`,
-      ).join('')}
-      <button type="button" class="btn small" data-prep>Prep &amp; CV</button>
-      <button type="button" class="btn small" data-cover-letter>Cover letter</button>
+      <button type="button" class="btn small ok" data-prep>Prep</button>
+      <button type="button" class="btn small ${
+        decision ? `active${NEGATIVE_DECISIONS.has(decision) ? ' danger' : ''}` : ''
+      }" data-status title="Change status" aria-haspopup="dialog">${
+        decision ? escapeHtml(DECISION_LABELS[decision] || decision) : 'Status'
+      }</button>
       ${
         job.tailoredCv
           ? `<a class="btn small" data-cv href="/api/prep/${encodeURIComponent(job.id)}/cv.html" target="_blank" rel="noopener">CV</a>
@@ -597,7 +835,9 @@ function renderJob(job, { compact = false } = {}) {
       }
       ${
         job.url
-          ? `<a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Apply</a>`
+          ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
+             <button type="button" class="btn small" data-fill>Fill</button>
+             <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Apply</a>`
           : ''
       }
     </div>
@@ -635,27 +875,24 @@ function renderJob(job, { compact = false } = {}) {
       el.classList.toggle('open', open);
     });
 
-    el.querySelectorAll('[data-decision]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        try {
-          const d = btn.dataset.decision;
-          const res = await submitDecision(job.id, d, job);
-          logSheetsResult(res.sheets, `Sheets (${d})`);
-          await refreshJobs();
-          if (state.view === 'tracker') await refreshTracker();
-          if (state.view === 'digest') await refreshDigest();
-        } catch (err) {
-          appendLog(`Decision failed: ${err.message}`, 'stderr');
-        }
-      });
+    el.querySelector('[data-status]')?.addEventListener('click', async () => {
+      const next = await openStatusModal(job);
+      if (!next || next === decision) return;
+      try {
+        const res = await submitDecision(job.id, next, job);
+        logSheetsResult(res.sheets, `Sheets (${next})`);
+        await refreshJobs();
+        if (state.view === 'tracker') await refreshTracker();
+        if (state.view === 'digest') await refreshDigest();
+        if (state.view === 'ready') await refreshReady();
+        else setReadyBadge((await api('/api/status')).readyCount);
+      } catch (err) {
+        appendLog(`Decision failed: ${err.message}`, 'stderr');
+      }
     });
 
     el.querySelector('[data-prep]')?.addEventListener('click', async () => {
       await runPrepFlow(job);
-    });
-
-    el.querySelector('[data-cover-letter]')?.addEventListener('click', async () => {
-      await runCoverLetterFlow(job);
     });
 
     el.querySelector('[data-save-folder]')?.addEventListener('click', async () => {
@@ -670,9 +907,25 @@ function renderJob(job, { compact = false } = {}) {
       }
     });
 
+    el.querySelector('[data-copy-pack]')?.addEventListener('click', async () => {
+      try {
+        await copyApplyPack(job);
+      } catch (err) {
+        appendLog(`Copy pack failed: ${err.message}`, 'stderr');
+      }
+    });
+
+    el.querySelector('[data-fill]')?.addEventListener('click', async () => {
+      try {
+        await fillApply(job);
+      } catch (err) {
+        appendLog(`Fill failed: ${err.message}`, 'stderr');
+      }
+    });
+
     el.querySelector('[data-apply]')?.addEventListener('click', async () => {
       // Open posting in a new tab (browser default via href). Offer to mark applied.
-      appendLog(`Opened apply link for ${job.title} — submit the form yourself.`);
+      appendLog(`Opened apply link for ${job.title} (${job.ats?.label || 'unknown'}) — submit the form yourself.`);
       const mark = window.confirm(
         'Apply page opened in a new tab.\n\nMark this job as Applied in the tracker after you submit?\n(You still submit the application yourself.)',
       );
@@ -682,6 +935,7 @@ function renderJob(job, { compact = false } = {}) {
         await refreshJobs();
         if (state.view === 'tracker') await refreshTracker();
         if (state.view === 'digest') await refreshDigest();
+        if (state.view === 'ready') await refreshReady();
         appendLog(`Marked applied: ${job.title}`);
         logSheetsResult(res.sheets, 'Sheets (applied)');
       } catch (err) {
@@ -704,35 +958,71 @@ function closePrepModal() {
   if (els.prepModal) els.prepModal.hidden = true;
 }
 
+function closeStatusModal() {
+  if (els.statusModal) els.statusModal.hidden = true;
+}
+
+function readPrepTargets() {
+  return {
+    createCv: Boolean(els.prepCreateCv?.checked),
+    createCoverLetter: Boolean(els.prepCreateCoverLetter?.checked),
+  };
+}
+
+function syncPrepModalActions(hasCache) {
+  const { createCv, createCoverLetter } = readPrepTargets();
+  const canCreate = createCv || createCoverLetter;
+  if (els.prepModalFast) els.prepModalFast.disabled = !canCreate;
+  if (els.prepModalRecreate) {
+    els.prepModalRecreate.disabled = !canCreate;
+    if (!canCreate) els.prepModalRecreate.textContent = 'Create';
+    else if (createCv && createCoverLetter) els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create';
+    else if (createCv) els.prepModalRecreate.textContent = hasCache ? 'Recreate CV' : 'Create CV';
+    else els.prepModalRecreate.textContent = 'Create letter (agent)';
+  }
+  if (els.prepModalUseExisting) {
+    els.prepModalUseExisting.hidden = !hasCache || !createCv;
+  }
+}
+
+function choicePayload(recreate, mode) {
+  const { createCv, createCoverLetter } = readPrepTargets();
+  return {
+    recreate,
+    mode,
+    extraInstructions: readPrepInstructions(),
+    createCv,
+    createCoverLetter,
+  };
+}
+
 /**
- * Show Prep / Cover letter dialog.
- * @param {{ kind?: 'cv'|'cover-letter' }} [opts]
- * @returns {Promise<{ recreate: boolean, mode: 'agent'|'fast', extraInstructions: string } | null>}
+ * Show Prep dialog with CV / cover-letter checkboxes.
+ * @param {{ preferCoverLetter?: boolean }} [opts]
+ * @returns {Promise<{ recreate: boolean, mode: 'agent'|'fast', extraInstructions: string, createCv: boolean, createCoverLetter: boolean } | null>}
  */
 function openPrepModal(job, opts = {}) {
-  const kind = opts.kind === 'cover-letter' ? 'cover-letter' : 'cv';
   return new Promise((resolve) => {
     if (!els.prepModal) {
-      resolve({ recreate: true, mode: 'agent', extraInstructions: '' });
+      resolve({
+        recreate: true,
+        mode: 'agent',
+        extraInstructions: '',
+        createCv: true,
+        createCoverLetter: true,
+      });
       return;
     }
     const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
     const keyOk = Boolean(state.status?.cursorApiKeyPresent);
-    if (kind === 'cover-letter') {
-      els.prepModalTitle.textContent = 'Cover letter';
-      els.prepModalHint.textContent = keyOk
-        ? 'Agent uses the same cv-tailor rules, evidence, and extra instructions as Prep & CV. Fast = keyword draft only.'
-        : 'CURSOR_API_KEY missing — agent will fall back to the keyword draft. Same extra-instruction presets as the CV.';
-      els.prepModalUseExisting.hidden = true;
-      els.prepModalRecreate.textContent = 'Create letter (agent)';
-    } else {
-      els.prepModalTitle.textContent = hasCache ? 'Recreate CV?' : 'Prep & CV';
-      els.prepModalHint.textContent = hasCache
-        ? `Pack exists. Create CV = Cursor agent (cv-tailor)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = reorder + light experience-bullet emphasis. A first create also writes the cover letter, then opens the company folder.`
-        : `Create CV runs the Cursor agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. After the CV it generates the cover letter with the same instructions, then opens the folder.`;
-      els.prepModalUseExisting.hidden = !hasCache;
-      els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create CV';
-    }
+    const letterFirst = Boolean(opts.preferCoverLetter);
+    els.prepModalTitle.textContent = 'Prep';
+    els.prepModalHint.textContent = hasCache
+      ? `Pack exists. Check CV and/or cover letter, then Create (agent)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = keyword only.`
+      : `Check what to generate. Create runs the agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
+    if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
+    if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
+    syncPrepModalActions(hasCache);
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
@@ -746,26 +1036,94 @@ function openPrepModal(job, opts = {}) {
       els.prepModalRecreate?.removeEventListener('click', onRecreate);
       els.prepModalFast?.removeEventListener('click', onFast);
       els.prepInstrPreset?.removeEventListener('change', onPreset);
+      els.prepCreateCv?.removeEventListener('change', onChecks);
+      els.prepCreateCoverLetter?.removeEventListener('change', onChecks);
+      els.prepModal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
       closePrepModal();
       resolve(value);
     };
     const onCancel = () => finish(null);
-    const onUse = () =>
-      finish({ recreate: false, mode: 'agent', extraInstructions: readPrepInstructions() });
-    const onRecreate = () =>
-      finish({ recreate: true, mode: 'agent', extraInstructions: readPrepInstructions() });
-    const onFast = () =>
-      finish({ recreate: true, mode: 'fast', extraInstructions: readPrepInstructions() });
+    const onBackdrop = (ev) => {
+      if (ev.target === els.prepModal) finish(null);
+    };
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') finish(null);
+    };
+    const onUse = () => finish(choicePayload(false, 'agent'));
+    const onRecreate = () => {
+      const { createCv, createCoverLetter } = readPrepTargets();
+      if (!createCv && !createCoverLetter) return;
+      finish(choicePayload(true, 'agent'));
+    };
+    const onFast = () => {
+      const { createCv, createCoverLetter } = readPrepTargets();
+      if (!createCv && !createCoverLetter) return;
+      finish(choicePayload(true, 'fast'));
+    };
     const onPreset = () => {
       if (els.prepInstrCustom) {
         els.prepInstrCustom.hidden = els.prepInstrPreset.value !== 'custom';
       }
     };
+    const onChecks = () => syncPrepModalActions(hasCache);
     els.prepModalCancel?.addEventListener('click', onCancel);
     els.prepModalUseExisting?.addEventListener('click', onUse);
     els.prepModalRecreate?.addEventListener('click', onRecreate);
     els.prepModalFast?.addEventListener('click', onFast);
     els.prepInstrPreset?.addEventListener('change', onPreset);
+    els.prepCreateCv?.addEventListener('change', onChecks);
+    els.prepCreateCoverLetter?.addEventListener('change', onChecks);
+    els.prepModal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
+  });
+}
+
+/**
+ * @returns {Promise<string | null>} decision id, or null if cancelled
+ */
+function openStatusModal(job) {
+  return new Promise((resolve) => {
+    if (!els.statusModal || !els.statusModalChoices) {
+      resolve(null);
+      return;
+    }
+    const current = job.decision?.decision || '';
+    els.statusModalTitle.textContent = 'Set status';
+    els.statusModalHint.textContent = [job.title, job.company].filter(Boolean).join(' · ') || 'Choose how to track this job.';
+    els.statusModalChoices.innerHTML = DECISIONS.map((d) => {
+      const danger = NEGATIVE_DECISIONS.has(d) ? ' danger' : '';
+      const active = current === d ? ' active' : '';
+      return `<button type="button" class="btn small${danger}${active}" data-pick="${d}">${escapeHtml(
+        DECISION_LABELS[d] || d,
+      )}</button>`;
+    }).join('');
+    els.statusModal.hidden = false;
+
+    const finish = (value) => {
+      els.statusModalCancel?.removeEventListener('click', onCancel);
+      els.statusModalChoices.removeEventListener('click', onPick);
+      els.statusModal.removeEventListener('click', onBackdrop);
+      document.removeEventListener('keydown', onKey);
+      closeStatusModal();
+      resolve(value);
+    };
+    const onCancel = () => finish(null);
+    const onBackdrop = (ev) => {
+      if (ev.target === els.statusModal) finish(null);
+    };
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') finish(null);
+    };
+    const onPick = (ev) => {
+      const btn = ev.target.closest('[data-pick]');
+      if (!btn) return;
+      finish(btn.dataset.pick);
+    };
+    els.statusModalCancel?.addEventListener('click', onCancel);
+    els.statusModalChoices.addEventListener('click', onPick);
+    els.statusModal.addEventListener('click', onBackdrop);
+    document.addEventListener('keydown', onKey);
   });
 }
 
@@ -978,9 +1336,7 @@ function applyCoverLetterResult(job, res) {
   }
 }
 
-async function runCoverLetterFlow(job) {
-  const choice = await openPrepModal(job, { kind: 'cover-letter' });
-  if (!choice) return;
+async function executeCoverLetter(job, choice) {
   showLogView();
   const mode = choice.mode === 'fast' ? 'fast' : 'agent';
   appendLog(
@@ -988,28 +1344,24 @@ async function runCoverLetterFlow(job) {
       choice.extraInstructions ? ' (with instructions)' : ''
     }…`,
   );
-  try {
-    const started = await api('/api/cover-letter', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: job.id,
-        mode,
-        extraInstructions: choice.extraInstructions || '',
-      }),
-    });
-    const res = started.started
-      ? await waitForPrepDone(started.startedAt)
-      : started;
-    if (res?.ok === false) throw new Error(res.error || 'Cover letter failed');
-    applyCoverLetterResult(job, res);
-    await refreshJobs();
-  } catch (err) {
-    appendLog(`Cover letter failed: ${err.message}`, 'stderr');
-  }
+  const started = await api('/api/cover-letter', {
+    method: 'POST',
+    body: JSON.stringify({
+      id: job.id,
+      mode,
+      extraInstructions: choice.extraInstructions || '',
+    }),
+  });
+  const res = started.started
+    ? await waitForPrepDone(started.startedAt)
+    : started;
+  if (res?.ok === false) throw new Error(res.error || 'Cover letter failed');
+  applyCoverLetterResult(job, res);
+  await refreshJobs();
 }
 
-async function runPrepFlow(job) {
-  const choice = await openPrepModal(job);
+async function runPrepFlow(job, opts = {}) {
+  const choice = await openPrepModal(job, opts);
   if (!choice) {
     appendLog('Prep cancelled.');
     return;
@@ -1019,12 +1371,21 @@ async function runPrepFlow(job) {
   try {
     if (!choice.recreate) {
       appendLog(`Using existing prep pack for ${job.title}…`);
+    } else if (!choice.createCv && choice.createCoverLetter) {
+      await executeCoverLetter(job, choice);
+      return;
     } else if (mode === 'agent') {
+      const bits = [
+        choice.createCv ? 'CV' : null,
+        choice.createCoverLetter ? 'cover letter' : null,
+      ].filter(Boolean);
       appendLog(
-        `Starting agent Prep & CV for ${job.title}${choice.extraInstructions ? ' (with instructions)' : ''}…`,
+        `Starting agent Prep (${bits.join(' + ')}) for ${job.title}${
+          choice.extraInstructions ? ' (with instructions)' : ''
+        }…`,
       );
     } else {
-      appendLog(`Building Fast (keyword) prep + CV for ${job.title}…`);
+      appendLog(`Building Fast (keyword) prep for ${job.title}…`);
     }
 
     const data = await api('/api/prep', {
@@ -1034,6 +1395,7 @@ async function runPrepFlow(job) {
         recreate: choice.recreate,
         extraInstructions: choice.extraInstructions || '',
         mode,
+        includeCoverLetter: Boolean(choice.createCoverLetter),
       }),
     });
 
@@ -1058,7 +1420,7 @@ async function runPrepFlow(job) {
 
 function showPrep(data, { reveal = true } = {}) {
   if (reveal) {
-    els.sideTitle.textContent = 'Prep & CV';
+    els.sideTitle.textContent = 'Prep';
     els.logView.hidden = true;
     els.prepView.hidden = false;
   } else {
@@ -1094,6 +1456,8 @@ function showPrep(data, { reveal = true } = {}) {
       ${cvAts ? `<a class="btn small" href="${escapeAttr(cvAts)}" target="_blank" rel="noopener">Preview ATS</a>` : ''}
       ${cvHtml ? `<a class="btn small" href="${escapeAttr(cvHtml)}" target="_blank" rel="noopener">Open CV.html</a>` : ''}
       ${apply ? `<a class="btn small primary-link" href="${escapeAttr(apply)}" target="_blank" rel="noopener">Apply (opens job)</a>` : ''}
+      ${pack.jobId ? `<button type="button" class="btn small" id="copyApplyPack">Copy pack</button>
+      <button type="button" class="btn small" id="fillApplyForm">Fill</button>` : ''}
     </div>
     <p class="meta" id="companyFolderPaths">
       ${
@@ -1104,7 +1468,7 @@ function showPrep(data, { reveal = true } = {}) {
           : 'Folder not written yet — click <strong>Save PDFs to company folder</strong>.'
       }
     </p>
-    ${pack.downloadError ? `<p class="meta" style="color:#b00">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
+    ${pack.downloadError ? `<p class="meta error">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
     <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from profile.json). Cover letter: <code>&lt;Your Name&gt; Cover Letter.pdf</code>.</p>
     <p>Cover letter draft:</p>
     <pre>${escapeHtml(pack.coverLetter || '')}</pre>
@@ -1139,21 +1503,418 @@ function showPrep(data, { reveal = true } = {}) {
       appendLog(`Save folder failed: ${err.message}`, 'stderr');
     }
   });
+  function prepJobRef() {
+    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
+      .match(/\/api\/prep\/([^/]+)\//)?.[1];
+    const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
+    return state.jobs?.find((j) => j.id === id)
+      || { id, title: pack.title || 'this role', company: pack.company || '', url: pack.applyUrl };
+  }
+  $('copyApplyPack')?.addEventListener('click', async () => {
+    try {
+      await copyApplyPack(prepJobRef());
+    } catch (err) {
+      appendLog(`Copy pack failed: ${err.message}`, 'stderr');
+    }
+  });
+  $('fillApplyForm')?.addEventListener('click', async () => {
+    try {
+      await fillApply(prepJobRef());
+    } catch (err) {
+      appendLog(`Fill failed: ${err.message}`, 'stderr');
+    }
+  });
   $('generateCoverLetter')?.addEventListener('click', async () => {
     const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
       .match(/\/api\/prep\/([^/]+)\//)?.[1];
     const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
     const job = state.jobs?.find((j) => j.id === id);
     if (!job && !id) {
-      appendLog('Cover letter: missing job id — open a result and click Cover letter.', 'stderr');
+      appendLog('Cover letter: missing job id — open a result and click Prep.', 'stderr');
       return;
     }
-    await runCoverLetterFlow(job || { id, title: 'this role', company: '', url: pack.applyUrl, fit: data.fit });
+    await runPrepFlow(
+      job || { id, title: 'this role', company: '', url: pack.applyUrl, fit: data.fit },
+      { preferCoverLetter: true },
+    );
   });
   $('backToLog')?.addEventListener('click', () => {
     showLogView();
   });
 }
+
+/* ---------------------------------------------------------------------------
+ * Ready to apply — jobs with a tailored CV / letter that are still open.
+ * ------------------------------------------------------------------------- */
+
+function setReadyBadge(count) {
+  if (!els.readyBadge) return;
+  const n = Number(count) || 0;
+  els.readyBadge.hidden = n === 0;
+  els.readyBadge.textContent = String(n);
+}
+
+async function refreshReady() {
+  if (!els.readyList) return;
+  const q = (els.readySearch?.value || '').trim();
+  const data = await api(`/api/ready${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  const jobs = data.jobs || [];
+  els.readyList.innerHTML = '';
+  if (!q) setReadyBadge(data.total);
+  if (els.readyMeta) {
+    const c = data.counts || {};
+    els.readyMeta.textContent = jobs.length
+      ? `${jobs.length} ready${q ? ` matching “${q}”` : ''} · ${c.both || 0} with CV + letter · ${c.cvOnly || 0} CV only · ${c.letterOnly || 0} letter only. Mark Applied when done and they drop off this list.`
+      : q
+        ? `No ready postings match “${q}”.`
+        : 'Postings with a tailored CV or cover letter that you have not applied to yet.';
+  }
+  if (els.readyEmpty) els.readyEmpty.hidden = jobs.length > 0;
+  const frag = document.createDocumentFragment();
+  for (const job of jobs) frag.appendChild(renderJob(job));
+  els.readyList.appendChild(frag);
+}
+
+/* ---------------------------------------------------------------------------
+ * Batch Prep — Create CVs… for many Digest postings at once.
+ * ------------------------------------------------------------------------- */
+
+let batchStream = null;
+
+const BATCH_STATUS_LABEL = {
+  pending: 'Queued',
+  running: 'Working…',
+  done: 'Done',
+  skipped: 'Skipped',
+  failed: 'Failed',
+  cancelled: 'Cancelled',
+};
+
+function batchPercent(snap) {
+  if (!snap?.total) return 0;
+  const finished = Number(snap.finished) || 0;
+  const running = snap.counts?.running ? 0.5 : 0;
+  return Math.min(100, Math.round(((finished + running) / snap.total) * 100));
+}
+
+function batchSummaryText(snap) {
+  if (!snap) return '';
+  const c = snap.counts || {};
+  const bits = [`${snap.finished || 0} / ${snap.total || 0}`];
+  if (snap.running && snap.current) {
+    bits.push(`${snap.current.company || '—'} — ${snap.current.title || ''}`);
+  } else if (!snap.running) {
+    const tail = [];
+    if (c.done) tail.push(`${c.done} done`);
+    if (c.skipped) tail.push(`${c.skipped} skipped`);
+    if (c.failed) tail.push(`${c.failed} failed`);
+    if (c.cancelled) tail.push(`${c.cancelled} cancelled`);
+    if (tail.length) bits.push(tail.join(', '));
+  }
+  if (snap.running && snap.stopping) bits.push('stopping…');
+  return bits.join(' · ');
+}
+
+function renderBatchBar(snap) {
+  if (!els.batchBar) return;
+  // Show while running; after it ends, only if this tab watched it run (not a stale result on reload).
+  const show = Boolean(snap && snap.total && (snap.running || (state.batchSeenRunning && !state.batchDismissed)));
+  els.batchBar.hidden = !show;
+  if (!show) return;
+  els.batchBar.classList.toggle('is-running', Boolean(snap.running));
+  els.batchBar.classList.toggle('has-failed', Boolean(snap.counts?.failed));
+  if (els.batchBarTitle) {
+    els.batchBarTitle.textContent = snap.running
+      ? `Batch Prep (${snap.mode === 'fast' ? 'Fast' : 'Agent'})`
+      : 'Batch Prep finished';
+  }
+  if (els.batchBarText) els.batchBarText.textContent = batchSummaryText(snap);
+  if (els.batchBarFill) els.batchBarFill.style.width = `${batchPercent(snap)}%`;
+  if (els.batchBarCancel) {
+    els.batchBarCancel.hidden = !snap.running;
+    els.batchBarCancel.disabled = Boolean(snap.stopping);
+    els.batchBarCancel.textContent = snap.stopping ? 'Stopping…' : 'Cancel';
+  }
+  if (els.batchBarDismiss) els.batchBarDismiss.hidden = Boolean(snap.running);
+}
+
+function renderBatchProgress(snap) {
+  if (!els.batchProgress || !snap) return;
+  if (els.batchProgressHint) {
+    els.batchProgressHint.textContent = snap.running
+      ? 'Running in the background — you can close this and keep browsing. Files are written to each company folder; nothing opens.'
+      : 'Finished. Prepared postings are listed under Ready to apply.';
+  }
+  if (els.batchProgressFill) els.batchProgressFill.style.width = `${batchPercent(snap)}%`;
+  if (els.batchProgressLine) els.batchProgressLine.textContent = batchSummaryText(snap);
+  if (els.batchProgressList) {
+    els.batchProgressList.innerHTML = (snap.items || [])
+      .map((it) => {
+        const detail = it.error || it.note || (it.status === 'done' && it.tailorMode ? it.tailorMode : '');
+        return `<div class="batch-item is-${escapeAttr(it.status)}">
+          <span class="batch-item-status">${escapeHtml(BATCH_STATUS_LABEL[it.status] || it.status)}</span>
+          <span class="batch-item-body">
+            <span class="batch-item-company">${escapeHtml(it.company || '—')}</span>
+            <span class="batch-item-title">${escapeHtml(it.title || it.id)}</span>
+            ${detail ? `<span class="batch-item-detail">${escapeHtml(detail)}</span>` : ''}
+          </span>
+        </div>`;
+      })
+      .join('');
+  }
+  if (els.batchStop) {
+    els.batchStop.hidden = !snap.running;
+    els.batchStop.disabled = Boolean(snap.stopping);
+    els.batchStop.textContent = snap.stopping ? 'Stopping…' : 'Cancel run';
+  }
+  if (els.batchGoReady) els.batchGoReady.hidden = Boolean(snap.running) || !(snap.counts?.done > 0);
+}
+
+function applyBatchSnapshot(snap) {
+  if (!snap) return;
+  if (snap.running) {
+    state.batchDismissed = false;
+    state.batchSeenRunning = true;
+  }
+  state.batch = snap;
+  renderBatchBar(snap);
+  if (els.batchModal && !els.batchModal.hidden && els.batchProgress && !els.batchProgress.hidden) {
+    renderBatchProgress(snap);
+  }
+}
+
+async function onBatchFinished(snap) {
+  applyBatchSnapshot(snap);
+  await refreshStatus();
+  await refreshJobs();
+  if (state.view === 'digest') await refreshDigest();
+  if (state.view === 'ready') await refreshReady();
+  if (state.view === 'tracker') await refreshTracker();
+}
+
+function connectBatchStream() {
+  if (batchStream) return;
+  const es = new EventSource('/api/prep/batch/stream');
+  batchStream = es;
+  const close = () => {
+    es.close();
+    if (batchStream === es) batchStream = null;
+  };
+  es.addEventListener('status', (ev) => {
+    try {
+      applyBatchSnapshot(JSON.parse(ev.data));
+    } catch {
+      /* ignore */
+    }
+  });
+  es.addEventListener('progress', (ev) => {
+    try {
+      applyBatchSnapshot(JSON.parse(ev.data));
+    } catch {
+      /* ignore */
+    }
+  });
+  es.addEventListener('log', (ev) => {
+    try {
+      const entry = JSON.parse(ev.data);
+      appendLog(entry.line || '', entry.stream || 'stdout');
+    } catch {
+      /* ignore */
+    }
+  });
+  es.addEventListener('done', (ev) => {
+    close();
+    try {
+      void onBatchFinished(JSON.parse(ev.data));
+    } catch {
+      /* ignore */
+    }
+  });
+  es.onerror = () => {
+    if (es.readyState === EventSource.CLOSED) close();
+  };
+}
+
+async function stopBatch() {
+  try {
+    const res = await api('/api/prep/batch/stop', { method: 'POST', body: '{}' });
+    if (res.batch) applyBatchSnapshot({ ...(state.batch || {}), ...res.batch, items: state.batch?.items || [] });
+  } catch (err) {
+    appendLog(`Cancel failed: ${err.message}`, 'stderr');
+  }
+}
+
+function batchSelectedIds() {
+  return [...(els.batchSelectList?.querySelectorAll('input[data-job]:checked') || [])].map((i) => i.dataset.job);
+}
+
+function updateBatchSelectCount() {
+  if (!els.batchSelectCount) return;
+  const n = batchSelectedIds().length;
+  els.batchSelectCount.textContent = `${n} selected`;
+  if (els.batchStart) els.batchStart.disabled = n === 0;
+  // Keep company checkboxes in sync (checked / indeterminate)
+  els.batchSelectList?.querySelectorAll('input[data-company]').forEach((box) => {
+    const group = box.closest('.batch-group');
+    const jobs = [...(group?.querySelectorAll('input[data-job]') || [])];
+    const on = jobs.filter((j) => j.checked).length;
+    box.checked = on > 0 && on === jobs.length;
+    box.indeterminate = on > 0 && on < jobs.length;
+  });
+}
+
+function renderBatchSelectList(jobs) {
+  if (!els.batchSelectList) return;
+  const groups = new Map();
+  for (const job of jobs) {
+    const key = (job.company || '—').trim() || '—';
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(job);
+  }
+  const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+  els.batchSelectList.innerHTML = sorted
+    .map(([company, list]) => `
+      <div class="batch-group">
+        <label class="batch-group-head">
+          <input type="checkbox" data-company="${escapeAttr(company)}" checked />
+          <span>${escapeHtml(company)}</span>
+          <span class="meta">${list.length}</span>
+        </label>
+        ${list
+          .map((job) => {
+            const has = job.tailoredCv || job.tailoredPdf;
+            const letter = job.coverLetter;
+            return `<label class="batch-row">
+              <input type="checkbox" data-job="${escapeAttr(job.id)}" data-has-cv="${has ? '1' : '0'}" data-fit="${escapeAttr(job.fit?.verdict || '')}" checked />
+              <span class="batch-row-title">${escapeHtml(job.title)}</span>
+              ${job.fit ? `<span class="pill ${FIT_CLASS[job.fit.verdict] || ''}">${escapeHtml(job.fit.verdict)}</span>` : ''}
+              ${has ? '<span class="pill ok">CV</span>' : ''}
+              ${letter ? '<span class="pill ok">Letter</span>' : ''}
+            </label>`;
+          })
+          .join('')}
+      </div>`)
+    .join('');
+  els.batchSelectList.querySelectorAll('input[data-company]').forEach((box) => {
+    box.addEventListener('change', () => {
+      box.closest('.batch-group')?.querySelectorAll('input[data-job]').forEach((j) => {
+        j.checked = box.checked;
+      });
+      updateBatchSelectCount();
+    });
+  });
+  els.batchSelectList.querySelectorAll('input[data-job]').forEach((j) => {
+    j.addEventListener('change', updateBatchSelectCount);
+  });
+  updateBatchSelectCount();
+}
+
+function setBatchChecked(predicate) {
+  els.batchSelectList?.querySelectorAll('input[data-job]').forEach((j) => {
+    j.checked = predicate(j);
+  });
+  updateBatchSelectCount();
+}
+
+function showBatchModal(view) {
+  if (!els.batchModal) return;
+  els.batchModal.hidden = false;
+  if (els.batchSetup) els.batchSetup.hidden = view !== 'setup';
+  if (els.batchProgress) els.batchProgress.hidden = view !== 'progress';
+  if (els.batchModalTitle) {
+    els.batchModalTitle.textContent = view === 'setup' ? 'Create CVs for new postings' : 'Batch Prep';
+  }
+  if (view === 'progress' && state.batch) renderBatchProgress(state.batch);
+}
+
+function hideBatchModal() {
+  if (els.batchModal) els.batchModal.hidden = true;
+}
+
+function openBatchSetup() {
+  const jobs = state.digestJobs || [];
+  if (els.batchError) {
+    els.batchError.hidden = true;
+    els.batchError.textContent = '';
+  }
+  if (state.batch?.running) {
+    showBatchModal('progress');
+    return;
+  }
+  if (!jobs.length) {
+    appendLog('Create CVs: no new postings in Digest to prepare.', 'stderr');
+    return;
+  }
+  if (els.batchSetupHint) {
+    const keyOk = Boolean(state.status?.cursorApiKeyPresent);
+    els.batchSetupHint.textContent = `${jobs.length} new posting(s) in Digest. Files go to the company folders; nothing opens. Finished jobs show up under Ready to apply.${
+      keyOk ? '' : ' Agent needs a working provider — otherwise each job falls back to Fast.'
+    }`;
+  }
+  renderBatchSelectList(jobs);
+  if (els.batchInstructions) els.batchInstructions.value = '';
+  showBatchModal('setup');
+}
+
+async function startBatch() {
+  const ids = batchSelectedIds();
+  if (!ids.length) return;
+  const mode = document.querySelector('input[name="batchMode"]:checked')?.value === 'fast' ? 'fast' : 'agent';
+  const includeCoverLetter = Boolean(els.batchIncludeLetter?.checked);
+  const skipExisting = Boolean(els.batchSkipExisting?.checked);
+  const extraInstructions = (els.batchInstructions?.value || '').trim().slice(0, 500);
+  if (els.batchStart) els.batchStart.disabled = true;
+  if (els.batchError) els.batchError.hidden = true;
+  try {
+    const res = await api('/api/prep/batch', {
+      method: 'POST',
+      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
+    });
+    state.batchDismissed = false;
+    applyBatchSnapshot(res.batch);
+    showBatchModal('progress');
+    showLogView();
+    appendLog(`Batch Prep started: ${ids.length} job(s), ${mode}${includeCoverLetter ? ' + cover letter' : ''}.`);
+    connectBatchStream();
+  } catch (err) {
+    if (els.batchError) {
+      els.batchError.hidden = false;
+      els.batchError.textContent = err.message;
+    }
+  } finally {
+    if (els.batchStart) els.batchStart.disabled = false;
+  }
+}
+
+els.batchOpenBtn?.addEventListener('click', openBatchSetup);
+els.batchCancelSetup?.addEventListener('click', hideBatchModal);
+els.batchClose?.addEventListener('click', hideBatchModal);
+els.batchStart?.addEventListener('click', startBatch);
+els.batchStop?.addEventListener('click', stopBatch);
+els.batchBarCancel?.addEventListener('click', stopBatch);
+els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));
+els.batchBarDismiss?.addEventListener('click', () => {
+  state.batchDismissed = true;
+  renderBatchBar(state.batch);
+});
+els.batchGoReady?.addEventListener('click', () => {
+  hideBatchModal();
+  setView('ready');
+});
+els.batchSelectAll?.addEventListener('click', () => setBatchChecked(() => true));
+els.batchSelectNone?.addEventListener('click', () => setBatchChecked(() => false));
+els.batchSelectMissing?.addEventListener('click', () => setBatchChecked((j) => j.dataset.hasCv !== '1'));
+els.batchSelectStrong?.addEventListener('click', () => setBatchChecked((j) => j.dataset.fit === 'Strong'));
+els.batchModal?.addEventListener('click', (ev) => {
+  if (ev.target === els.batchModal) hideBatchModal();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && els.batchModal && !els.batchModal.hidden) hideBatchModal();
+});
+els.readySearch?.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => refreshReady(), 200);
+});
 
 async function refreshJobs() {
   jobsAbort?.abort();
@@ -1313,15 +2074,18 @@ async function refreshStatus() {
   if (s.setup?.profileParseError) {
     alerts.push(`profile.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
   }
-  if (s.followUpsDue > 0) {
-    alerts.push(`${s.followUpsDue} follow-up(s) due — check Tracker`);
-  }
   if (s.digestNewCount > 0) {
     alerts.push(`${s.digestNewCount} new posting(s) since last fetch`);
     els.digestBadge.hidden = false;
     els.digestBadge.textContent = String(s.digestNewCount);
   } else {
     els.digestBadge.hidden = true;
+  }
+  setReadyBadge(s.readyCount);
+  if (s.batch) {
+    // Items come over the stream; keep the ones we already have.
+    applyBatchSnapshot({ ...s.batch, items: state.batch?.items || [] });
+    if (s.batch.running) connectBatchStream();
   }
   els.alerts.innerHTML = alerts.map((a) => `<div class="alert">${escapeHtml(a)}</div>`).join('');
 
@@ -1374,97 +2138,172 @@ function showSetup(needs) {
   }
 }
 
-function trackerQuery() {
-  const hide = hiddenFromVisible(DECISIONS, state.trackerVisibleColumns);
-  const p = new URLSearchParams({ limit: String(TRACKER_COL_LIMIT) });
-  if (hide.length) p.set('hide', hide.join(','));
-  if (state.trackerExpand.size) p.set('expand', [...state.trackerExpand].join(','));
-  return p.toString();
+function filteredTrackerItems() {
+  const q = (els.trackerSearch?.value || '').trim().toLowerCase();
+  return (state.trackerItems || []).filter((item) => {
+    if (!state.trackerVisibleColumns.has(item.decision)) return false;
+    if (!q) return true;
+    const hay = `${item.title || ''} ${item.company || ''} ${item.board || ''}`.toLowerCase();
+    return hay.includes(q);
+  });
+}
+
+function renderTrackerTabs() {
+  if (!els.trackerTabs) return;
+  const counts = state.trackerCounts || {};
+  const pipeline = new Set(TRACKER_DEFAULT_VISIBLE);
+  const order = [
+    ...TRACKER_DEFAULT_VISIBLE,
+    ...DECISIONS.filter((id) => !pipeline.has(id)),
+  ];
+  els.trackerTabs.innerHTML = order.map((id, i) => {
+    const opt = TRACKER_STATUS_OPTIONS.find((o) => o.id === id) || { id, label: DECISION_LABELS[id] || id };
+    const on = state.trackerVisibleColumns.has(opt.id);
+    const count = counts[opt.id] ?? 0;
+    const split = i === TRACKER_DEFAULT_VISIBLE.length
+      ? '<span class="tracker-tabs-split" aria-hidden="true"></span>'
+      : '';
+    return `${split}<button type="button" class="tracker-tab${on ? ' is-on' : ''}${pipeline.has(opt.id) ? '' : ' is-done'}" data-status="${escapeAttr(opt.id)}" aria-pressed="${on}">
+      ${escapeHtml(opt.label)}
+      <span>${count}</span>
+    </button>`;
+  }).join('');
+  els.trackerTabs.querySelectorAll('[data-status]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.status;
+      if (state.trackerVisibleColumns.has(id)) {
+        if (state.trackerVisibleColumns.size === 1) return;
+        state.trackerVisibleColumns.delete(id);
+      } else {
+        state.trackerVisibleColumns.add(id);
+      }
+      onTrackerStatusChange();
+    });
+  });
+}
+
+function renderTracker() {
+  if (!els.trackerList) return;
+  renderTrackerTabs();
+  const items = filteredTrackerItems();
+  const visibleCount = (state.trackerItems || []).filter((item) =>
+    state.trackerVisibleColumns.has(item.decision),
+  ).length;
+  const q = (els.trackerSearch?.value || '').trim();
+  if (els.trackerMeta) {
+    if (!visibleCount) {
+      els.trackerMeta.textContent = 'Applications you mark from Results land here — newest first.';
+    } else if (q) {
+      els.trackerMeta.textContent = `${items.length} of ${visibleCount} match “${q}” · newest first`;
+    } else {
+      els.trackerMeta.textContent = `${visibleCount} in view · newest first. Not the search archive.`;
+    }
+  }
+
+  if (!items.length) {
+    const emptyTitle = q ? 'No matches' : 'Nothing in these statuses';
+    const emptyBody = q
+      ? 'Try a different company or title, or turn on another status above.'
+      : 'Shortlist a posting or mark it Applied from Results.';
+    els.trackerList.innerHTML = `<div class="empty tracker-empty"><h3>${escapeHtml(emptyTitle)}</h3><p>${escapeHtml(emptyBody)}</p></div>`;
+    return;
+  }
+
+  const head = `<div class="tracker-row tracker-head" aria-hidden="true">
+    <span>Company</span>
+    <span>Role</span>
+    <span>Date</span>
+    <span>Board</span>
+    <span>Status</span>
+    <span></span>
+  </div>`;
+  els.trackerList.innerHTML = head;
+  const frag = document.createDocumentFragment();
+  for (const item of items) {
+    const title = item.title || item.id;
+    const boardLabel = formatBoard(item.board);
+    const row = document.createElement('article');
+    row.className = `tracker-row is-${item.decision}`;
+    const statusOpts = DECISIONS.map(
+      (d) =>
+        `<option value="${escapeAttr(d)}"${item.decision === d ? ' selected' : ''}>${escapeHtml(
+          DECISION_LABELS[d] || d,
+        )}</option>`,
+    ).join('');
+    row.innerHTML = `
+      <div class="tracker-company">${escapeHtml(item.company || '—')}</div>
+      <div class="tracker-role">
+        ${
+          item.url
+            ? `<a href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
+            : `<span>${escapeHtml(title)}</span>`
+        }
+      </div>
+      <div class="tracker-date">${escapeHtml(formatShortDate(item.date) || '—')}</div>
+      <div class="tracker-board">${escapeHtml(boardLabel || '—')}${
+        item.ats?.label
+        && item.ats.id !== 'unknown'
+        && item.ats.label.toLowerCase() !== boardLabel.toLowerCase()
+          ? ` · ${escapeHtml(item.ats.label)}`
+          : ''
+      }</div>
+      <label class="tracker-status">
+        <span class="visually-hidden">Status</span>
+        <select data-status>${statusOpts}</select>
+      </label>
+      <div class="tracker-actions">
+        ${
+          item.url
+            ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
+               <button type="button" class="btn small" data-fill>Fill</button>
+               <a class="btn small" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`
+            : ''
+        }
+        ${
+          item.prepPath
+            ? `<a class="btn small" href="/api/prep/${encodeURIComponent(item.id)}/cv.html" target="_blank" rel="noopener">CV</a>`
+            : ''
+        }
+      </div>
+    `;
+    row.querySelector('[data-copy-pack]')?.addEventListener('click', async () => {
+      try {
+        await copyApplyPack(item);
+      } catch (err) {
+        appendLog(`Copy pack failed: ${err.message}`, 'stderr');
+      }
+    });
+    row.querySelector('[data-fill]')?.addEventListener('click', async () => {
+      try {
+        await fillApply(item);
+      } catch (err) {
+        appendLog(`Fill failed: ${err.message}`, 'stderr');
+      }
+    });
+    row.querySelector('[data-status]')?.addEventListener('change', async (ev) => {
+      const next = ev.target.value;
+      if (next === item.decision) return;
+      try {
+        const res = await submitDecision(item.id, next, item);
+        logSheetsResult(res.sheets, `Sheets (${next})`);
+        appendLog(`${title} → ${next}`);
+        await refreshTracker();
+      } catch (err) {
+        ev.target.value = item.decision;
+        appendLog(err.message, 'stderr');
+      }
+    });
+    frag.appendChild(row);
+  }
+  els.trackerList.appendChild(frag);
 }
 
 async function refreshTracker() {
   updateSheetsUi(state.status?.sheets);
-  const data = await api(`/api/tracker?${trackerQuery()}`);
-  if (data.followUps?.length) {
-    const extra = (data.followUpTotal || data.followUps.length) - data.followUps.length;
-    els.followUpBanner.hidden = false;
-    els.followUpBanner.innerHTML = `<strong>Follow-ups due:</strong> ${data.followUps
-      .map((d) => `${escapeHtml(d.title || d.id)} (${escapeHtml(d.followUpDate)})`)
-      .join(' · ')}${extra > 0 ? ` · +${extra} more` : ''}`;
-  } else {
-    els.followUpBanner.hidden = true;
-  }
-
-  els.kanban.innerHTML = '';
-  for (const col of data.valid) {
-    const items = data.columns[col] || [];
-    const total = data.counts?.[col] ?? items.length;
-    const colEl = document.createElement('div');
-    colEl.className = 'kanban-col';
-    colEl.innerHTML = `<h3>${escapeHtml(col)} <span>${items.length === total ? total : `${items.length}/${total}`}</span></h3>`;
-    for (const item of items) {
-      const card = document.createElement('article');
-      card.className = 'kanban-card';
-      const title = item.title || item.id;
-      card.innerHTML = `
-        ${
-          item.url
-            ? `<a class="kanban-card-title" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(title)}</a>`
-            : `<strong class="kanban-card-title">${escapeHtml(title)}</strong>`
-        }
-        <p class="kanban-card-meta">${escapeHtml(item.company || '—')}${item.date ? ` · ${escapeHtml(item.date)}` : ''}${item.prepPath ? ' · prep ready' : ''}</p>
-        <div class="kanban-card-actions">
-          <label class="kanban-status">
-            <span class="visually-hidden">Status</span>
-            <select data-status>
-              ${DECISIONS.map(
-                (d) =>
-                  `<option value="${escapeAttr(d)}"${item.decision === d ? ' selected' : ''}>${escapeHtml(d)}</option>`,
-              ).join('')}
-            </select>
-          </label>
-          <input type="date" aria-label="Follow-up" value="${escapeAttr(item.followUpDate || '')}" />
-        </div>
-      `;
-      card.querySelector('[data-status]')?.addEventListener('change', async (ev) => {
-        const next = ev.target.value;
-        if (next === item.decision) return;
-        try {
-          const res = await submitDecision(item.id, next, item);
-          logSheetsResult(res.sheets, `Sheets (${next})`);
-          appendLog(`${title} → ${next}`);
-          await refreshTracker();
-        } catch (err) {
-          ev.target.value = item.decision;
-          appendLog(err.message, 'stderr');
-        }
-      });
-      card.querySelector('input[type="date"]')?.addEventListener('change', async (ev) => {
-        try {
-          await api('/api/decisions', {
-            method: 'PATCH',
-            body: JSON.stringify({ id: item.id, followUpDate: ev.target.value || null }),
-          });
-          await refreshTracker();
-        } catch (err) {
-          appendLog(err.message, 'stderr');
-        }
-      });
-      colEl.appendChild(card);
-    }
-    if (total > items.length) {
-      const more = document.createElement('button');
-      more.type = 'button';
-      more.className = 'btn ghost small kanban-more';
-      more.textContent = `Show ${total - items.length} more`;
-      more.addEventListener('click', () => {
-        state.trackerExpand.add(col);
-        refreshTracker();
-      });
-      colEl.appendChild(more);
-    }
-    els.kanban.appendChild(colEl);
-  }
+  const data = await api('/api/tracker');
+  state.trackerItems = data.items || [];
+  state.trackerCounts = data.counts || {};
+  renderTracker();
 }
 
 async function refreshAnswers() {
@@ -1502,6 +2341,8 @@ function digestLangVisible(job) {
 async function refreshDigest() {
   const data = await api('/api/digest');
   const jobs = (data.newJobs || []).filter((j) => digestJobVisible(j) && digestLangVisible(j));
+  state.digestJobs = jobs;
+  if (els.batchOpenBtn) els.batchOpenBtn.disabled = !jobs.length && !state.batch?.running;
   els.digestMeta.textContent = data.digest?.generatedAt
     ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
@@ -1556,10 +2397,13 @@ function setView(view) {
   els.viewAnswers.hidden = view !== 'answers';
   els.viewPortals.hidden = view !== 'portals';
   els.viewDigest.hidden = view !== 'digest';
+  if (els.viewReady) els.viewReady.hidden = view !== 'ready';
+  els.layout?.classList.toggle('tracker-wide', view === 'tracker');
   if (view === 'tracker') refreshTracker();
   if (view === 'answers') refreshAnswers();
   if (view === 'portals') refreshPortals();
   if (view === 'digest') refreshDigest();
+  if (view === 'ready') refreshReady();
 }
 
 async function runSearch() {
@@ -1659,6 +2503,7 @@ async function refreshAll() {
   if (state.view === 'tracker') await refreshTracker();
   if (state.view === 'portals') await refreshPortals();
   if (state.view === 'digest') await refreshDigest();
+  if (state.view === 'ready') await refreshReady();
 }
 
 els.runBtn.addEventListener('click', runSearch);
@@ -1668,6 +2513,10 @@ els.searchInput.addEventListener('input', () => {
   state.page = 1;
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => refreshJobs(), 200);
+});
+els.trackerSearch?.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => renderTracker(), 150);
 });
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;
@@ -1703,6 +2552,10 @@ els.nextPage.addEventListener('click', () => {
 els.clearLogBtn.addEventListener('click', () => {
   els.logView.textContent = '';
 });
+els.toggleLogBtn?.addEventListener('click', () => {
+  toggleLogMinimized();
+});
+applyLogMinimized(loadLogMinimized());
 els.sheetsSyncBtn?.addEventListener('click', async () => {
   if (!els.sheetsSyncBtn || els.sheetsSyncBtn.disabled) return;
   els.sheetsSyncBtn.disabled = true;
@@ -1747,6 +2600,44 @@ els.saveAnswersBtn.addEventListener('click', async () => {
     appendLog('Saved answers updated');
   } catch (err) {
     appendLog(err.message, 'stderr');
+  }
+});
+els.copyAnswersBtn?.addEventListener('click', async () => {
+  try {
+    const res = await api('/api/apply-assist/answers');
+    const ok = await copyText(res.text);
+    appendLog(ok ? 'Copied profile + saved answers pack.' : 'Clipboard blocked.', ok ? 'stdout' : 'stderr');
+  } catch (err) {
+    appendLog(`Copy pack failed: ${err.message}`, 'stderr');
+  }
+});
+els.applyAssistClose?.addEventListener('click', () => hideApplyAssistModal());
+els.applyAssistModal?.addEventListener('click', (ev) => {
+  if (ev.target === els.applyAssistModal) hideApplyAssistModal();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && els.applyAssistModal && !els.applyAssistModal.hidden) hideApplyAssistModal();
+});
+els.applyAssistCopy?.addEventListener('click', async () => {
+  const text = applyAssistContext.text || els.applyAssistPack?.textContent || '';
+  const ok = await copyText(text);
+  appendLog(ok ? 'Copied apply pack.' : 'Clipboard blocked.', ok ? 'stdout' : 'stderr');
+});
+els.applyAssistOpen?.addEventListener('click', () => {
+  const url = els.applyAssistOpen?.dataset.url || applyAssistContext.job?.url;
+  if (url) window.open(url, '_blank', 'noopener');
+});
+els.applyAssistOpenFolder?.addEventListener('click', async () => {
+  const id = applyAssistContext.job?.id;
+  if (!id) return;
+  try {
+    const res = await api('/api/prep/open-folder', {
+      method: 'POST',
+      body: JSON.stringify({ id }),
+    });
+    appendLog(`Opened: ${res.folder}`);
+  } catch (err) {
+    appendLog(`Open folder failed: ${err.message}`, 'stderr');
   }
 });
 els.savePortalsBtn.addEventListener('click', async () => {

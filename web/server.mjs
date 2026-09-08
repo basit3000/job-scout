@@ -18,6 +18,7 @@ import {
   loadMarket,
   listMarketIds,
   workspaceDir,
+  pickDescription,
 } from '../scripts/lib/common.mjs';
 import {
   loadDecisions,
@@ -47,6 +48,13 @@ import {
 } from '../scripts/lib/prep.mjs';
 import { cancelCvTailorAgent } from '../scripts/lib/cv-agent.mjs';
 import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
+import { detectAts } from '../scripts/lib/ats.mjs';
+import { buildApplyPack } from '../scripts/lib/apply-pack.mjs';
+import {
+  fillApplyInBrowser,
+  fillAssistPayload,
+  playwrightAvailable,
+} from '../scripts/lib/apply-fill.mjs';
 import {
   BOARD_CATALOG,
   BOARD_IDS,
@@ -57,6 +65,7 @@ import {
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
 import { compareFit, sortJobs } from '../scripts/lib/job-sort.mjs';
 import { detectPostingLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
+import { hydrateJobDescription } from '../scripts/lib/de-portals.mjs';
 import {
   sheetsStatus,
   sheetsUrl,
@@ -104,6 +113,158 @@ const prepState = {
   result: null,
   error: null,
 };
+
+/**
+ * Batch Prep: run writePrepPack for many jobs one after another.
+ * Never opens folders — files land in .workspace/prep/<id>/ and downloads/<Company>/
+ * and the Ready tab picks them up.
+ */
+const batchState = {
+  running: false,
+  stopping: false,
+  startedAt: null,
+  finishedAt: null,
+  mode: 'agent',
+  includeCoverLetter: true,
+  skipExisting: true,
+  currentId: null,
+  /** @type {Array<{id:string,title:string,company:string,status:string,error?:string|null,tailorMode?:string|null,note?:string|null}>} */
+  items: [],
+  clients: new Set(),
+  buffer: [],
+};
+
+const BATCH_ITEM_STATUSES = ['pending', 'running', 'done', 'skipped', 'failed', 'cancelled'];
+
+/** Decisions that mean "no longer worth applying to" — hidden from Ready. */
+const READY_EXCLUDED = new Set(['applied', 'skipped', 'rejected', 'closed']);
+
+function batchSnapshot({ withItems = true } = {}) {
+  const counts = Object.fromEntries(BATCH_ITEM_STATUSES.map((s) => [s, 0]));
+  for (const it of batchState.items) counts[it.status] = (counts[it.status] || 0) + 1;
+  const current = batchState.items.find((it) => it.id === batchState.currentId) || null;
+  const finished = counts.done + counts.skipped + counts.failed + counts.cancelled;
+  return {
+    running: batchState.running,
+    stopping: batchState.stopping,
+    startedAt: batchState.startedAt,
+    finishedAt: batchState.finishedAt,
+    mode: batchState.mode,
+    includeCoverLetter: batchState.includeCoverLetter,
+    skipExisting: batchState.skipExisting,
+    total: batchState.items.length,
+    finished,
+    counts,
+    current: current ? { id: current.id, title: current.title, company: current.company } : null,
+    ...(withItems ? { items: batchState.items } : {}),
+  };
+}
+
+function broadcastBatch(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of [...batchState.clients]) {
+    try {
+      client.write(payload);
+    } catch {
+      batchState.clients.delete(client);
+    }
+  }
+}
+
+function batchLog(line, stream = 'stdout') {
+  const entry = { stream, line: String(line), t: Date.now() };
+  batchState.buffer.push(entry);
+  if (batchState.buffer.length > 1000) batchState.buffer.shift();
+  broadcastBatch('log', entry);
+}
+
+async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
+  const total = batchState.items.length;
+  batchLog(
+    `Batch Prep: ${total} job(s) · ${batchState.mode}${batchState.includeCoverLetter ? ' + cover letter' : ''}${
+      batchState.skipExisting ? ' · skipping jobs that already have files' : ''
+    }`,
+    'meta',
+  );
+  try {
+    for (let i = 0; i < batchState.items.length; i += 1) {
+      const item = batchState.items[i];
+      if (batchState.stopping) {
+        item.status = 'cancelled';
+        continue;
+      }
+      const job = jobsById.get(item.id);
+      if (!job) {
+        item.status = 'failed';
+        item.error = 'Job not found in archive';
+        broadcastBatch('progress', batchSnapshot());
+        continue;
+      }
+
+      item.status = 'running';
+      batchState.currentId = item.id;
+      broadcastBatch('progress', batchSnapshot());
+      batchLog(`[${i + 1}/${total}] ${job.company || '—'} — ${job.title}`, 'meta');
+
+      try {
+        if (batchState.skipExisting) {
+          const flags = prepFlagsForJob(await loadPrepFlagsIndex(), job.id);
+          const hasAll = flags.tailoredPdf && (!batchState.includeCoverLetter || flags.coverLetter);
+          if (hasAll) {
+            item.status = 'skipped';
+            item.note = 'already has files';
+            batchLog(`  skipped — CV${batchState.includeCoverLetter ? ' + letter' : ''} already exist`, 'meta');
+            continue;
+          }
+        }
+        const fit = job.fit || scoreJob(job, profile);
+        const pack = await writePrepPack(job, profile, fit, saved, {
+          recreate: true,
+          useCache: false,
+          extraInstructions,
+          tailorMode: batchState.mode,
+          includeCoverLetter: batchState.includeCoverLetter,
+          onEvent: (entry) => batchLog(`  ${entry.line}`, entry.stream),
+        });
+        try {
+          await attachPrepPath(job, pack);
+        } catch {
+          /* decision optional */
+        }
+        item.status = 'done';
+        item.tailorMode = pack?.tailorMode || batchState.mode;
+        if (batchState.stopping && pack?.fallbackReason) {
+          item.note = 'agent stopped — Fast fallback written';
+        } else if (pack?.fallbackReason) {
+          item.note = `Fast fallback (${pack.fallbackReason})`;
+        }
+        if (pack?.coverLetterError) item.note = `letter failed: ${pack.coverLetterError}`;
+        batchLog(`  done (${item.tailorMode})`, 'ok');
+      } catch (err) {
+        const message = err?.message || String(err);
+        item.status = batchState.stopping ? 'cancelled' : 'failed';
+        item.error = message;
+        batchLog(`  ${item.status}: ${message}`, 'stderr');
+      } finally {
+        invalidateJobsCache();
+        batchState.currentId = null;
+        broadcastBatch('progress', batchSnapshot());
+      }
+    }
+  } finally {
+    batchState.running = false;
+    batchState.finishedAt = new Date().toISOString();
+    batchState.currentId = null;
+    const snap = batchSnapshot();
+    batchLog(
+      `Batch Prep finished: ${snap.counts.done} done · ${snap.counts.skipped} skipped · ${snap.counts.failed} failed · ${snap.counts.cancelled} cancelled`,
+      snap.counts.failed ? 'stderr' : 'ok',
+    );
+    batchState.stopping = false;
+    invalidateJobsCache();
+    broadcastBatch('done', batchSnapshot());
+  }
+}
 
 /** Save the prep folder on an existing ruling. Do not invent shortlisted. */
 async function attachPrepPath(job, pack) {
@@ -184,12 +345,55 @@ async function stopFetch() {
   return true;
 }
 
-function json(res, status, body) {
+function json(res, status, body, extraHeaders = {}) {
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'cache-control': 'no-store',
+    ...extraHeaders,
   });
   res.end(JSON.stringify(body));
+}
+
+const CORS_APPLY = {
+  'access-control-allow-origin': '*',
+  'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-allow-headers': 'content-type',
+};
+
+const applyAssistState = { latest: null };
+
+async function applyPackForJobId(id, jobHint = null) {
+  const enriched = await enrichJobs();
+  let job = enriched.jobs.find((j) => j.id === id) || null;
+  if (!job && jobHint && typeof jobHint === 'object') {
+    job = {
+      id,
+      title: jobHint.title || '',
+      company: jobHint.company || '',
+      url: jobHint.url || '',
+      board: jobHint.board || '',
+    };
+  }
+  if (!job) {
+    const decisions = await loadDecisions();
+    const entry = (decisions.decisions ?? []).find((d) => d.id === id);
+    if (entry) {
+      job = {
+        id,
+        title: entry.title || '',
+        company: entry.company || '',
+        url: entry.url || '',
+        board: entry.board || '',
+      };
+    }
+  }
+  if (!job) return { error: 'Job not found' };
+  const profile = await loadJson(join(ROOT, 'profile.json'), null);
+  if (!profile) return { error: 'profile.json required' };
+  const answers = await loadSavedAnswers();
+  const pack = buildApplyPack({ job, profile, answers });
+  applyAssistState.latest = pack;
+  return { pack };
 }
 
 function sseSend(res, event, data) {
@@ -256,11 +460,6 @@ async function getStatus() {
     market = { id: config.market ?? null, name: null };
   }
   const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
-  const decisions = await loadDecisions();
-  const today = new Date().toISOString().slice(0, 10);
-  const followUpsDue = (decisions.decisions ?? []).filter(
-    (d) => d.followUpDate && d.followUpDate <= today && ['applied', 'shortlisted', 'interviewing'].includes(d.decision),
-  );
   const enabledBoards = selectedBoardIds(config.boards?.length ? config.boards : market?.boards);
   const titles = (profile?.search?.titles ?? []).filter((t) => t && !String(t).startsWith('YOUR_'));
   const configCities = (config.cities ?? []).filter((c) => c?.where);
@@ -269,6 +468,12 @@ async function getStatus() {
   const titleCount = titles.length || 0;
   const boardCount = enabledBoards.length || 0;
   const queriesPerBoard = titleCount * cityCount;
+  let readyCount = 0;
+  try {
+    readyCount = (await enrichJobs()).jobs.filter(jobIsReady).length;
+  } catch {
+    /* archive unreadable — badge stays 0 */
+  }
   return {
     marketId: market?.id ?? config.market ?? null,
     marketName: market?.name ?? null,
@@ -283,8 +488,9 @@ async function getStatus() {
     prepRunning: Boolean(prepState.running),
     prepJobId: prepState.jobId,
     prepStartedAt: prepState.startedAt,
+    batch: batchSnapshot({ withItems: false }),
+    readyCount,
     digestNewCount: digest?.newCount ?? 0,
-    followUpsDue: followUpsDue.length,
     enabledBoards,
     limitPerQuery: Number(config.limitPerQuery ?? 25),
     maxApifyRuns: Number(config.maxApifyRuns ?? 8),
@@ -299,6 +505,11 @@ async function getStatus() {
     overleaf: overleafStatus(),
     sheets: await sheetsStatus(),
   };
+}
+
+function jobIsReady(job) {
+  if (!(job.tailoredCv || job.tailoredPdf || job.coverLetter)) return false;
+  return !READY_EXCLUDED.has(job.decision?.decision || '');
 }
 
 /** List responses must stay small — full archive+descriptions made every filter change ~1.5MB. */
@@ -322,6 +533,19 @@ let jobsEnrichCache = { at: 0, data: null, inflight: null };
 
 function invalidateJobsCache() {
   jobsEnrichCache = { at: 0, data: null, inflight: null };
+}
+
+async function persistJobDescription(id, description) {
+  const path = join(workspaceDir(), 'jobs.json');
+  const data = await loadJson(path, null);
+  if (!data?.jobs) return false;
+  const job = data.jobs.find((j) => j.id === id);
+  if (!job) return false;
+  job.description = pickDescription(description);
+  if (!job.description) return false;
+  await writeFile(path, `${JSON.stringify(data, null, 2)}\n`);
+  invalidateJobsCache();
+  return true;
 }
 
 async function enrichJobs({ force = false } = {}) {
@@ -365,6 +589,7 @@ async function enrichJobs({ force = false } = {}) {
         fit,
         isNew: newSet.has(job.id),
         ...flags,
+        ats: detectAts(job.url),
         prepPath:
           decision?.prepPath
           || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
@@ -414,6 +639,11 @@ function paginate(items, url) {
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
+
+  if (req.method === 'OPTIONS' && path.startsWith('/api/apply-assist')) {
+    res.writeHead(204, CORS_APPLY);
+    return res.end();
+  }
 
   if (req.method === 'GET' && path === '/api/status') {
     return json(res, 200, await getStatus());
@@ -535,6 +765,13 @@ async function handleApi(req, res, url) {
     const enriched = await enrichJobs();
     const job = enriched.jobs.find((j) => j.id === id);
     if (!job) return json(res, 404, { error: 'Job not found' });
+    if (!String(job.description || '').trim()) {
+      const text = await hydrateJobDescription(job);
+      if (text) {
+        await persistJobDescription(job.id, text).catch(() => false);
+        job.description = text;
+      }
+    }
     return json(res, 200, { job });
   }
 
@@ -548,31 +785,29 @@ async function handleApi(req, res, url) {
     });
   }
 
+  // Jobs with a tailored CV and/or cover letter that are still open to apply to.
+  if (req.method === 'GET' && path === '/api/ready') {
+    const enriched = await enrichJobs();
+    let list = enriched.jobs.filter(jobIsReady);
+    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+    if (q) {
+      list = list.filter((j) => `${j.title} ${j.company} ${j.location || ''}`.toLowerCase().includes(q));
+    }
+    const counts = { both: 0, cvOnly: 0, letterOnly: 0 };
+    for (const j of list) {
+      if (j.tailoredCv && j.coverLetter) counts.both += 1;
+      else if (j.tailoredCv) counts.cvOnly += 1;
+      else counts.letterOnly += 1;
+    }
+    return json(res, 200, { jobs: list.map(toJobListItem), total: list.length, counts });
+  }
+
   if (req.method === 'GET' && path === '/api/tracker') {
     const decisions = await loadDecisions();
-    const hideParam = (url.searchParams.get('hide') || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const hideSet = new Set(hideParam);
-    const preferred = ['shortlisted', 'applied', 'interviewing'];
-    const visible = [
-      ...preferred.filter((d) => VALID_DECISIONS.includes(d) && !hideSet.has(d)),
-      ...VALID_DECISIONS.filter((d) => !preferred.includes(d) && !hideSet.has(d)),
-    ];
-    const columns = Object.fromEntries(visible.map((d) => [d, []]));
-    const counts = Object.fromEntries(visible.map((d) => [d, 0]));
-    const limit = Math.min(40, Math.max(4, Number(url.searchParams.get('limit') || 8)));
-    const expand = new Set(
-      (url.searchParams.get('expand') || '')
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean),
-    );
-
+    const counts = Object.fromEntries(VALID_DECISIONS.map((d) => [d, 0]));
     const missing = [];
     for (const d of decisions.decisions ?? []) {
-      if (!columns[d.decision]) continue;
+      if (!VALID_DECISIONS.includes(d.decision)) continue;
       counts[d.decision] += 1;
       if (!d.title || !d.company) missing.push(d.id);
     }
@@ -593,10 +828,11 @@ async function handleApi(req, res, url) {
       }
     }
 
+    const items = [];
     for (const d of decisions.decisions ?? []) {
-      if (!columns[d.decision]) continue;
+      if (!VALID_DECISIONS.includes(d.decision)) continue;
       const extra = snippets.get(d.id) || {};
-      columns[d.decision].push({
+      items.push({
         id: d.id,
         decision: d.decision,
         date: d.date || '',
@@ -604,36 +840,21 @@ async function handleApi(req, res, url) {
         company: d.company || extra.company || '',
         url: d.url || extra.url || '',
         board: d.board || extra.board || '',
-        followUpDate: d.followUpDate || null,
+        ats: detectAts(d.url || extra.url || ''),
         prepPath: d.prepPath || null,
       });
     }
+    items.sort((a, b) => {
+      const byDate = String(b.date || '').localeCompare(String(a.date || ''));
+      if (byDate) return byDate;
+      return String(a.company || '').localeCompare(String(b.company || ''));
+    });
 
-    for (const col of visible) {
-      if (!expand.has(col) && columns[col].length > limit) {
-        columns[col] = columns[col].slice(0, limit);
-      }
-    }
-
-    const today = new Date().toISOString().slice(0, 10);
-    const followUpsDue = (decisions.decisions ?? []).filter(
-      (d) => d.followUpDate && d.followUpDate <= today && !hideSet.has(d.decision),
-    );
     return json(res, 200, {
-      columns,
+      items,
       counts,
-      limit,
-      followUps: followUpsDue.slice(0, 8).map((d) => ({
-        id: d.id,
-        title: d.title || d.id,
-        company: d.company || '',
-        followUpDate: d.followUpDate,
-        decision: d.decision,
-      })),
-      followUpTotal: followUpsDue.length,
-      valid: visible,
-      allValid: VALID_DECISIONS,
-      hidden: [...hideSet],
+      total: items.length,
+      valid: VALID_DECISIONS,
     });
   }
 
@@ -719,7 +940,90 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true, answers });
   }
 
+  if (req.method === 'GET' && path === '/api/apply-assist/latest') {
+    if (!applyAssistState.latest) {
+      return json(res, 404, { error: 'No apply pack yet — Copy pack or Fill on a job first.' }, CORS_APPLY);
+    }
+    return json(res, 200, fillAssistPayload(applyAssistState.latest), CORS_APPLY);
+  }
+
+  if (req.method === 'GET' && path === '/api/apply-assist/answers') {
+    const profile = await loadJson(join(ROOT, 'profile.json'), null);
+    if (!profile) return json(res, 400, { error: 'profile.json required' });
+    const answers = await loadSavedAnswers();
+    const pack = buildApplyPack({ job: {}, profile, answers });
+    return json(res, 200, { ok: true, text: pack.text, pack });
+  }
+
+  if (req.method === 'GET' && path === '/api/apply-assist') {
+    const id = (url.searchParams.get('id') || '').trim();
+    if (!id) return json(res, 400, { error: 'id is required' });
+    const loaded = await applyPackForJobId(id);
+    if (loaded.error) return json(res, 404, { error: loaded.error });
+    return json(res, 200, {
+      ok: true,
+      ...fillAssistPayload(loaded.pack),
+      playwright: await playwrightAvailable(),
+    }, CORS_APPLY);
+  }
+
+  if (req.method === 'POST' && path === '/api/apply-assist') {
+    const body = await readBody(req);
+    const id = String(body.id || '').trim();
+    if (!id) return json(res, 400, { error: 'id is required' });
+    const loaded = await applyPackForJobId(id, body.job);
+    if (loaded.error) return json(res, 404, { error: loaded.error });
+    return json(res, 200, {
+      ok: true,
+      ...fillAssistPayload(loaded.pack),
+      playwright: await playwrightAvailable(),
+    }, CORS_APPLY);
+  }
+
+  if (req.method === 'POST' && path === '/api/apply-assist/fill') {
+    const body = await readBody(req);
+    const id = String(body.id || '').trim();
+    if (!id) return json(res, 400, { error: 'id is required' });
+    const loaded = await applyPackForJobId(id, body.job);
+    if (loaded.error) return json(res, 404, { error: loaded.error });
+    const payload = fillAssistPayload(loaded.pack);
+    if (!(await playwrightAvailable())) {
+      return json(res, 200, {
+        ok: true,
+        launched: false,
+        reason: 'playwright-core is missing — run npm install, then retry Fill.',
+        playwright: false,
+        ...payload,
+      });
+    }
+    try {
+      const settings = await loadCvSettings();
+      const fill = await fillApplyInBrowser(loaded.pack, {
+        agentProvider: settings.agentProvider,
+        agentModel: settings.agentModel,
+      });
+      return json(res, 200, {
+        ok: fill.ok !== false,
+        launched: true,
+        fill,
+        playwright: true,
+        ...payload,
+      });
+    } catch (err) {
+      return json(res, 200, {
+        ok: false,
+        launched: false,
+        reason: err.message || String(err),
+        playwright: true,
+        ...payload,
+      });
+    }
+  }
+
   if (req.method === 'POST' && path === '/api/prep') {
+    if (batchState.running) {
+      return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
+    }
     const body = await readBody(req);
     const enriched = await enrichJobs();
     const job = enriched.jobs.find((j) => j.id === body.id);
@@ -733,6 +1037,7 @@ async function handleApi(req, res, url) {
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
     const mode = body.mode === 'fast' ? 'fast' : 'agent';
+    const includeCoverLetter = body.includeCoverLetter !== false;
 
     // Cached pack: skip rebuild unless recreate (sync)
     if (!recreate && (await hasCachedPdfs(job.id))) {
@@ -741,6 +1046,7 @@ async function handleApi(req, res, url) {
         recreate: false,
         extraInstructions,
         tailorMode: mode,
+        includeCoverLetter,
       });
       invalidateJobsCache();
       return json(res, 200, { ok: true, cached: true, pack, fit });
@@ -753,6 +1059,7 @@ async function handleApi(req, res, url) {
         useCache: false,
         extraInstructions,
         tailorMode: 'fast',
+        includeCoverLetter,
       });
       try {
         await attachPrepPath(job, pack);
@@ -781,7 +1088,7 @@ async function handleApi(req, res, url) {
     // Background agent (default) — client listens on /api/prep/stream
     void (async () => {
       try {
-        prepLog(`Prep & CV starting for ${job.title} @ ${job.company} — staging first, then the agent`, 'meta');
+        prepLog(`Prep starting for ${job.title} @ ${job.company} — staging first, then the agent`, 'meta');
         if (!cursorAgentAvailable()) {
           prepLog('CURSOR_API_KEY missing — will fall back to Fast after attempt check.', 'stderr');
         }
@@ -790,6 +1097,7 @@ async function handleApi(req, res, url) {
           useCache: false,
           extraInstructions,
           tailorMode: 'agent',
+          includeCoverLetter,
           onEvent: (entry) => {
             prepState.buffer.push(entry);
             if (prepState.buffer.length > 800) prepState.buffer.shift();
@@ -862,6 +1170,92 @@ async function handleApi(req, res, url) {
     });
   }
 
+  // ---- Batch Prep -------------------------------------------------------
+  if (req.method === 'GET' && path === '/api/prep/batch') {
+    return json(res, 200, batchSnapshot());
+  }
+
+  if (req.method === 'POST' && path === '/api/prep/batch') {
+    const body = await readBody(req);
+    const ids = Array.isArray(body.ids)
+      ? [...new Set(body.ids.map((x) => String(x || '').trim()).filter(Boolean))]
+      : [];
+    if (!ids.length) return json(res, 400, { error: 'Select at least one job' });
+    if (ids.length > 200) return json(res, 400, { error: 'At most 200 jobs per batch' });
+    if (batchState.running) {
+      return json(res, 409, { error: 'A batch is already running', batch: batchSnapshot({ withItems: false }) });
+    }
+    if (prepState.running) {
+      return json(res, 409, { error: 'A single Prep run is in progress — wait for it to finish', jobId: prepState.jobId });
+    }
+    const profile = await loadJson(join(ROOT, 'profile.json'), null);
+    if (!profile) return json(res, 400, { error: 'profile.json required' });
+    const enriched = await enrichJobs();
+    const jobsById = new Map(enriched.jobs.map((j) => [j.id, j]));
+    const missing = ids.filter((id) => !jobsById.has(id));
+    if (missing.length === ids.length) return json(res, 404, { error: 'None of the selected jobs are in the archive' });
+    const saved = await loadSavedAnswers();
+    const extraInstructions = typeof body.extraInstructions === 'string'
+      ? body.extraInstructions.trim().slice(0, 500)
+      : '';
+
+    batchState.running = true;
+    batchState.stopping = false;
+    batchState.startedAt = new Date().toISOString();
+    batchState.finishedAt = null;
+    batchState.mode = body.mode === 'fast' ? 'fast' : 'agent';
+    batchState.includeCoverLetter = body.includeCoverLetter !== false;
+    batchState.skipExisting = body.skipExisting !== false;
+    batchState.currentId = null;
+    batchState.buffer = [];
+    batchState.items = ids.map((id) => {
+      const j = jobsById.get(id);
+      return {
+        id,
+        title: j?.title || '',
+        company: j?.company || '',
+        status: 'pending',
+        error: null,
+        tailorMode: null,
+        note: null,
+      };
+    });
+
+    void runPrepBatch(jobsById, profile, saved, { extraInstructions });
+    return json(res, 202, { ok: true, started: true, stream: '/api/prep/batch/stream', batch: batchSnapshot() });
+  }
+
+  if (req.method === 'POST' && path === '/api/prep/batch/stop') {
+    if (!batchState.running) {
+      return json(res, 200, { ok: true, stopped: false, message: 'No batch running', batch: batchSnapshot({ withItems: false }) });
+    }
+    batchState.stopping = true;
+    const cancelled = await cancelCvTailorAgent();
+    batchLog(
+      cancelled
+        ? 'Stop requested — cancelling the current agent run; remaining jobs will be skipped.'
+        : 'Stop requested — finishing the current job, then stopping.',
+      'stderr',
+    );
+    broadcastBatch('progress', batchSnapshot());
+    return json(res, 200, { ok: true, stopped: true, cancelledAgent: cancelled, batch: batchSnapshot({ withItems: false }) });
+  }
+
+  if (req.method === 'GET' && path === '/api/prep/batch/stream') {
+    res.writeHead(200, {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      connection: 'keep-alive',
+    });
+    res.write(': connected\n\n');
+    sseSend(res, 'status', batchSnapshot());
+    for (const entry of batchState.buffer) sseSend(res, 'log', entry);
+    if (!batchState.running && batchState.finishedAt) sseSend(res, 'done', batchSnapshot());
+    batchState.clients.add(res);
+    req.on('close', () => batchState.clients.delete(res));
+    return;
+  }
+
   if (req.method === 'POST' && path === '/api/prep/stop') {
     if (!prepState.running) {
       return json(res, 200, { ok: true, stopped: false, message: 'No prep run in progress' });
@@ -912,6 +1306,9 @@ async function handleApi(req, res, url) {
 
   // POST /api/cover-letter { id, mode, extraInstructions }
   if (req.method === 'POST' && path === '/api/cover-letter') {
+    if (batchState.running) {
+      return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
+    }
     const body = await readBody(req);
     const enriched = await enrichJobs();
     const job = enriched.jobs.find((j) => j.id === body.id);
@@ -1372,8 +1769,10 @@ async function serveStatic(req, res, url) {
     const s = await stat(filePath);
     if (!s.isFile()) throw new Error('not a file');
   } catch {
-    if (rel !== '/index.html') return serveFile(res, join(PUBLIC, 'index.html'));
-    res.writeHead(404);
+    // Unknown asset (has an extension, e.g. /favicon.ico) → real 404.
+    // Unknown route (no extension) → index.html so the SPA can load.
+    if (rel !== '/index.html' && !extname(rel)) return serveFile(res, join(PUBLIC, 'index.html'));
+    res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
     return res.end('Not found');
   }
   return serveFile(res, filePath);

@@ -40,6 +40,10 @@ import {
   normalizeBoardEntry,
 } from './lib/boards.mjs';
 import { fetchGermanyPortal } from './lib/de-portals.mjs';
+import {
+  apifyDatePostedAttempts,
+  mapIndeedDatePosted,
+} from './lib/date-posted.mjs';
 
 loadDotEnv();
 
@@ -82,16 +86,6 @@ function armStopHandlers() {
   };
   process.on('SIGINT', ask);
   process.on('SIGTERM', ask);
-}
-
-/** factden/indeed-jobs-scraper only accepts "", "1", "3", "7", "14". */
-function mapIndeedDatePosted(maxAgeDays) {
-  const days = Number(maxAgeDays ?? 30);
-  if (!Number.isFinite(days) || days <= 0) return '';
-  if (days <= 1) return '1';
-  if (days <= 3) return '3';
-  if (days <= 7) return '7';
-  return '14';
 }
 
 function buildApifyBoards(market) {
@@ -138,17 +132,20 @@ function buildApifyBoards(market) {
     linkedin: {
       actor: 'sourabhbgp/linkedin-jobs-scraper',
       enabled: true,
-      buildInput: (query, { limit, boardConfig }) => ({
-        mode: 'search',
-        keywords: query.what,
-        location: query.where || market.name,
-        maxResults: limit,
-        // Search listings omit the JD. Override via boardConfig.input.enrichDetails.
-        enrichDetails: true,
-        datePosted: 'pastMonth',
-        sortBy: 'recent',
-        ...(boardConfig.input ?? {}),
-      }),
+      buildInput: (query, { limit, boardConfig, datePosted }) => {
+        const { datePosted: _pin, ...extra } = boardConfig.input ?? {};
+        return {
+          mode: 'search',
+          keywords: query.what,
+          location: query.where || market.name,
+          maxResults: limit,
+          // Search listings omit the JD. Override via boardConfig.input.enrichDetails.
+          enrichDetails: true,
+          datePosted: datePosted || 'pastWeek',
+          sortBy: 'recent',
+          ...extra,
+        };
+      },
       mapItem: (j) => ({
         board: 'linkedin',
         via: 'apify',
@@ -174,20 +171,22 @@ function buildApifyBoards(market) {
     indeed: {
       actor: 'factden/indeed-jobs-scraper',
       enabled: true,
-      buildInput: (query, { limit, maxAgeDays, boardConfig }) => {
+      buildInput: (query, { limit, maxAgeDays, boardConfig, datePosted }) => {
         const { datePosted: datePostedOverride, ...extra } = boardConfig.input ?? {};
         const allowed = new Set(['', '1', '3', '7', '14']);
-        const datePosted =
-          datePostedOverride != null && allowed.has(String(datePostedOverride))
-            ? String(datePostedOverride)
-            : mapIndeedDatePosted(maxAgeDays);
+        const resolved =
+          datePosted != null && allowed.has(String(datePosted))
+            ? String(datePosted)
+            : datePostedOverride != null && allowed.has(String(datePostedOverride))
+              ? String(datePostedOverride)
+              : mapIndeedDatePosted(maxAgeDays);
         return {
           query: query.what,
           location: query.where || market.defaultLocation,
           country: market.indeedCountryCode,
           maxItems: limit,
           radius: query.radiusKm ?? market.defaultRadiusKm ?? 50,
-          datePosted,
+          datePosted: resolved,
           ...extra,
         };
       },
@@ -364,9 +363,10 @@ function buildQueriesFromProfile(profile, config, boardConfig, market) {
   if (boardConfig.queriesFromProfile === false && Array.isArray(config.queries)) return config.queries;
 
   const titles = (profile.search?.titles ?? []).filter((t) => t && !isPlaceholder(t));
+  const boardCities = (boardConfig.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
   const configCities = (config.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
   const marketCities = (market.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
-  const cities = configCities.length ? configCities : marketCities;
+  const cities = boardCities.length ? boardCities : (configCities.length ? configCities : marketCities);
   const targets = (profile.location?.targets ?? []).filter((t) => t && !isPlaceholder(t));
 
   const wheres = cities.length
@@ -550,6 +550,8 @@ async function main() {
 
   /** First persist with --replace wipes; later checkpoints merge into what we wrote. */
   let wipeOnce = REPLACE_RESULTS;
+  let queryIndex = 0;
+  let stoppedEarly = false;
 
   async function persistResults({ quiet = false, stopped = false } = {}) {
     const { kept, dropped } = applyFilters(collected, filters, decided, market);
@@ -650,8 +652,6 @@ async function main() {
     return meta;
   }
 
-  let queryIndex = 0;
-  let stoppedEarly = false;
   boardLoop: for (const { boardConfig, board, queries } of boardPlans) {
     if (isStopRequested()) {
       stoppedEarly = true;
@@ -704,27 +704,44 @@ async function main() {
 
       const runApify = async () => {
         if (!canApify) return false;
-        if (maxApifyRuns > 0 && apifyRunsUsed >= maxApifyRuns) {
-          failure = `apify: hit maxApifyRuns (${maxApifyRuns})`;
-          console.log(`  (${queryIndex}/${totalQueries}) ${label} apify skipped — cap ${maxApifyRuns} reached`);
-          return false;
+        const attempts = apifyDatePostedAttempts(board, opts.maxAgeDays, boardConfig);
+        for (let i = 0; i < attempts.length; i += 1) {
+          if (maxApifyRuns > 0 && apifyRunsUsed >= maxApifyRuns) {
+            failure = `apify: hit maxApifyRuns (${maxApifyRuns})`;
+            console.log(`  (${queryIndex}/${totalQueries}) ${label} apify skipped — cap ${maxApifyRuns} reached`);
+            return false;
+          }
+          const datePosted = attempts[i];
+          const windowLabel = datePosted != null && datePosted !== '' ? ` ${datePosted}` : '';
+          const widen = i > 0 ? ' (wider — previous window empty)' : '';
+          process.stdout.write(`  (${queryIndex}/${totalQueries}) ${label} via apify${windowLabel}${widen}… `);
+          apifyRunsUsed += 1;
+          try {
+            const jobs = await fetchViaApify(
+              board,
+              query,
+              { ...opts, datePosted },
+              market,
+              apifyBoards,
+            );
+            for (const job of jobs) collected.push(job);
+            count += jobs.length;
+            via = 'apify';
+            usedApify = true;
+            if (jobs.length) {
+              queryGotJobs = true;
+              console.log(`${jobs.length} job(s) [${apifyRunsUsed}${maxApifyRuns ? `/${maxApifyRuns}` : ''} paid]`);
+              return true;
+            }
+            console.log(`0 job(s) [${apifyRunsUsed}${maxApifyRuns ? `/${maxApifyRuns}` : ''} paid]`);
+          } catch (err) {
+            failure = `apify: ${err.message}`;
+            console.log(`failed (${err.message})`);
+            usedApify = true;
+            return false;
+          }
         }
-        process.stdout.write(`  (${queryIndex}/${totalQueries}) ${label} via apify… `);
-        apifyRunsUsed += 1;
-        try {
-          const jobs = await fetchViaApify(board, query, opts, market, apifyBoards);
-          for (const job of jobs) collected.push(job);
-          count += jobs.length;
-          if (jobs.length) queryGotJobs = true;
-          via = 'apify';
-          usedApify = true;
-          console.log(`${jobs.length} job(s) [${apifyRunsUsed}${maxApifyRuns ? `/${maxApifyRuns}` : ''} paid]`);
-          return true;
-        } catch (err) {
-          failure = `apify: ${err.message}`;
-          console.log(`failed (${err.message})`);
-          return false;
-        }
+        return false;
       };
 
       const runJobspy = async () => {

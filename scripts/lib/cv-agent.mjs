@@ -18,7 +18,7 @@ import {
   formatFinishLine,
 } from './cv-agent-log.mjs';
 import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs';
-import { styleRulesMarkdown, LETTER_LIMITS } from './cv-style.mjs';
+import { styleRulesMarkdown, LETTER_LIMITS, WRITING_RULES_GENERIC, WRITING_RULES_LOCAL } from './cv-style.mjs';
 import { snapshotCvSources } from './cv-verify.mjs';
 
 let activeRun = null;
@@ -93,7 +93,7 @@ export function resolveAgentModel(raw, provider = DEFAULT_AGENT_PROVIDER) {
   return { id };
 }
 
-/** @deprecated use agentRunnerAvailable — kept for older imports */
+/** Sync check for CURSOR_API_KEY. Full backend status is agentRunnerAvailable. */
 export function cursorAgentAvailable() {
   return Boolean(process.env.CURSOR_API_KEY?.trim());
 }
@@ -130,10 +130,6 @@ export async function resolveProviderBinary(provider) {
   return null;
 }
 
-/**
- * Whether the chosen agent backend can start a run.
- * @param {string} [provider]
- */
 export async function agentRunnerAvailable(provider) {
   const p = normalizeAgentProvider(provider);
   if (p === 'cursor') {
@@ -169,9 +165,6 @@ export async function agentRunnerAvailable(provider) {
   return { provider: p, ok: false, detail: 'Unknown provider' };
 }
 
-/**
- * Status for all providers (UI).
- */
 export async function listAgentProvidersStatus() {
   const out = [];
   for (const p of AGENT_PROVIDERS) {
@@ -181,9 +174,6 @@ export async function listAgentProvidersStatus() {
   return out;
 }
 
-/**
- * Model catalog for a provider.
- */
 export async function listAgentModels(provider) {
   const p = normalizeAgentProvider(provider);
   if (p === 'claude-code') {
@@ -221,10 +211,6 @@ export async function listAgentModels(provider) {
       error: err?.message || String(err),
     };
   }
-}
-
-export function personalCvSkillPresent() {
-  return existsSync(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'SKILL.md'));
 }
 
 const LOCAL_AGENT_RULES = join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md');
@@ -823,9 +809,6 @@ async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvS
   }
 }
 
-/**
- * Run Prep & CV tailor with the configured agent backend.
- */
 export async function runCvTailorAgent({
   job,
   prepDir,
@@ -924,10 +907,8 @@ export async function runCvTailorAgent({
   }
 
   // The personal overlay's writing rules win when present; the generic skill's otherwise.
-  const writingRulesRel = [
-    '.agents/skills/cv-tailor.local/references/writing-rules.md',
-    '.agents/skills/cv-tailor/references/writing-rules.md',
-  ].find((rel) => existsSync(join(ROOT, rel))) || '';
+  const writingRulesRel = [WRITING_RULES_LOCAL, WRITING_RULES_GENERIC]
+    .find((rel) => existsSync(join(ROOT, rel))) || '';
 
   const cvMdAbs = join(prepDir, 'cv.md');
   const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md` : '';

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { workspaceDir } from './common.mjs';
+import { prepDir } from './common.mjs';
 import { detectAts } from './ats.mjs';
 import { cvFileBaseName, downloadsRoot, safeFolderName } from './cv-downloads.mjs';
 
@@ -20,10 +20,6 @@ export function splitName(fullName) {
     lastName: parts.slice(1).join(' '),
     fullName: parts.join(' '),
   };
-}
-
-function prepDir(jobId) {
-  return join(workspaceDir(), 'prep', String(jobId).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120));
 }
 
 function pickExisting(...paths) {

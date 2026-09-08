@@ -365,10 +365,6 @@ export async function sheetsStatus() {
   };
 }
 
-export async function migrateSheetLayout() {
-  return ensureLayout();
-}
-
 async function ensureLayout() {
   const tab = sheetsTabName();
   const data = await sheetsFetch(

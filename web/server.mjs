@@ -32,7 +32,7 @@ import {
   writePrepPack,
   readPrepPack,
   readPrepFile,
-  hasCachedPdfs,
+  hasCvPdf,
   loadPrepFlagsIndex,
   prepFlagsForJob,
   loadCvSettings,
@@ -1099,7 +1099,7 @@ async function handleApi(req, res, url) {
     const includeCoverLetter = body.includeCoverLetter !== false;
 
     // Cached pack: skip rebuild unless recreate (sync)
-    if (!recreate && (await hasCachedPdfs(job.id))) {
+    if (!recreate && (await hasCvPdf(job.id))) {
       const pack = await writePrepPack(job, profile, fit, saved, {
         useCache: true,
         recreate: false,

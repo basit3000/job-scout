@@ -1,14 +1,7 @@
-/**
- * First-run setup: template copies + readiness checks + apply wizard payload.
- * Personal files stay gitignored.
- */
-
 import { access, copyFile, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT, loadJson } from './common.mjs';
 import { findPlaceholders, isPlaceholder } from './placeholders.mjs';
-
-export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 async function exists(p) {
   try {
@@ -16,15 +9,6 @@ async function exists(p) {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function loadJson(path, fallback = null) {
-  try {
-    const text = (await readFile(path, 'utf8')).replace(/^\uFEFF/, '');
-    return JSON.parse(text);
-  } catch {
-    return fallback;
   }
 }
 
@@ -36,6 +20,7 @@ const TEMPLATE_COPIES = [
   ['cv/cover-letter-notes.example.md', 'cv/cover-letter-notes.md'],
   ['.env.example', '.env'],
   ['state/decisions.example.json', 'state/decisions.json'],
+  ['state/saved-answers.example.json', 'state/saved-answers.json'],
 ];
 
 export async function ensureLocalTemplates({ quiet = false } = {}) {
@@ -50,32 +35,6 @@ export async function ensureLocalTemplates({ quiet = false } = {}) {
     if (!(await exists(from))) continue;
     await copyFile(from, to);
     log(`  create ${toRel}`);
-    created += 1;
-  }
-
-  const answersPath = join(ROOT, 'state', 'saved-answers.json');
-  if (!(await exists(answersPath))) {
-    await mkdir(join(ROOT, 'state'), { recursive: true });
-    await writeFile(
-      answersPath,
-      `${JSON.stringify({
-        answers: {
-          workAuthorization: '',
-          needsSponsorship: '',
-          noticePeriod: '',
-          salaryExpectation: '',
-          earliestStart: '',
-          citiesOpenTo: '',
-          remotePreference: '',
-          phone: '',
-          linkedin: '',
-          github: '',
-          portfolio: '',
-        },
-        updatedAt: null,
-      }, null, 2)}\n`,
-    );
-    log('  create state/saved-answers.json');
     created += 1;
   }
 
@@ -159,7 +118,6 @@ export async function getSetupStatus() {
   };
 }
 
-/** Apply first-run wizard answers → local profile + search-profile (+ light CV stub). */
 export async function applySetup(body = {}) {
   await ensureLocalTemplates({ quiet: true });
 
@@ -332,7 +290,7 @@ export async function applySetup(body = {}) {
   return getSetupStatus();
 }
 
-export function buildResumeMarkdown(profile) {
+function buildResumeMarkdown(profile) {
   const links = profile.links ?? {};
   const skills = [
     ...(profile.skills?.strong ?? []),

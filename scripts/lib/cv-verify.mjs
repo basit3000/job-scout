@@ -29,33 +29,13 @@ import {
   LETTER_LIMITS,
   CV_LIMITS,
   SUSPECT_CLAIM_RE,
+  WRITING_RULES_GENERIC,
 } from './cv-style.mjs';
 import { analyzeKeywordGaps } from './cv-keywords.mjs';
+import { readBraceGroup } from './tex-parse.mjs';
 
 export const SNAPSHOT_DIR = 'before';
 const INFLATED_HEADLINE = /\b(senior|staff|principal|lead|head of|director|architect)\b/i;
-
-// ---------------------------------------------------------------------------
-// LaTeX helpers
-// ---------------------------------------------------------------------------
-
-function readBraceGroup(src, openIdx) {
-  if (src[openIdx] !== '{') return null;
-  let depth = 0;
-  for (let i = openIdx; i < src.length; i += 1) {
-    const ch = src[i];
-    if (ch === '\\') {
-      i += 1;
-      continue;
-    }
-    if (ch === '{') depth += 1;
-    else if (ch === '}') {
-      depth -= 1;
-      if (depth === 0) return { arg: src.slice(openIdx + 1, i), end: i + 1 };
-    }
-  }
-  return null;
-}
 
 /** Read N consecutive `{...}` groups starting at `idx` (skipping whitespace / [opt]). */
 function readArgs(src, idx, n) {
@@ -262,10 +242,6 @@ function braceBalance(tex) {
   return opens - closes;
 }
 
-// ---------------------------------------------------------------------------
-// Corpus
-// ---------------------------------------------------------------------------
-
 async function readIf(path) {
   try {
     return await readFile(path, 'utf8');
@@ -326,10 +302,6 @@ export function newNumbers(text, corpus) {
   }
   return out;
 }
-
-// ---------------------------------------------------------------------------
-// CV (.tex) verification
-// ---------------------------------------------------------------------------
 
 /**
  * @returns {{ tex: string, hard: string[], soft: string[], fixes: string[], changedBullets: number }}
@@ -466,10 +438,6 @@ export function keywordCoverage({ job, tex, evidenceText = '', profile = {} }) {
   return { inBullets, skillsOnly, missing, notEvidenced: analysis.gaps, requirements: analysis.requirements || [] };
 }
 
-// ---------------------------------------------------------------------------
-// Markdown CV (local mode) verification
-// ---------------------------------------------------------------------------
-
 export function verifyMarkdownCv({ before, after, corpus }) {
   const hard = [];
   const soft = [];
@@ -523,10 +491,6 @@ export function verifyMarkdownCv({ before, after, corpus }) {
   }
   return { md, hard, soft, fixes };
 }
-
-// ---------------------------------------------------------------------------
-// Cover letter verification
-// ---------------------------------------------------------------------------
 
 function letterBody(letter) {
   const lines = String(letter ?? '').split('\n');
@@ -582,10 +546,6 @@ export function verifyLetter({ letter, corpus, job = null }) {
 
   return { hard, soft, words, paragraphs: paragraphs.length };
 }
-
-// ---------------------------------------------------------------------------
-// Report
-// ---------------------------------------------------------------------------
 
 export function formatQualityReport({
   job,
@@ -653,13 +613,9 @@ export function formatQualityReport({
     }
   }
 
-  lines.push('Rules: `.agents/skills/cv-tailor/references/writing-rules.md`; banned phrases: `scripts/lib/cv-style.mjs`.', '');
+  lines.push(`Rules: \`${WRITING_RULES_GENERIC}\`; banned phrases: \`scripts/lib/cv-style.mjs\`.`, '');
   return lines.join('\n');
 }
-
-// ---------------------------------------------------------------------------
-// Orchestration used by prep.mjs / cover-letter.mjs
-// ---------------------------------------------------------------------------
 
 /** Copy the pre-agent CV files into <prep>/before/ so the gate can diff later. */
 export async function snapshotCvSources({ prepDir, cvSource }) {

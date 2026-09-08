@@ -1,33 +1,14 @@
-/**
- * Wall-clock timing for Digest searches and Batch Prep.
- * History lives in .workspace/run-history.json (gitignored).
- */
-
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { loadJson, workspaceDir } from './common.mjs';
+import { formatDuration, loadJson, workspaceDir } from './common.mjs';
+
+export { formatDuration };
 
 export const HISTORY_LIMIT = 40;
 export const HISTORY_KINDS = ['fetch', 'batch'];
 
 export function runHistoryPath(dir = workspaceDir()) {
   return join(dir, 'run-history.json');
-}
-
-export function formatDuration(ms) {
-  const n = Math.max(0, Math.round(Number(ms) || 0));
-  if (n < 1000) return `${n}ms`;
-  const sec = Math.round(n / 1000);
-  if (sec < 60) return `${sec}s`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`;
-  const h = Math.floor(m / 60);
-  const rm = m % 60;
-  if (!rm && !s) return `${h}h`;
-  if (!s) return `${h}h ${rm}m`;
-  if (!rm) return `${h}h ${s}s`;
-  return `${h}h ${rm}m ${s}s`;
 }
 
 export function avgMs(totalMs, count) {

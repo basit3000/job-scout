@@ -163,3 +163,16 @@ Read employment and education from the existing CV / `profile.json`. Frame the C
 Education is supporting context, not the story. If they are primarily a student with little
 employment, still keep Experience first when any real employment exists; do not invent a
 "student CV" format that puts Education above Experience.
+
+## Job Scout Fast mode
+
+Keyword / Fast tailor in the Job Scout UI follows these same hard rules. It reorders and
+re-emphasises existing bullets; it does not invent duties or drop Experience.
+
+| UI **CV source** | Behaviour |
+| --- | --- |
+| **Local resume.md** | Reorder `cv/resume.md` into the prep pack (Experience first) |
+| **Overleaf** | Pull → reorder, lightly re-emphasise Experience, compile both CVs to one page |
+
+Banned phrases are enforced in `scripts/lib/cv-style.mjs` (agent briefs and the quality gate).
+

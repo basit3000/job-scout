@@ -262,7 +262,7 @@ ${olLines.join('\n')}
 
 ## Apply
 
-Open the job URL and submit yourself. This pack does **not** auto-apply.
+Job Scout **Fill** submits LinkedIn Easy Apply. Other boards are filled only — you confirm Submit.
 
 ${job.url || '_no url_'}
 `;

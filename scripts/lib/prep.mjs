@@ -667,14 +667,18 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     ? 'fast'
     : 'agent';
 
-  const withLetter = (packPromise) => packPromise.then((pack) => attachCoverLetterAfterPrep(pack, {
-    job,
-    profile,
-    fit,
-    extraInstructions,
-    settings,
-    onEvent,
-  }));
+  const includeCoverLetter = options.includeCoverLetter !== false;
+
+  const withLetter = (packPromise) => includeCoverLetter
+    ? packPromise.then((pack) => attachCoverLetterAfterPrep(pack, {
+      job,
+      profile,
+      fit,
+      extraInstructions,
+      settings,
+      onEvent,
+    }))
+    : packPromise;
 
   if (requestedMode === 'agent') {
     const avail = await agentRunnerAvailable(settings.agentProvider);

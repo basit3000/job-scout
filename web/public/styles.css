@@ -1328,6 +1328,15 @@ a.btn.primary-link:hover {
   font-weight: 600;
 }
 
+.portal-flag {
+  font-size: 0.7em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+  margin-left: 0.35em;
+}
+
 .portal-meta {
   font-size: 0.78rem;
   color: var(--muted);

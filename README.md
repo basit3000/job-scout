@@ -168,12 +168,10 @@ Toggle portals in the **Portals** tab (or `boards` in `search-profile.json`). Gl
 A portal that keeps failing is dropped for the rest of that run instead of retrying every title×city query: empty/blocked boards after a couple of misses, HTTP 429 after a retry, other errors after several. Arbeitnow is fetched **once per run** (it is a feed, not a search API). LinkedIn uses **JobSpy first** even when Allow paid is on; Apify runs only if that query returns 0. An Apify monthly usage cap stops further paid runs for that fetch; LinkedIn keeps going on JobSpy.
 
 | Board | Free path | Notes |
-
-| Board | Free path | Notes |
 | --- | --- | --- |
-| Indeed, LinkedIn | JobSpy | Defaults |
-| Glassdoor, Google Jobs | JobSpy | Often flaky / blocked |
-| Arbeitsagentur, Arbeitnow | API | Germany (`DE`) |
+| Indeed, LinkedIn | JobSpy | LinkedIn stays JobSpy-first when Allow paid is on |
+| Glassdoor, Google Jobs | JobSpy | Often blocked — off by default, **flaky** in Portals |
+| Arbeitsagentur, Arbeitnow | API | Germany (`DE`). Arbeitnow feed is pulled once per run |
 | Berlin Startup Jobs | API | [berlinstartupjobs.com](https://berlinstartupjobs.com/) (`DE`) |
 | Munich Startup | HTML | [munich-startup.de/en/jobs](https://www.munich-startup.de/en) (`DE`) |
 | Pegel | API | [pegel.berlin](https://pegel.berlin) Berlin startup ATS feeds (`DE`) |

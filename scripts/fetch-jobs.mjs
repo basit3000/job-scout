@@ -45,6 +45,13 @@ import {
   mapIndeedDatePosted,
 } from './lib/date-posted.mjs';
 import { appendRunHistory, formatDuration, fetchRunTiming } from './lib/run-history.mjs';
+import {
+  boardPrefersJobspy,
+  isApifyMonthlyCap,
+  shouldAbandonBoard,
+  summarizeFailures,
+  withRateLimitRetry,
+} from './lib/fetch-resilience.mjs';
 
 loadDotEnv();
 
@@ -521,6 +528,7 @@ async function main() {
       : config.preferJobspy !== false;
   const maxApifyRuns = Number(value('--max-apify', config.maxApifyRuns ?? 8));
   let apifyRunsUsed = 0;
+  let apifyBlocked = false;
   const strategy = FORCE_JOBSPY
     ? 'jobspy-only'
     : useApify
@@ -531,7 +539,7 @@ async function main() {
   console.log(`Strategy: ${strategy}`);
   console.log(`Plan: ${boards.length} board(s), ${totalQueries} query(ies), limit ${limit}/query`);
   if (useApify) {
-    console.log(`Apify: enabled (cap ${maxApifyRuns === 0 ? 'unlimited' : maxApifyRuns} runs)${preferJobspy ? ' — JobSpy first' : ' — Apify first'}`);
+    console.log(`Apify: enabled (cap ${maxApifyRuns === 0 ? 'unlimited' : maxApifyRuns} runs)${preferJobspy ? ' — JobSpy first' : ' — Apify first (LinkedIn still JobSpy-first)'}`);
     console.log(`Cost tip: uncheck Allow paid / omit --allow-paid for $0 via JobSpy.\n`);
   } else {
     console.log(`Apify: off (free JobSpy path)\n`);
@@ -703,7 +711,11 @@ async function main() {
 
     let count = 0;
     let via = null;
-    let failure = null;
+    const failLog = [];
+    let consecutiveFails = 0;
+    let skipRest = null;
+    const meta = getBoardMeta(board);
+    const jobspyFirst = boardPrefersJobspy(board, boardConfig, preferJobspy);
 
     console.log(`[${board}] ${queries.length} quer${queries.length === 1 ? 'y' : 'ies'}`);
 
@@ -718,18 +730,36 @@ async function main() {
       const opts = { limit, maxAgeDays: filters.maxAgeDays, boardConfig };
       let usedApify = false;
       let queryGotJobs = false;
+      let queryError = null;
       const label = `"${query.what}" @ ${query.where || market.defaultLocation}`;
-      const meta = getBoardMeta(board);
-      const canApify = useApify && apifyBoards[board]?.enabled !== false && apifyBoards[board];
+      const canApify = Boolean(
+        useApify
+        && !apifyBlocked
+        && apifyBoards[board]
+        && apifyBoards[board].enabled !== false
+        && boardConfig.apify !== false,
+      );
       const canJobspy = Boolean(meta?.jobspy);
       const canApi = Boolean(meta?.api);
       const jobspyBoards = canJobspy ? [board] : [];
+
+      const noteFail = (msg) => {
+        const line = String(msg || '').trim();
+        if (line) {
+          failLog.push(line);
+          queryError = line;
+        }
+        if (isApifyMonthlyCap(line) && !apifyBlocked) {
+          apifyBlocked = true;
+          console.log('  Apify monthly usage cap hit — skipping further paid runs this fetch');
+        }
+      };
 
       const runApi = async () => {
         if (!canApi) return false;
         process.stdout.write(`  (${queryIndex}/${totalQueries}) ${label} via api… `);
         try {
-          const jobs = await fetchGermanyPortal(board, query, opts, market);
+          const jobs = await withRateLimitRetry(() => fetchGermanyPortal(board, query, opts, market));
           for (const job of jobs) collected.push(job);
           count += jobs.length;
           if (jobs.length) {
@@ -739,7 +769,7 @@ async function main() {
           console.log(`${jobs.length} job(s)`);
           return jobs.length > 0;
         } catch (err) {
-          failure = failure ? `${failure}; api: ${err.message}` : `api: ${err.message}`;
+          noteFail(`api: ${err.message}`);
           console.log(`failed (${err.message})`);
           return false;
         }
@@ -750,7 +780,7 @@ async function main() {
         const attempts = apifyDatePostedAttempts(board, opts.maxAgeDays, boardConfig);
         for (let i = 0; i < attempts.length; i += 1) {
           if (maxApifyRuns > 0 && apifyRunsUsed >= maxApifyRuns) {
-            failure = `apify: hit maxApifyRuns (${maxApifyRuns})`;
+            noteFail(`apify: hit maxApifyRuns (${maxApifyRuns})`);
             console.log(`  (${queryIndex}/${totalQueries}) ${label} apify skipped — cap ${maxApifyRuns} reached`);
             return false;
           }
@@ -778,7 +808,7 @@ async function main() {
             }
             console.log(`0 job(s) [${apifyRunsUsed}${maxApifyRuns ? `/${maxApifyRuns}` : ''} paid]`);
           } catch (err) {
-            failure = `apify: ${err.message}`;
+            noteFail(`apify: ${err.message}`);
             console.log(`failed (${err.message})`);
             usedApify = true;
             return false;
@@ -799,47 +829,60 @@ async function main() {
             if (jobs.length) {
               queryGotJobs = true;
               via = usedApify ? via : 'jobspy';
-              failure = failure ? `${failure}; fell back to jobspy` : null;
             }
           }
           console.log(`${jobs.length} job(s)`);
           return jobs.length > 0;
         } catch (err) {
           const msg = err.message || 'JobSpy failed';
-          failure = failure ? `${failure}; jobspy: ${msg}` : `jobspy: ${msg}`;
+          noteFail(`jobspy: ${msg}`);
           console.log(err.code === 'JOBSPY_EMPTY' ? `0 job(s) — ${msg}` : `failed (${msg})`);
           return false;
         }
       };
 
-      if (!FORCE_JOBSPY && !canApify && apifyBoards[board]) {
-        if (!process.env.APIFY_TOKEN) failure = 'apify: APIFY_TOKEN not set';
-        else if (!ALLOW_PAID) failure = 'apify: need --allow-paid';
-      }
-
       if (canApi) {
         await runApi();
       } else if (board === 'bayt') {
-        // Bayt has no JobSpy — Apify only
         if (!(await runApify()) && !usedApify) {
-          failure = `${failure ? `${failure}; ` : ''}bayt has no JobSpy fallback (403) — set APIFY_TOKEN and pass --allow-paid`;
+          noteFail('bayt has no JobSpy fallback (403) — set APIFY_TOKEN and pass --allow-paid');
           console.log(`  (${queryIndex}/${totalQueries}) ${label} skipped — Bayt needs APIFY_TOKEN + --allow-paid`);
         }
-      } else if (preferJobspy || !canApify) {
+      } else if (jobspyFirst || !canApify) {
         const ok = await runJobspy();
-        if (!ok && canApify) await runApify();
+        if (!ok && canApify && !apifyBlocked) await runApify();
       } else {
         await runApify();
         if (!queryGotJobs && jobspyBoards.length) await runJobspy();
+      }
+
+      if (queryGotJobs) {
+        consecutiveFails = 0;
+      } else if (queryError) {
+        consecutiveFails += 1;
+        skipRest = shouldAbandonBoard({
+          consecutiveFails,
+          lastError: queryError,
+          flaky: Boolean(meta?.flaky),
+          hasFallback: canJobspy,
+        });
+        if (skipRest) {
+          const left = queries.length - (queries.indexOf(query) + 1);
+          if (left > 0) {
+            console.log(`  skipping remaining ${left} ${board} quer${left === 1 ? 'y' : 'ies'} — ${skipRest}`);
+          }
+        }
       }
 
       // Save after each query so Stop (or a hang/kill) keeps jobs found so far.
       if (collected.length) {
         await persistResults({ quiet: true, stopped: isStopRequested() });
       }
+      if (skipRest) break;
     }
 
-    const statusError = failure
+    const statusError = summarizeFailures(failLog)
+      || (skipRest ? `skipped remaining queries (${skipRest})` : null)
       || (count === 0 ? '0 jobs (board returned nothing or is blocked)' : null);
     sourceStatus.push({
       board,
@@ -847,6 +890,7 @@ async function main() {
       count,
       via,
       ...(statusError ? { error: statusError } : {}),
+      ...(skipRest ? { skipped: skipRest } : {}),
       ...(stoppedEarly ? { stopped: true } : {}),
     });
     console.log(`  → ${board} total so far: ${count}\n`);

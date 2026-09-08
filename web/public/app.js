@@ -2565,7 +2565,7 @@ async function refreshPortals() {
         <input type="checkbox" name="portal" value="${escapeAttr(b.id)}"
           ${b.enabled ? 'checked' : ''} />
         <span class="portal-body">
-          <span class="portal-title">${escapeHtml(b.label)}</span>
+          <span class="portal-title">${escapeHtml(b.label)}${b.flaky ? ' <span class="portal-flag">flaky</span>' : ''}</span>
           <span class="portal-meta">${escapeHtml(path)} · ${escapeHtml(b.regions || '')}</span>
           <span class="portal-note">${escapeHtml(skipReason || b.note || '')}</span>
         </span>

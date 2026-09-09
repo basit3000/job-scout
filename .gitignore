@@ -8,6 +8,8 @@ cv/*
 !cv/cover-letter.example.md
 !cv/cover-letter-notes.example.md
 state/decisions.json
+state/decisions.json.*.tmp
+state/attachments/
 state/saved-answers.json
 state/recruiter-contacts.json
 

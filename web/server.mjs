@@ -77,6 +77,7 @@ import {
 } from '../scripts/lib/google-sheets.mjs';
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 import { handleRecruiterApi } from './recruiter-routes.mjs';
+import { handleTrackerApi } from './tracker-routes.mjs';
 import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
@@ -145,7 +146,7 @@ const batchState = {
 const BATCH_ITEM_STATUSES = ['pending', 'running', 'done', 'skipped', 'failed', 'cancelled'];
 
 /** Decisions that mean "no longer worth applying to" — hidden from Ready. */
-const READY_EXCLUDED = new Set(['applied', 'skipped', 'rejected', 'closed']);
+const READY_EXCLUDED = new Set(['applied', 'interviewing', 'offer', 'accepted', 'skipped', 'rejected', 'closed']);
 
 function batchSnapshot({ withItems = true } = {}) {
   const counts = Object.fromEntries(BATCH_ITEM_STATUSES.map((s) => [s, 0]));
@@ -494,9 +495,14 @@ function broadcast(event, data) {
   }
 }
 
-async function readBody(req) {
+async function readBody(req, maxBytes = 2 * 1024 * 1024) {
   const chunks = [];
-  for await (const chunk of req) chunks.push(chunk);
+  let bytes = 0;
+  for await (const chunk of req) {
+    bytes += chunk.length;
+    if (bytes > maxBytes) throw new Error('Request exceeds the upload size limit');
+    chunks.push(chunk);
+  }
   if (!chunks.length) return {};
   const text = Buffer.concat(chunks).toString('utf8');
   if (!text.trim()) return {};
@@ -733,6 +739,7 @@ function paginate(items, url) {
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
+  if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 
   if (await handleRecruiterApi(req, res, url, { json, readBody })) return;
 
@@ -938,6 +945,7 @@ async function handleApi(req, res, url) {
       const date = d.date || '';
       const updatedAt = d.updatedAt || null;
       items.push({
+        ...d,
         id: d.id,
         decision: d.decision,
         date,

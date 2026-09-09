@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#layout">Skip to jobs</a>
     <div class="app">
       <header class="top">
         <div class="brand">
@@ -24,12 +25,34 @@
         </div>
       </header>
 
-      <section class="toolbar" aria-label="Search settings">
+      <div class="tabs" role="tablist" aria-label="Job search workspace">
+        <button type="button" class="tab active" data-view="results" role="tab">Find jobs</button>
+        <button type="button" class="tab" data-view="digest" role="tab">
+          New matches <span class="tab-badge" id="digestBadge" hidden>0</span>
+        </button>
+        <button type="button" class="tab" data-view="ready" role="tab">
+          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
+        </button>
+        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
+        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
+        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
+      </div>
+
+      <section class="toolbar" id="searchToolbar" aria-label="Search settings">
         <div class="toolbar-row">
           <label class="field">
             <span>Market</span>
             <select id="marketSelect" aria-label="Market"></select>
           </label>
+          <label class="field field-num" title="Drop postings older than this many days">
+            <span>Max age (days)</span>
+            <input type="number" id="maxAgeDays" min="1" max="365" step="1" />
+          </label>
+          <p class="search-reassurance">Find new opportunities. Your saved applications stay in Tracker.</p>
+        </div>
+        <details class="toolbar-more">
+          <summary>Advanced search options</summary>
+          <div class="toolbar-row">
           <label class="field field-num" title="Jobs pulled per title×city query on each portal">
             <span>Per query</span>
             <input type="number" id="limitPerQuery" min="1" max="100" step="1" />
@@ -37,10 +60,6 @@
           <label class="field field-num" title="Max paid Apify actor runs per fetch (0 = unlimited)">
             <span>Max paid</span>
             <input type="number" id="maxApifyRuns" min="0" max="200" step="1" />
-          </label>
-          <label class="field field-num" title="Drop postings older than this many days">
-            <span>Max age (days)</span>
-            <input type="number" id="maxAgeDays" min="1" max="365" step="1" />
           </label>
           <div class="toolbar-toggles">
             <label class="toggle" title="Off = free JobSpy. On = may call Apify (costs money).">
@@ -52,7 +71,10 @@
               <span>Replace results</span>
             </label>
           </div>
-        </div>
+          </div>
+          <p class="meta">Paid sources are optional. Replacing results keeps your tracker.</p>
+        <p class="plan-hint" id="planHint" hidden></p>
+        </details>
         <details class="toolbar-more">
           <summary>Prep &amp; CV settings</summary>
           <div class="toolbar-row">
@@ -83,21 +105,7 @@
             </div>
           </div>
         </details>
-        <p class="plan-hint" id="planHint" hidden></p>
       </section>
-
-      <div class="tabs" role="tablist">
-        <button type="button" class="tab active" data-view="results" role="tab">Results</button>
-        <button type="button" class="tab" data-view="digest" role="tab">
-          Digest <span class="tab-badge" id="digestBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="ready" role="tab">
-          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
-        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
-        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
-      </div>
 
       <div id="alerts" class="alerts"></div>
 
@@ -116,15 +124,16 @@
         </div>
       </div>
 
-      <main class="layout" id="layout">
+      <main class="layout" id="layout" tabindex="-1">
         <section class="jobs-panel" id="viewResults" aria-label="Job results">
           <div class="panel-head">
             <div>
-              <h2>Results</h2>
+              <p class="eyebrow">DISCOVER · PREPARE · APPLY</p>
+              <h2>Find your next role</h2>
               <p class="meta" id="jobsMeta">No fetch yet.</p>
             </div>
             <div class="filters">
-              <input type="search" id="searchInput" placeholder="Filter title, company…" />
+              <input type="search" id="searchInput" aria-label="Search job title or company" placeholder="Search title or company…" />
               <div class="filter-menu" id="decisionFilterMenu">
                 <button type="button" class="filter-trigger" id="decisionFilterBtn" aria-expanded="false" aria-haspopup="true" aria-controls="decisionFilterPanel">
                   <span class="filter-trigger-label">Decision</span>
@@ -168,12 +177,18 @@
               </select>
             </div>
           </div>
+          <div class="result-shortcuts" aria-label="Quick result filters">
+            <button type="button" class="btn small" id="focusResultsBtn">Jobs to review</button>
+            <button type="button" class="btn ghost small" id="resetResultsBtn">Reset filters</button>
+            <span class="meta">Shortlist promising roles, then prepare your documents.</span>
+          </div>
           <div class="active-filters" id="activeDecisionFilters" hidden></div>
-          <div id="boardStatus" class="board-status" hidden></div>
+          <details id="boardDetails" class="board-details" hidden><summary id="boardSummary">Search sources</summary><div id="boardStatus" class="board-status" hidden></div></details>
           <div id="jobList" class="job-list"></div>
           <div id="emptyState" class="empty" hidden>
-            <h3>No postings yet</h3>
-            <p>Pick a market and run a search. Results accumulate across runs (duplicates collapsed). Check Replace results to start fresh.</p>
+            <h3 id="emptyTitle">No postings yet</h3>
+            <p id="emptyHint">Choose a market and run your first search. Save promising jobs to track them here.</p>
+            <button type="button" class="btn" id="emptyResetBtn" hidden>Reset filters</button>
             <button type="button" class="btn primary" id="emptyRunBtn">Run search</button>
           </div>
           <div class="pager" id="pager" hidden>
@@ -186,11 +201,13 @@
         <section class="jobs-panel" id="viewTracker" hidden aria-label="Application tracker">
           <div class="panel-head">
             <div>
-              <h2>Tracker</h2>
+              <p class="eyebrow">YOUR APPLICATION WORKSPACE</p>
+              <h2>Application tracker</h2>
               <p class="meta" id="trackerMeta">Applications you've marked — not the search archive.</p>
             </div>
             <div class="filters">
-              <input type="search" id="trackerSearch" placeholder="Filter company or title…" />
+              <button type="button" class="btn primary" id="addApplicationBtn">+ Add application</button>
+              <input type="search" id="trackerSearch" aria-label="Search applications and notes" placeholder="Search company, role, contact or notes…" />
               <select id="trackerSort" aria-label="Sort by date">
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
@@ -200,13 +217,23 @@
                 <option value="20" selected>20 / page</option>
                 <option value="50">50 / page</option>
               </select>
+              <details class="tracker-sheet-tools"><summary>Google Sheets</summary>
               <div class="sheets-bar" id="sheetsBar">
                 <a class="btn ghost small" id="sheetsOpenLink" href="#" target="_blank" rel="noopener" hidden>Open Sheet</a>
                 <button type="button" class="btn ghost small" id="sheetsSyncBtn" hidden>Sync to Sheets</button>
               </div>
+              <p class="meta sheets-hint" id="sheetsHint" hidden></p>
+              </details>
             </div>
           </div>
-          <p class="meta sheets-hint" id="sheetsHint" hidden></p>
+          <div class="tracker-summary" id="trackerSummary" aria-label="Application overview"></div>
+          <p class="workspace-feedback" id="trackerFeedback" role="status" aria-live="polite" hidden></p>
+          <div class="tracker-presets" aria-label="Application views">
+            <button type="button" class="btn small" data-tracker-preset="active">Active applications</button>
+            <button type="button" class="btn small" data-tracker-preset="all">All statuses</button>
+            <button type="button" class="btn small" data-tracker-preset="due">Follow-ups due</button>
+
+          </div>
           <div class="tracker-tabs" id="trackerTabs" role="group" aria-label="Filter by status"></div>
           <div id="trackerList" class="tracker-list"></div>
           <div class="pager" id="trackerPager" hidden>
@@ -220,7 +247,7 @@
           <div class="panel-head">
             <div>
               <h2>Saved answers</h2>
-              <p class="meta">Reuse on application forms. Stored in state/saved-answers.json. LinkedIn Easy Apply uses these when you click Fill.</p>
+              <p class="meta">Reuse on application forms. Saved locally on your computer. LinkedIn Easy Apply uses these when you click Fill.</p>
             </div>
             <div class="filters">
               <button type="button" class="btn ghost" id="copyAnswersBtn">Copy pack</button>
@@ -234,7 +261,7 @@
           <div class="panel-head">
             <div>
               <h2>Portals</h2>
-              <p class="meta">Enable boards for the next search. Saved to your local search-profile.json.</p>
+              <p class="meta">Enable boards for the next search. Your selection is saved for future searches.</p>
             </div>
             <button type="button" class="btn primary" id="savePortalsBtn">Save portals</button>
           </div>

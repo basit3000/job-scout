@@ -53,8 +53,14 @@ const els = {
   viewDigest: $('viewDigest'),
   trackerMeta: $('trackerMeta'),
   trackerSearch: $('trackerSearch'),
+  trackerSort: $('trackerSort'),
+  trackerPageSize: $('trackerPageSize'),
   trackerTabs: $('trackerTabs'),
   trackerList: $('trackerList'),
+  trackerPager: $('trackerPager'),
+  trackerPageLabel: $('trackerPageLabel'),
+  trackerPrevPage: $('trackerPrevPage'),
+  trackerNextPage: $('trackerNextPage'),
   sheetsBar: $('sheetsBar'),
   sheetsOpenLink: $('sheetsOpenLink'),
   sheetsSyncBtn: $('sheetsSyncBtn'),
@@ -192,9 +198,13 @@ const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
 const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
 const LS_SORT = 'jobScout.sort';
+const LS_TRACKER_SORT = 'jobScout.trackerSort';
+const LS_TRACKER_PAGE_SIZE = 'jobScout.trackerPageSize';
 const LS_LANG = 'jobScout.langFilter';
 const LS_LOG_MINIMIZED = 'jobScout.logMinimized';
 const SORT_VALUES = ['fit', 'newest', 'oldest'];
+const TRACKER_SORT_VALUES = ['newest', 'oldest'];
+const TRACKER_PAGE_SIZES = [10, 20, 50];
 const LANG_VALUES = ['all', 'en', 'de'];
 const LANG_LABEL = { en: 'English', de: 'German' };
 
@@ -230,6 +240,9 @@ let state = {
   trackerVisibleColumns: new Set(TRACKER_DEFAULT_VISIBLE),
   trackerItems: [],
   trackerCounts: {},
+  trackerPage: 1,
+  trackerPageSize: 20,
+  trackerSort: 'newest',
   /** Digest jobs currently shown — the pool for Create CVs… */
   digestJobs: [],
   /** Last batch snapshot from the server */
@@ -372,6 +385,7 @@ function onDecisionFilterChange({ rerender = false } = {}) {
 
 function onTrackerStatusChange() {
   saveSetToStorage(LS_TRACKER_COLUMNS, state.trackerVisibleColumns);
+  state.trackerPage = 1;
   renderTracker();
 }
 
@@ -397,6 +411,10 @@ function initFilterMenus() {
   updateDecisionFilterUi();
   if (els.sortSelect) els.sortSelect.value = loadSort();
   if (els.langFilter) els.langFilter.value = loadLang();
+  state.trackerSort = loadTrackerSort();
+  state.trackerPageSize = loadTrackerPageSize();
+  if (els.trackerSort) els.trackerSort.value = state.trackerSort;
+  if (els.trackerPageSize) els.trackerPageSize.value = String(state.trackerPageSize);
 
   els.decisionFilterBtn?.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -810,6 +828,20 @@ function formatShortDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function formatTrackerWhen(item) {
+  const stamp = item?.updatedAt || '';
+  if (stamp && /T/.test(stamp)) {
+    const d = new Date(stamp);
+    if (!Number.isNaN(d.getTime())) {
+      return {
+        date: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+  }
+  return { date: formatShortDate(item?.date) || '—', time: '' };
+}
+
 function formatBoard(board) {
   if (!board) return '';
   const known = {
@@ -875,6 +907,45 @@ function loadSort() {
 function saveSort(value) {
   try {
     localStorage.setItem(LS_SORT, SORT_VALUES.includes(value) ? value : 'fit');
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadTrackerSort() {
+  try {
+    const raw = localStorage.getItem(LS_TRACKER_SORT);
+    return TRACKER_SORT_VALUES.includes(raw) ? raw : 'newest';
+  } catch {
+    return 'newest';
+  }
+}
+
+function saveTrackerSort(value) {
+  const next = TRACKER_SORT_VALUES.includes(value) ? value : 'newest';
+  state.trackerSort = next;
+  try {
+    localStorage.setItem(LS_TRACKER_SORT, next);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadTrackerPageSize() {
+  try {
+    const n = Number(localStorage.getItem(LS_TRACKER_PAGE_SIZE));
+    return TRACKER_PAGE_SIZES.includes(n) ? n : 20;
+  } catch {
+    return 20;
+  }
+}
+
+function saveTrackerPageSize(value) {
+  const n = Number(value);
+  const next = TRACKER_PAGE_SIZES.includes(n) ? n : 20;
+  state.trackerPageSize = next;
+  try {
+    localStorage.setItem(LS_TRACKER_PAGE_SIZE, String(next));
   } catch {
     /* ignore */
   }
@@ -2549,12 +2620,20 @@ function showSetup(needs) {
 
 function filteredTrackerItems() {
   const q = (els.trackerSearch?.value || '').trim().toLowerCase();
-  return (state.trackerItems || []).filter((item) => {
+  const newestFirst = state.trackerSort !== 'oldest';
+  const items = (state.trackerItems || []).filter((item) => {
     if (!state.trackerVisibleColumns.has(item.decision)) return false;
     if (!q) return true;
     const hay = `${item.title || ''} ${item.company || ''} ${item.board || ''}`.toLowerCase();
     return hay.includes(q);
   });
+  items.sort((a, b) => {
+    const ra = Number.isFinite(Number(a.at)) ? Number(a.at) : Date.parse(a.updatedAt || '') || 0;
+    const rb = Number.isFinite(Number(b.at)) ? Number(b.at) : Date.parse(b.updatedAt || '') || 0;
+    if (ra !== rb) return newestFirst ? rb - ra : ra - rb;
+    return 0;
+  });
+  return items;
 }
 
 function renderTrackerTabs() {
@@ -2599,14 +2678,39 @@ function renderTracker() {
     state.trackerVisibleColumns.has(item.decision),
   ).length;
   const q = (els.trackerSearch?.value || '').trim();
+  const newestFirst = state.trackerSort !== 'oldest';
+  const sortLabel = newestFirst ? 'newest first' : 'oldest first';
+  const pageSize = state.trackerPageSize || 20;
+  const pages = Math.max(1, Math.ceil(items.length / pageSize));
+  if (state.trackerPage > pages) state.trackerPage = pages;
+  if (state.trackerPage < 1) state.trackerPage = 1;
+  const start = (state.trackerPage - 1) * pageSize;
+  const pageItems = items.slice(start, start + pageSize);
+
   if (els.trackerMeta) {
     if (!visibleCount) {
-      els.trackerMeta.textContent = 'Applications you mark from Results land here — newest first.';
-    } else if (q) {
-      els.trackerMeta.textContent = `${items.length} of ${visibleCount} match “${q}” · newest first`;
+      els.trackerMeta.textContent = 'Applications you mark from Results land here.';
+    } else if (!items.length) {
+      els.trackerMeta.textContent = q
+        ? `0 of ${visibleCount} match “${q}” · ${sortLabel}`
+        : `${visibleCount} in view · ${sortLabel}. Not the search archive.`;
     } else {
-      els.trackerMeta.textContent = `${visibleCount} in view · newest first. Not the search archive.`;
+      const from = start + 1;
+      const to = start + pageItems.length;
+      const range = `${from}–${to} of ${items.length}`;
+      els.trackerMeta.textContent = q
+        ? `${range} match “${q}” · ${sortLabel}`
+        : `${range} · ${sortLabel}. Not the search archive.`;
     }
+  }
+
+  if (els.trackerPager) {
+    els.trackerPager.hidden = items.length === 0;
+    if (els.trackerPageLabel) {
+      els.trackerPageLabel.textContent = `Page ${state.trackerPage} of ${pages}`;
+    }
+    if (els.trackerPrevPage) els.trackerPrevPage.disabled = state.trackerPage <= 1;
+    if (els.trackerNextPage) els.trackerNextPage.disabled = state.trackerPage >= pages;
   }
 
   if (!items.length) {
@@ -2618,19 +2722,28 @@ function renderTracker() {
     return;
   }
 
-  const head = `<div class="tracker-row tracker-head" aria-hidden="true">
+  const head = `<div class="tracker-row tracker-head">
     <span>Company</span>
     <span>Role</span>
-    <span>Date</span>
+    <button type="button" class="tracker-sort" data-tracker-sort aria-pressed="${newestFirst ? 'true' : 'false'}" aria-label="Sort by date, ${newestFirst ? 'newest first' : 'oldest first'}">
+      Date ${newestFirst ? '↓' : '↑'}
+    </button>
     <span>Board</span>
     <span>Status</span>
     <span></span>
   </div>`;
   els.trackerList.innerHTML = head;
+  els.trackerList.querySelector('[data-tracker-sort]')?.addEventListener('click', () => {
+    saveTrackerSort(newestFirst ? 'oldest' : 'newest');
+    if (els.trackerSort) els.trackerSort.value = state.trackerSort;
+    state.trackerPage = 1;
+    renderTracker();
+  });
   const frag = document.createDocumentFragment();
-  for (const item of items) {
+  for (const item of pageItems) {
     const title = item.title || item.id;
     const boardLabel = formatBoard(item.board);
+    const when = formatTrackerWhen(item);
     const row = document.createElement('article');
     row.className = `tracker-row is-${item.decision}`;
     const statusOpts = DECISIONS.map(
@@ -2648,7 +2761,10 @@ function renderTracker() {
             : `<span>${escapeHtml(title)}</span>`
         }
       </div>
-      <div class="tracker-date">${escapeHtml(formatShortDate(item.date) || '—')}</div>
+      <div class="tracker-date" title="${escapeAttr(item.updatedAt || item.date || '')}">
+        <span>${escapeHtml(when.date)}</span>
+        ${when.time ? `<span class="tracker-time">${escapeHtml(when.time)}</span>` : ''}
+      </div>
       <div class="tracker-board">${escapeHtml(boardLabel || '—')}${
         item.ats?.label
         && item.ats.id !== 'unknown'
@@ -2938,8 +3054,29 @@ els.searchInput.addEventListener('input', () => {
   searchDebounce = setTimeout(() => refreshJobs(), 200);
 });
 els.trackerSearch?.addEventListener('input', () => {
+  state.trackerPage = 1;
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => renderTracker(), 150);
+});
+els.trackerSort?.addEventListener('change', () => {
+  saveTrackerSort(els.trackerSort.value);
+  state.trackerPage = 1;
+  renderTracker();
+});
+els.trackerPageSize?.addEventListener('change', () => {
+  saveTrackerPageSize(els.trackerPageSize.value);
+  state.trackerPage = 1;
+  renderTracker();
+});
+els.trackerPrevPage?.addEventListener('click', () => {
+  if (state.trackerPage > 1) {
+    state.trackerPage -= 1;
+    renderTracker();
+  }
+});
+els.trackerNextPage?.addEventListener('click', () => {
+  state.trackerPage += 1;
+  renderTracker();
 });
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;

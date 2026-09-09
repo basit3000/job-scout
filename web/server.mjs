@@ -63,7 +63,7 @@ import {
   selectedBoardIds,
 } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
-import { compareFit, sortJobs } from '../scripts/lib/job-sort.mjs';
+import { compareFit, sortJobs, sortTrackerItems, trackerRecencyMs } from '../scripts/lib/job-sort.mjs';
 import { detectPostingLanguage, detectGermanRequirement, postingWrittenLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
 import { hydrateJobDescription } from '../scripts/lib/de-portals.mjs';
 import {
@@ -902,13 +902,17 @@ async function handleApi(req, res, url) {
     }
 
     const items = [];
-    for (const d of decisions.decisions ?? []) {
+    for (const [i, d] of (decisions.decisions ?? []).entries()) {
       if (!VALID_DECISIONS.includes(d.decision)) continue;
       const extra = snippets.get(d.id) || {};
+      const date = d.date || '';
+      const updatedAt = d.updatedAt || null;
       items.push({
         id: d.id,
         decision: d.decision,
-        date: d.date || '',
+        date,
+        updatedAt,
+        at: trackerRecencyMs({ date, updatedAt, order: i }),
         title: d.title || extra.title || '',
         company: d.company || extra.company || '',
         url: d.url || extra.url || '',
@@ -917,14 +921,9 @@ async function handleApi(req, res, url) {
         prepPath: d.prepPath || null,
       });
     }
-    items.sort((a, b) => {
-      const byDate = String(b.date || '').localeCompare(String(a.date || ''));
-      if (byDate) return byDate;
-      return String(a.company || '').localeCompare(String(b.company || ''));
-    });
 
     return json(res, 200, {
-      items,
+      items: sortTrackerItems(items, true),
       counts,
       total: items.length,
       valid: VALID_DECISIONS,

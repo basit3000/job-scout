@@ -51,3 +51,32 @@ export function sortJobs(jobs, mode, nowMs = Date.now()) {
   else list.sort(compareFit);
   return list;
 }
+
+/** Last-assigned time. updatedAt, else date (+ order so same-day date-only rows keep recency). */
+export function trackerRecencyMs(item) {
+  if (item?.at != null && Number.isFinite(Number(item.at))) return Number(item.at);
+  const updated = parseIsoMs(item?.updatedAt);
+  if (updated != null) return updated;
+  const date = String(item?.date || '');
+  const order = Number(item?.order) || 0;
+  if (/T/.test(date)) {
+    const t = parseIsoMs(date);
+    if (t != null) return t;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    const t = Date.parse(`${date}T00:00:00.000Z`);
+    if (!Number.isNaN(t)) return t + order;
+  }
+  return order;
+}
+
+export function compareTrackerDate(a, b, newestFirst = true) {
+  const ra = trackerRecencyMs(a);
+  const rb = trackerRecencyMs(b);
+  if (ra !== rb) return newestFirst ? rb - ra : ra - rb;
+  return 0;
+}
+
+export function sortTrackerItems(items, newestFirst = true) {
+  return [...(items ?? [])].sort((a, b) => compareTrackerDate(a, b, newestFirst));
+}

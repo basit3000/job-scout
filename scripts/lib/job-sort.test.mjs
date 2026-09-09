@@ -5,6 +5,7 @@ import {
   comparePostedNewest,
   postedRecencyMs,
   sortJobs,
+  sortTrackerItems,
 } from './job-sort.mjs';
 
 const NOW = Date.parse('2026-08-29T12:00:00.000Z');
@@ -76,4 +77,30 @@ test('sortJobs does not mutate the input array', () => {
   const copy = [...jobs];
   sortJobs(jobs, 'newest', NOW);
   assert.deepEqual(jobs, copy);
+});
+
+test('tracker newest-first uses assignment time, not company name', () => {
+  const items = [
+    { id: 'acme', company: 'Acme', date: '2026-09-08', updatedAt: '2026-09-08T08:00:00.000Z' },
+    { id: 'zeta', company: 'Zeta', date: '2026-09-08', updatedAt: '2026-09-08T15:00:00.000Z' },
+    { id: 'old', company: 'Beta', date: '2026-09-01', updatedAt: '2026-09-01T12:00:00.000Z' },
+  ];
+  assert.deepEqual(sortTrackerItems(items, true).map((i) => i.id), ['zeta', 'acme', 'old']);
+  assert.deepEqual(sortTrackerItems(items, false).map((i) => i.id), ['old', 'acme', 'zeta']);
+});
+
+test('tracker date-only same day uses later file order, not company', () => {
+  const items = [
+    { id: 'zebra', company: 'Zebra', date: '2026-09-08', order: 1 },
+    { id: 'acme', company: 'Acme', date: '2026-09-08', order: 5 },
+  ];
+  assert.deepEqual(sortTrackerItems(items, true).map((i) => i.id), ['acme', 'zebra']);
+});
+
+test('tracker sort uses precomputed at when order is omitted', () => {
+  const items = [
+    { id: 'early', date: '2026-09-08', at: 100 },
+    { id: 'late', date: '2026-09-08', at: 200 },
+  ];
+  assert.deepEqual(sortTrackerItems(items, true).map((i) => i.id), ['late', 'early']);
 });

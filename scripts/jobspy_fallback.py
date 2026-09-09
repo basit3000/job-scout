@@ -180,6 +180,8 @@ def main() -> int:
                     "employmentType": cleaned.get("job_type"),
                     "salary": salary_text(cleaned, default_currency),
                     "seniority": cleaned.get("job_level"),
+                    "emails": cleaned.get("emails"),
+                    "companyUrl": cleaned.get("company_url") or cleaned.get("company_url_direct"),
                     "description": cleaned.get("description"),
                     "scrapedAt": datetime.now(timezone.utc).isoformat(),
                 }

@@ -75,6 +75,8 @@ import {
   SHEET_SYNC_DECISIONS,
 } from '../scripts/lib/google-sheets.mjs';
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
+import { handleRecruiterApi } from './recruiter-routes.mjs';
+import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 
 loadDotEnv();
 
@@ -614,6 +616,7 @@ async function enrichJobs({ force = false } = {}) {
     const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
     const newSet = new Set(digest?.newIds ?? []);
     const prepIndex = await loadPrepFlagsIndex();
+    const recruiterStore = await loadRecruiterStore();
 
     if (!data) {
       return {
@@ -633,6 +636,7 @@ async function enrichJobs({ force = false } = {}) {
       const decision = byId.get(job.id) ?? null;
       const flags = prepFlagsForJob(prepIndex, job.id);
       const tailoredCv = flags.tailoredCv;
+      const recruiter = recruiterStore.contacts[job.id] || null;
       return {
         ...job,
         language: detectPostingLanguage(job),
@@ -642,6 +646,14 @@ async function enrichJobs({ force = false } = {}) {
         fit,
         isNew: newSet.has(job.id),
         ...flags,
+        recruiter: recruiter
+          ? {
+              name: recruiter.name || '',
+              email: recruiter.email || '',
+              linkedinUrl: recruiter.linkedinUrl || '',
+              foundEmail: Boolean(recruiter.email),
+            }
+          : null,
         ats: detectAts(job.url),
         prepPath:
           decision?.prepPath
@@ -692,6 +704,8 @@ function paginate(items, url) {
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
+
+  if (await handleRecruiterApi(req, res, url, { json, readBody })) return;
 
   if (req.method === 'OPTIONS' && path.startsWith('/api/apply-assist')) {
     res.writeHead(204, CORS_APPLY);

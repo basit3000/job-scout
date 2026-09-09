@@ -458,6 +458,45 @@
       </div>
     </div>
 
+    <div id="recruiterModal" class="prep-modal" hidden>
+      <div class="prep-modal-card recruiter-card" role="dialog" aria-labelledby="recruiterModalTitle" aria-modal="true">
+        <h3 id="recruiterModalTitle">Recruiter</h3>
+        <p id="recruiterModalHint" class="meta">Looks up name, email, and LinkedIn from the posting and company pages. Saved as it finds them.</p>
+        <label class="prep-modal-field">
+          <span>Name</span>
+          <input id="recruiterName" type="text" autocomplete="off" />
+        </label>
+        <label class="prep-modal-field">
+          <span>Role</span>
+          <input id="recruiterRole" type="text" autocomplete="off" placeholder="Talent partner, hiring manager…" />
+        </label>
+        <label class="prep-modal-field">
+          <span>Email</span>
+          <div class="recruiter-row">
+            <input id="recruiterEmail" type="email" autocomplete="off" />
+            <a class="btn small" id="recruiterEmailOpen" href="#" hidden>Mail</a>
+          </div>
+        </label>
+        <label class="prep-modal-field">
+          <span>LinkedIn</span>
+          <div class="recruiter-row">
+            <input id="recruiterLinkedin" type="url" autocomplete="off" placeholder="https://linkedin.com/in/…" />
+            <a class="btn small" id="recruiterLinkedinOpen" href="#" target="_blank" rel="noopener" hidden>Open</a>
+          </div>
+        </label>
+        <p id="recruiterStatus" class="meta"></p>
+        <p id="recruiterSources" class="meta recruiter-sources"></p>
+        <pre id="recruiterLog" class="apply-assist-pre recruiter-log" hidden></pre>
+        <div class="prep-modal-actions">
+          <button type="button" class="btn ghost" id="recruiterClose">Close</button>
+          <button type="button" class="btn" id="recruiterSave">Save</button>
+          <button type="button" class="btn" id="recruiterLookup">Lookup again</button>
+          <button type="button" class="btn" id="recruiterStop" hidden>Stop</button>
+          <button type="button" class="btn primary" id="recruiterAgent" hidden>Search with agent</button>
+        </div>
+      </div>
+    </div>
+
     <script type="module" src="/app.js"></script>
   </body>
 </html>

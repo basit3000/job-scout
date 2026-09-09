@@ -9,6 +9,7 @@ cv/*
 !cv/cover-letter-notes.example.md
 state/decisions.json
 state/saved-answers.json
+state/recruiter-contacts.json
 
 # Personal cv-tailor overlay (real name, contacts, framing) — clonees use the
 # generic .agents/skills/cv-tailor/ templates with YOUR_* placeholders instead.

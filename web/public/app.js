@@ -142,6 +142,23 @@ const els = {
   applyAssistCopy: $('applyAssistCopy'),
   applyAssistOpenFolder: $('applyAssistOpenFolder'),
   applyAssistOpen: $('applyAssistOpen'),
+  recruiterModal: $('recruiterModal'),
+  recruiterModalTitle: $('recruiterModalTitle'),
+  recruiterModalHint: $('recruiterModalHint'),
+  recruiterName: $('recruiterName'),
+  recruiterRole: $('recruiterRole'),
+  recruiterEmail: $('recruiterEmail'),
+  recruiterEmailOpen: $('recruiterEmailOpen'),
+  recruiterLinkedin: $('recruiterLinkedin'),
+  recruiterLinkedinOpen: $('recruiterLinkedinOpen'),
+  recruiterStatus: $('recruiterStatus'),
+  recruiterSources: $('recruiterSources'),
+  recruiterLog: $('recruiterLog'),
+  recruiterClose: $('recruiterClose'),
+  recruiterSave: $('recruiterSave'),
+  recruiterLookup: $('recruiterLookup'),
+  recruiterStop: $('recruiterStop'),
+  recruiterAgent: $('recruiterAgent'),
 };
 
 const DECISIONS = ['shortlisted', 'applied', 'skipped', 'interviewing', 'rejected', 'closed'];
@@ -939,6 +956,8 @@ function renderJob(job, { compact = false } = {}) {
       ${atsPill(job.ats)}
       ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
       ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}
+      ${job.recruiter?.foundEmail ? '<span class="pill ok">Recruiter</span>' : ''}
+      ${job.recruiter?.name && !job.recruiter?.foundEmail ? '<span class="pill">Recruiter name</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
       ${also.map((s) => `<span class="pill" title="Also seen on">also ${escapeHtml(s)}</span>`).join('')}
       ${flags}
@@ -968,6 +987,7 @@ function renderJob(job, { compact = false } = {}) {
         job.url
           ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
              <button type="button" class="btn small" data-fill>Fill</button>
+             <button type="button" class="btn small" data-recruiter>Recruiter</button>
              <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Apply</a>`
           : ''
       }
@@ -1054,6 +1074,14 @@ function renderJob(job, { compact = false } = {}) {
       }
     });
 
+    el.querySelector('[data-recruiter]')?.addEventListener('click', async () => {
+      try {
+        await openRecruiterModal(job);
+      } catch (err) {
+        appendLog(`Recruiter lookup failed: ${err.message}`, 'stderr');
+      }
+    });
+
     el.querySelector('[data-apply]')?.addEventListener('click', async () => {
       // Open posting in a new tab (browser default via href). Offer to mark applied.
       appendLog(`Opened apply link for ${job.title} (${job.ats?.label || 'unknown'}) — submit the form yourself.`);
@@ -1076,6 +1104,216 @@ function renderJob(job, { compact = false } = {}) {
   }
 
   return el;
+}
+
+const RECRUITER_SIDECAR = 'http://127.0.0.1:4051';
+let recruiterOrigin = null;
+let recruiterJob = null;
+let recruiterPoll = null;
+let recruiterLookedUp = false;
+
+async function resolveRecruiterOrigin() {
+  if (recruiterOrigin !== null) return recruiterOrigin;
+  try {
+    const res = await fetch('/api/recruiter-contact/status');
+    if (res.ok) {
+      recruiterOrigin = '';
+      return recruiterOrigin;
+    }
+  } catch { /* running server may predate this API */ }
+  try {
+    const res = await fetch(`${RECRUITER_SIDECAR}/api/recruiter-contact/status`);
+    if (res.ok) {
+      recruiterOrigin = RECRUITER_SIDECAR;
+      return recruiterOrigin;
+    }
+  } catch { /* sidecar not up */ }
+  recruiterOrigin = '';
+  return recruiterOrigin;
+}
+
+async function recruiterApi(path, options = {}, retried = false) {
+  const origin = await resolveRecruiterOrigin();
+  const res = await fetch(`${origin}${path}`, {
+    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (!retried && origin === '' && res.status === 404) {
+      recruiterOrigin = RECRUITER_SIDECAR;
+      return recruiterApi(path, options, true);
+    }
+    throw new Error(data.error || res.statusText || 'Recruiter API failed');
+  }
+  return data;
+}
+
+function paintRecruiterContact(contact) {
+  const c = contact || {};
+  if (els.recruiterName) els.recruiterName.value = c.name || '';
+  if (els.recruiterRole) els.recruiterRole.value = c.role || '';
+  if (els.recruiterEmail) els.recruiterEmail.value = c.email || '';
+  if (els.recruiterLinkedin) els.recruiterLinkedin.value = c.linkedinUrl || '';
+  if (els.recruiterEmailOpen) {
+    els.recruiterEmailOpen.hidden = !c.email;
+    els.recruiterEmailOpen.href = c.email ? `mailto:${c.email}` : '#';
+  }
+  if (els.recruiterLinkedinOpen) {
+    els.recruiterLinkedinOpen.hidden = !c.linkedinUrl;
+    els.recruiterLinkedinOpen.href = c.linkedinUrl || '#';
+  }
+  if (els.recruiterSources) {
+    const bits = (c.sources || [])
+      .map((s) => s.kind || s.note)
+      .filter(Boolean)
+      .slice(-6);
+    els.recruiterSources.textContent = bits.length ? `Sources: ${bits.join(' · ')}` : '';
+  }
+}
+
+function paintRecruiterRun(run, { finishedWithoutEmail = false } = {}) {
+  const running = Boolean(run?.running && run.jobId === recruiterJob?.id);
+  const logs = (run?.logs || []).map((l) => l.line).filter(Boolean);
+  if (els.recruiterLog) {
+    els.recruiterLog.hidden = logs.length === 0;
+    els.recruiterLog.textContent = logs.slice(-12).join('\n');
+    els.recruiterLog.scrollTop = els.recruiterLog.scrollHeight;
+  }
+  if (els.recruiterStop) els.recruiterStop.hidden = !running;
+  if (els.recruiterLookup) els.recruiterLookup.disabled = running;
+  if (els.recruiterAgent) {
+    const showAgent = !running && finishedWithoutEmail;
+    els.recruiterAgent.hidden = !showAgent;
+    els.recruiterAgent.disabled = running;
+  }
+  if (els.recruiterStatus) {
+    if (running) {
+      els.recruiterStatus.textContent = run.mode === 'agent'
+        ? 'Agent is searching the public web…'
+        : 'Looking up the posting and company pages…';
+    } else if (run?.error) {
+      els.recruiterStatus.textContent = run.error;
+    }
+  }
+}
+
+function stopRecruiterPoll() {
+  if (recruiterPoll) {
+    clearInterval(recruiterPoll);
+    recruiterPoll = null;
+  }
+}
+
+async function refreshRecruiterModal() {
+  if (!recruiterJob) return;
+  const data = await recruiterApi(`/api/recruiter-contact?id=${encodeURIComponent(recruiterJob.id)}`);
+  const contact = data.contact;
+  const run = data.run || {};
+  paintRecruiterContact(contact);
+  const running = Boolean(run.running && run.jobId === recruiterJob.id);
+  const noEmail = !contact?.email;
+  if (contact?.lookedUpAt) recruiterLookedUp = true;
+  paintRecruiterRun(run, { finishedWithoutEmail: recruiterLookedUp && noEmail && !running });
+  if (!running && els.recruiterStatus && !run.error) {
+    if (contact?.email) {
+      els.recruiterStatus.textContent = contact.genericEmail
+        ? `Saved a generic inbox (${contact.email}). Agent search can try for a named recruiter.`
+        : 'Saved.';
+      if (contact.genericEmail && recruiterLookedUp) {
+        if (els.recruiterAgent) els.recruiterAgent.hidden = false;
+      }
+    } else if (recruiterLookedUp) {
+      els.recruiterStatus.textContent = 'No email on the posting or company pages. Use Search with agent to try the public web.';
+    } else {
+      els.recruiterStatus.textContent = 'Not looked up yet.';
+    }
+  }
+  if (!running) stopRecruiterPoll();
+  return { contact, run, running };
+}
+
+function startRecruiterPoll() {
+  stopRecruiterPoll();
+  recruiterPoll = setInterval(() => {
+    refreshRecruiterModal().catch((err) => {
+      stopRecruiterPoll();
+      if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    });
+  }, 600);
+}
+
+async function startRecruiterLookup(mode) {
+  if (!recruiterJob) return;
+  if (mode === 'agent') recruiterLookedUp = true;
+  paintRecruiterRun({ running: true, jobId: recruiterJob.id, mode, logs: [] });
+  await recruiterApi('/api/recruiter-contact', {
+    method: 'POST',
+    body: JSON.stringify({ id: recruiterJob.id, mode }),
+  });
+  startRecruiterPoll();
+  await refreshRecruiterModal();
+}
+
+async function openRecruiterModal(job) {
+  recruiterJob = job;
+  recruiterLookedUp = Boolean(job.recruiter?.email || job.recruiter?.name);
+  if (els.recruiterModalTitle) {
+    els.recruiterModalTitle.textContent = job.company
+      ? `Recruiter — ${job.company}`
+      : 'Recruiter';
+  }
+  if (els.recruiterModalHint) {
+    els.recruiterModalHint.textContent = [job.title, job.company].filter(Boolean).join(' · ');
+  }
+  paintRecruiterContact(job.recruiter || {});
+  if (els.recruiterStatus) els.recruiterStatus.textContent = 'Loading…';
+  if (els.recruiterLog) {
+    els.recruiterLog.hidden = true;
+    els.recruiterLog.textContent = '';
+  }
+  if (els.recruiterAgent) els.recruiterAgent.hidden = true;
+  if (els.recruiterModal) els.recruiterModal.hidden = false;
+  try {
+    await resolveRecruiterOrigin();
+    const { contact, running } = await refreshRecruiterModal();
+    if (running) {
+      startRecruiterPoll();
+      return;
+    }
+    if (!contact?.lookedUpAt && !contact?.email) {
+      recruiterLookedUp = true;
+      await startRecruiterLookup('lookup');
+    }
+  } catch (err) {
+    if (els.recruiterStatus) {
+      els.recruiterStatus.textContent = `${err.message} Start the recruiter sidecar (node web/recruiter-sidecar.mjs) if the main UI server was already running.`;
+    }
+    throw err;
+  }
+}
+
+function hideRecruiterModal() {
+  stopRecruiterPoll();
+  recruiterJob = null;
+  if (els.recruiterModal) els.recruiterModal.hidden = true;
+}
+
+async function saveRecruiterEdits() {
+  if (!recruiterJob) return;
+  const res = await recruiterApi('/api/recruiter-contact', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      id: recruiterJob.id,
+      name: els.recruiterName?.value || '',
+      role: els.recruiterRole?.value || '',
+      email: els.recruiterEmail?.value || '',
+      linkedinUrl: els.recruiterLinkedin?.value || '',
+    }),
+  });
+  paintRecruiterContact(res.contact);
+  if (els.recruiterStatus) els.recruiterStatus.textContent = 'Saved.';
+  appendLog(`Recruiter saved for ${recruiterJob.title}`);
 }
 
 function readPrepInstructions() {
@@ -2802,6 +3040,46 @@ els.applyAssistModal?.addEventListener('click', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && els.applyAssistModal && !els.applyAssistModal.hidden) hideApplyAssistModal();
+  if (ev.key === 'Escape' && els.recruiterModal && !els.recruiterModal.hidden) hideRecruiterModal();
+});
+els.recruiterClose?.addEventListener('click', () => hideRecruiterModal());
+els.recruiterModal?.addEventListener('click', (ev) => {
+  if (ev.target === els.recruiterModal) hideRecruiterModal();
+});
+els.recruiterSave?.addEventListener('click', async () => {
+  try {
+    await saveRecruiterEdits();
+  } catch (err) {
+    appendLog(`Recruiter save failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+  }
+});
+els.recruiterLookup?.addEventListener('click', async () => {
+  try {
+    recruiterLookedUp = true;
+    await startRecruiterLookup('lookup');
+  } catch (err) {
+    appendLog(`Recruiter lookup failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    paintRecruiterRun({ running: false, error: err.message });
+  }
+});
+els.recruiterAgent?.addEventListener('click', async () => {
+  try {
+    await startRecruiterLookup('agent');
+  } catch (err) {
+    appendLog(`Recruiter agent failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    paintRecruiterRun({ running: false, error: err.message });
+  }
+});
+els.recruiterStop?.addEventListener('click', async () => {
+  try {
+    await recruiterApi('/api/recruiter-contact/stop', { method: 'POST', body: '{}' });
+    if (els.recruiterStatus) els.recruiterStatus.textContent = 'Stopping…';
+  } catch (err) {
+    appendLog(err.message, 'stderr');
+  }
 });
 els.applyAssistCopy?.addEventListener('click', async () => {
   const text = applyAssistContext.text || els.applyAssistPack?.textContent || '';

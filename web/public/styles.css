@@ -1513,6 +1513,30 @@ body.setup-open .app {
   width: min(560px, 100%);
 }
 
+.recruiter-card {
+  width: min(480px, 100%);
+}
+
+.recruiter-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.recruiter-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.recruiter-sources,
+.recruiter-log {
+  max-height: 8rem;
+}
+
+.recruiter-card .prep-modal-actions {
+  justify-content: flex-start;
+}
+
 .setup-kicker {
   margin: 0;
   font-size: 0.72rem;
@@ -1548,6 +1572,7 @@ body.setup-open .app {
 
 .setup-card input,
 .setup-card select,
+.prep-modal-field input,
 .prep-modal-field select,
 .prep-modal-field textarea {
   text-transform: none;

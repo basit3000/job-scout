@@ -178,6 +178,13 @@ export function normalise(job, market) {
     seniority: job.seniority ?? null,
     yearsExperience: job.yearsExperience ?? null,
     nationality: job.nationality ?? null,
+    emails: Array.isArray(job.emails)
+      ? job.emails.filter(Boolean)
+      : String(job.emails || '')
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.includes('@')),
+    companyUrl: job.companyUrl || job.company_url || null,
     description: pickDescription(job.description),
     alsoOn: [],
     flags: job.flags ?? [],

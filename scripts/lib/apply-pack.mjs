@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepDir } from './common.mjs';
 import { detectAts } from './ats.mjs';
-import { cvFileBaseName, downloadsRoot, safeFolderName } from './cv-downloads.mjs';
+import { cvFileBaseName, downloadsRoot, jobDownloadFolder } from './cv-downloads.mjs';
 
 function unset(value) {
   const s = String(value ?? '').trim();
@@ -109,27 +109,28 @@ export function buildApplyPack({ job = {}, profile = {}, answers = {} } = {}) {
   const names = splitName(profile.name);
   const links = profile.links || {};
   const ats = detectAts(job.url);
-  const companyFolder = safeFolderName(job.company);
-  const folderAbs = join(downloadsRoot(), companyFolder);
+  const folderAbs = job.id
+    ? join(downloadsRoot(), jobDownloadFolder({ company: job.company, jobTitle: job.title, jobId: job.id }))
+    : null;
   const base = cvFileBaseName(profile.name);
   const prep = job.id ? prepDir(job.id) : null;
 
   const cvPdf = pickExisting(
-    join(folderAbs, `${base} CV.pdf`),
-    join(folderAbs, `${base} CV Main.pdf`),
     prep && join(prep, 'cv-ats.pdf'),
     prep && join(prep, 'cv-main.pdf'),
     prep && join(prep, 'cv.pdf'),
+    folderAbs && join(folderAbs, `${base} CV.pdf`),
+    folderAbs && join(folderAbs, `${base} CV Main.pdf`),
   );
   const coverLetterPdf = pickExisting(
-    join(folderAbs, `${base} Cover Letter.pdf`),
     prep && join(prep, 'cover-letter.pdf'),
+    folderAbs && join(folderAbs, `${base} Cover Letter.pdf`),
   );
   const coverLetterMd = pickExisting(
-    join(folderAbs, `${base} Cover Letter.md`),
     prep && join(prep, 'cover-letter.md'),
+    folderAbs && join(folderAbs, `${base} Cover Letter.md`),
   );
-  const coverLetterDocx = pickExisting(join(folderAbs, `${base} Cover Letter.docx`));
+  const coverLetterDocx = pickExisting(prep && join(prep, 'cover-letter.docx'), folderAbs && join(folderAbs, `${base} Cover Letter.docx`));
 
   const pack = {
     jobId: job.id || null,
@@ -164,7 +165,7 @@ export function buildApplyPack({ job = {}, profile = {}, answers = {} } = {}) {
     educationDegree: unset(profile.education?.[0]?.degree),
     coverLetter: readCoverLetter(coverLetterMd),
     files: {
-      folderAbs: existsSync(folderAbs) ? folderAbs : null,
+      folderAbs: folderAbs && existsSync(folderAbs) ? folderAbs : null,
       cvPdf,
       coverLetterPdf,
       coverLetterMd,

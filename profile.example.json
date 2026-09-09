@@ -15,6 +15,10 @@
   },
 
   "seniority": "YOUR_SENIORITY",
+  "experienceYears": null,
+  "_experienceYears": "Optional total years of professional experience. Leave null when unknown; never infer a number from a job posting.",
+  "languages": {},
+  "_languages": "Optional proficiency by language name, for example german: A2 or english: C1. Accepted levels: none, A1, A2, B1, B2, C1, C2, fluent, native. Enter your actual levels only.",
   "_seniority": "Pick one: internship | entry | junior | mid | senior | lead | executive | any. Fit scoring down-ranks job titles above this. any = no title penalty.",
 
   "skills": {
@@ -70,6 +74,7 @@
   },
 
   "constraints": {
+    "needsSponsorship": null,
     "dropNationalsOnly": true,
     "maxAgeDays": 30,
     "excludeCompanies": [],

@@ -49,7 +49,7 @@ portfolio may add one posting-named tag on Projects). After edits, both Overleaf
 (`main.tex` and `ats.tex`) are compiled and squeezed to **one page** (spacing /
 typography / filler wording — Experience bullets are kept). A first create also
 writes the cover letter with the same extra instructions, then opens
-`downloads/<Company>/`. If the chosen agent is unavailable, Prep falls back to Fast.
+`downloads/<Company>/<Role>-<JobID>/`. If the chosen agent is unavailable, Prep falls back to Fast.
 
 Agent mode then runs a **reviewer** (same backend) that scores ATS parse, posting
 fit, and the recruiter first screen. If it lists evidenced must-fix items, the
@@ -60,7 +60,7 @@ A **page checker** then restores optional extras (courses, spoken languages,
 certificates) from the gitignored overlay if present, drops ones the posting does
 not need (no German required → drop the languages line), and keeps both CV and
 cover letter to **one page**. Experience is never cut. If the PDF is still two
-pages after those cuts, page 2 is cropped as a last resort.
+pages after those cuts, the complete PDF is preserved and marked **Needs review**. Pages are never discarded to meet the limit.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 
@@ -99,7 +99,7 @@ YOUR_SENTENCE_ABOUT_THAT_PROJECT
 
 **Agent** (default) starts from the keyword draft, then the same cv-tailor agent lightly edits it. **Fast** fills placeholders and matching optional blocks only.
 
-Files in `downloads/<Company>/` (not Windows Downloads):
+Files in `downloads/<Company>/<Role>-<JobID>/` (not Windows Downloads):
 
 - `<Your Name> Cover Letter.pdf`
 - `<Your Name> Cover Letter.docx`
@@ -126,14 +126,28 @@ PDF uses Microsoft Word when it is installed; otherwise Chrome/Edge prints the H
 
 ### Batch Prep (Create CVs…)
 
-In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only, Worth a shot), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs that already have files. The run goes job by job in the background:
+In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only, Worth a shot), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs whose documents are still current. The run goes job by job in the background:
 
 - a progress strip stays visible on every tab (done / total, current company, per-job status in **Details**)
 - **Cancel** stops after the current job; the rest are marked cancelled
-- nothing opens — files land in `downloads/<Company>/` as usual and finished jobs appear under **Ready to apply**
+- nothing opens — files land in `downloads/<Company>/<Role>-<JobID>/` as usual and current, validated documents appear under **Ready to apply**
 - single **Prep** is blocked while a batch runs (and a batch cannot start during a single Prep)
 
 API: `POST /api/prep/batch { ids, mode, includeCoverLetter, skipExisting, extraInstructions }`, `GET /api/prep/batch`, `POST /api/prep/batch/stop`, SSE `GET /api/prep/batch/stream`, and `GET /api/ready`.
+
+### Matching, current results, and document status
+
+**Current search** applies your current title, exclusion, market, and age settings to the saved archive. Choose **All saved jobs** to see history. Posting age and last-seen dates are separate: a job missing from one search is not automatically closed. Tracker history is retained. The ranking CLI follows current settings too; add `--history` to include the archive.
+
+Fit uses skills from your profile, CV, and recorded experience. Explicit mandatory language, experience, sponsorship, and skill requirements can limit the verdict even when many keywords match. Missing evidence is shown as **Requirements need checking**; this remains a heuristic, not confirmation that you qualify. Preferences do not become hard requirements.
+
+Optional profile fields improve these checks: `experienceYears` (total professional years), `languages` (language names mapped to actual levels such as A2 or C1), and `constraints.needsSponsorship` (true, false, or null). Existing clear language notes are also used. An explicit sponsorship answer in **Saved answers** takes precedence; blank/ambiguous information is never invented. Leave unknown profile fields unset.
+
+Exports use a separate role folder with a stable job-ID suffix, so preparing two roles at the same company preserves both sets. Fill selects that job's own preparation files; shared legacy company folders are not used as a fallback.
+
+**Outdated documents** means the source CV, profile, posting, provider/model, or relevant template changed, or the pack predates input tracking. Recreate it before applying. Batch **Skip existing** skips only current documents with the requested instructions and mode. Existing packs without generation metadata need one recreation. Overleaf freshness checks the local checkout; remote changes become visible after synchronization.
+
+Generation stages replacements separately. PDFs must have readable text and exactly one page before they are marked ready and exported. If generation fails or overflows, previous accepted documents remain available; complete drafts and older versions are retained under `.workspace/prep-history/`. The log identifies drafts needing review. New packs needing review are excluded from **Ready to apply**, and Fill refuses outdated or unverified documents. CV and letter freshness are tracked separately.
 
 ### Google Sheets (optional)
 

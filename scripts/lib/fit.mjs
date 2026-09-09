@@ -1,4 +1,6 @@
 /** Heuristic fit score against profile.json (and optional evidence text). */
+import { analyzeKeywordGaps } from './cv-keywords.mjs';
+import { assessRequirements } from './match-requirements.mjs';
 export const FIT_VERDICTS = ['Strong', 'Worth a shot', 'Stretch', 'No'];
 
 
@@ -68,7 +70,7 @@ function escapeRe(s) {
 }
 
 function mentions(haystack, skill) {
-  const re = new RegExp(`\\b${escapeRe(skill.toLowerCase())}\\b`, 'i');
+  const re = new RegExp(`(?<![a-z0-9])${escapeRe(skill.toLowerCase())}(?![a-z0-9+#])`, 'i');
   return re.test(haystack);
 }
 
@@ -83,7 +85,7 @@ function mentions(haystack, skill) {
  * }}
  */
 export function scoreJob(job, profile, evidenceText = '') {
-  const hay = `${job.title}\n${job.description ?? ''}\n${evidenceText}`.toLowerCase();
+  const candidateEvidence = `${evidenceText}\n${(profile.experience || []).flatMap((e) => e.bullets || []).join('\n')}`;
   const jobText = `${job.title}\n${job.description ?? ''}`;
   const skills = skillList(profile);
   const target = String(profile?.targetRole ?? '');
@@ -105,29 +107,38 @@ export function scoreJob(job, profile, evidenceText = '') {
     gaps.push('Title is not an obvious match to target role');
   }
 
-  for (const sk of skills.strong) {
+  for (const sk of unique(skills.strong)) {
     if (mentions(jobText, sk)) {
       matched.push(sk);
       score += 8;
     }
   }
-  for (const sk of skills.familiar) {
-    if (mentions(jobText, sk)) {
+  for (const sk of unique(skills.familiar)) {
+    if (mentions(jobText, sk) && !matched.some((m) => m.toLowerCase() === sk.toLowerCase())) {
       matched.push(sk);
       score += 4;
+    }
+  }
+
+  const evidenceMatches = analyzeKeywordGaps({ job, cvText: candidateEvidence, profile });
+  for (const skill of unique([...evidenceMatches.onCv, ...evidenceMatches.promote])) {
+    if (!matched.some((s) => s.toLowerCase() === skill.toLowerCase())) {
+      matched.push(skill);
+      score += 4;
+      reasons.push(`${skill} evidenced in ${evidenceMatches.onCv.includes(skill) ? 'CV / experience' : 'profile skills'}`);
     }
   }
 
   // Common stack terms asked but missing from strong/familiar
   const asked = unique(tokens(jobText)).filter((t) => t.length > 2);
   const known = new Set(
-    [...skills.strong, ...skills.familiar, ...skills.learning].map((s) => s.toLowerCase()),
+    [...skills.strong, ...skills.familiar, ...skills.learning, ...evidenceMatches.onCv, ...evidenceMatches.promote].map((s) => s.toLowerCase()),
   );
   const interesting = asked.filter((t) =>
     /^(python|java|kotlin|react|fastapi|django|docker|postgres|sql|typescript|javascript|aws|azure|kubernetes|node)$/i.test(t),
   );
   for (const t of interesting) {
-    if (!known.has(t) && !matched.map((m) => m.toLowerCase()).includes(t)) {
+    if (!known.has(t) && !known.has({ postgres: 'postgresql', node: 'node.js' }[t]) && !matched.map((m) => m.toLowerCase()).includes(t)) {
       gaps.push(`Posting mentions ${t}`);
       score -= 3;
     }
@@ -149,20 +160,43 @@ export function scoreJob(job, profile, evidenceText = '') {
   }
   if (flags.includes('mentions-visa')) {
     reasons.push('Posting mentions visa/sponsorship');
-    score += 3;
   }
 
   if (jobTitleAboveProfileSeniority(job.title, profile?.seniority)) {
     score -= 12;
+    score = Math.min(score, 71);
     gaps.push('Seniority looks above profile target');
   }
 
   score = Math.max(0, Math.min(100, score));
 
   let verdict = 'Worth a shot';
-  if (score >= 72 && matched.length >= 2 && !flags.includes('nationals-only')) verdict = 'Strong';
-  else if (score < 35 || flags.includes('nationals-only')) verdict = 'No';
+  const nationalsOnly = flags.some((f) => f === 'nationals-only' || f === 'uae-nationals-only');
+  if (nationalsOnly) { score = Math.min(score, 34); verdict = 'No'; }
+  else if (score >= 72 && matched.length >= 2) verdict = 'Strong';
+  else if (score < 35) verdict = 'No';
   else if (score < 50 || gaps.length >= 4) verdict = 'Stretch';
+
+  const eligibility = assessRequirements(job, profile, candidateEvidence);
+  for (const skill of evidenceMatches.gaps) {
+    if (eligibility.requirements.some((r) => r.status === 'matched' && r.label.toLowerCase().startsWith(`${skill.toLowerCase()} `))) continue;
+    const requiredLine = String(job.description || '').split(/[\n.!?]+/).find((line) =>
+      mentions(line, skill) && /\b(required|mandatory|must|essential)\b/i.test(line)
+      && !/\b(preferred|optional|a plus|nice.to.have)\b/i.test(line));
+    if (requiredLine && !matched.some((m) => m.toLowerCase() === skill.toLowerCase())) {
+      eligibility.requirements.push({ label: `${skill} required`, status: 'needs-checking', evidence: 'Not evidenced in profile or CV', posting: requiredLine });
+      if (eligibility.status !== 'incompatible') eligibility.status = 'needs-checking';
+    }
+  }
+  for (const requirement of eligibility.requirements) {
+    if (requirement.status !== 'matched') gaps.push(`${requirement.status === 'incompatible' ? 'Mismatch' : 'Needs checking'}: ${requirement.label} — ${requirement.evidence}`);
+    else reasons.push(`Requirement met: ${requirement.label} (${requirement.evidence})`);
+  }
+  if (eligibility.status === 'incompatible') { score = Math.min(score, 34); verdict = 'No'; }
+  else if (eligibility.status === 'needs-checking') {
+    score = Math.min(score, 71);
+    if (verdict === 'Strong') verdict = 'Worth a shot';
+  }
 
   if (matched.length) reasons.push(`Matched skills: ${unique(matched).slice(0, 6).join(', ')}`);
   if (!reasons.length) reasons.push('Limited signal — open the posting and judge manually');
@@ -176,6 +210,7 @@ export function scoreJob(job, profile, evidenceText = '') {
     gaps: unique(gaps),
     reasons,
     checklist,
+    eligibility,
   };
 }
 

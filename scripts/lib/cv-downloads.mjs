@@ -1,5 +1,5 @@
 /**
- * Export tailored CVs into <project-root>/downloads/<Company>/
+ * Export tailored CVs into <project-root>/downloads/<Company>/<Role>-<JobID>/
  *   <Name> CV.pdf       ← ATS / portals
  *   <Name> CV Main.pdf  ← human-facing Main
  */
@@ -9,6 +9,8 @@ import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
+import { createHash } from 'node:crypto';
+import { artifactContext } from './artifact-context.mjs';
 
 /** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
 async function safeCopyFile(src, dest) {
@@ -67,17 +69,27 @@ export function safeFolderName(company) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
-  return raw || 'Unknown';
+  const clean = raw.replace(/[. ]+$/g, '');
+  if (!clean || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(clean)) return 'Unknown';
+  return clean;
 }
 
 export function downloadsRoot() {
   return join(ROOT, 'downloads');
 }
 
+export function jobDownloadFolder({ company, jobTitle = '', jobId } = {}) {
+  if (!jobId) throw new Error('A job ID is required to export application documents');
+  const suffix = createHash('sha256').update(String(jobId)).digest('hex').slice(0, 16);
+  return join(safeFolderName(company), `${safeFolderName(jobTitle || 'Role')}-${suffix}`);
+}
+
 /**
- * Copy ATS/Main PDFs into downloads/<Company>/ under the project root.
+ * Copy ATS/Main PDFs into downloads/<Company>/<Role>-<JobID>/ under the project root.
  */
 export async function exportCvDownloads({
+  jobId,
+  exportRoot = downloadsRoot(),
   company,
   profileName,
   atsPdfPath = null,
@@ -85,8 +97,9 @@ export async function exportCvDownloads({
   jobTitle = '',
 } = {}) {
   const base = cvFileBaseName(profileName);
-  const folder = safeFolderName(company);
-  const dir = join(downloadsRoot(), folder);
+  const folder = jobDownloadFolder({ company, jobTitle, jobId });
+  const dir = join(exportRoot, folder);
+  if (artifactContext.getStore()) return { deferred: true, files: [] };
 
   const mainSrc =
     (mainPdfPath && existsSync(mainPdfPath) && mainPdfPath) || null;
@@ -145,9 +158,11 @@ export async function exportCvDownloads({
 }
 
 /**
- * Write cover letter into the same downloads/<Company>/ folder as the CV.
+ * Write cover letter into the same downloads/<Company>/<Role>-<JobID>/ folder as the CV.
  */
 export async function exportCoverLetterDownloads({
+  jobId,
+  exportRoot = downloadsRoot(),
   company,
   profileName,
   jobTitle = '',
@@ -156,8 +171,9 @@ export async function exportCoverLetterDownloads({
   docxPath = null,
 } = {}) {
   const base = cvFileBaseName(profileName);
-  const folder = safeFolderName(company);
-  const dir = join(downloadsRoot(), folder);
+  const folder = jobDownloadFolder({ company, jobTitle, jobId });
+  const dir = join(exportRoot, folder);
+  if (artifactContext.getStore()) return { deferred: true, files: [] };
   await mkdir(dir, { recursive: true });
 
   const files = [];

@@ -126,7 +126,7 @@ PDF uses Microsoft Word when it is installed; otherwise Chrome/Edge prints the H
 
 ### Batch Prep (Create CVs…)
 
-In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs that already have files. The run goes job by job in the background:
+In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only, Worth a shot), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs that already have files. The run goes job by job in the background:
 
 - a progress strip stays visible on every tab (done / total, current company, per-job status in **Details**)
 - **Cancel** stops after the current job; the rest are marked cancelled

@@ -3,6 +3,8 @@
 //
 //   npm start          → http://localhost:4040
 
+import { paginate, digestItems } from '../scripts/lib/list-pagination.mjs';
+import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { createServer } from 'node:http';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
@@ -28,6 +30,8 @@ import {
 } from '../scripts/lib/decisions.mjs';
 import { dedupeJobs, clusterByCompany } from '../scripts/lib/dedupe.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
+import { createScoreCache } from '../scripts/lib/score-cache.mjs';
+const cachedScorer = createScoreCache(scoreJob);
 import {
   writePrepPack,
   readPrepPack,
@@ -521,7 +525,7 @@ async function loadSearchProfile() {
   );
 }
 
-async function getStatus() {
+async function getStatus({ light = false } = {}) {
   const config = await loadSearchProfile();
   const profile = await loadJson(join(ROOT, 'profile.json'), null);
   let market = null;
@@ -539,9 +543,9 @@ async function getStatus() {
   const titleCount = titles.length || 0;
   const boardCount = enabledBoards.length || 0;
   const queriesPerBoard = titleCount * cityCount;
-  let readyCount = 0;
+  let readyCount = light ? null : 0;
   try {
-    readyCount = (await enrichJobs()).jobs.filter(jobIsReady).length;
+    if (!light) readyCount = (await enrichJobs()).jobs.filter(jobIsReady).length;
   } catch {
     /* archive unreadable — badge stays 0 */
   }
@@ -552,7 +556,7 @@ async function getStatus() {
     targetRole: profile?.targetRole ?? null,
     apifyTokenPresent: Boolean(process.env.APIFY_TOKEN?.trim()),
     cursorApiKeyPresent: cursorAgentAvailable(),
-    agentProviders: await listAgentProvidersStatus(),
+    agentProviders: light ? [] : await listAgentProvidersStatus(),
     fetchRunning: Boolean(fetchState.child),
     fetchStartedAt: fetchState.startedAt,
     lastFetchCode: fetchState.lastCode,
@@ -622,12 +626,13 @@ async function persistJobDescription(id, description) {
 }
 
 async function enrichJobs({ force = false } = {}) {
-  const ttlMs = 3000;
+  const ttlMs = 15000;
   if (!force && jobsEnrichCache.data && Date.now() - jobsEnrichCache.at < ttlMs) {
     return jobsEnrichCache.data;
   }
   if (!force && jobsEnrichCache.inflight) return jobsEnrichCache.inflight;
 
+  const cache = jobsEnrichCache;
   const run = (async () => {
     const data = await loadJson(join(workspaceDir(), 'jobs.json'), null);
     const profile = await loadJson(join(ROOT, 'profile.json'), null);
@@ -654,48 +659,56 @@ async function enrichJobs({ force = false } = {}) {
       };
     }
 
+    const score = matchingProfile ? cachedScorer(matchingProfile, evidenceText) : () => null;
     const raw = data.jobs ?? [];
     const before = raw.length;
     const deduped = dedupeJobs(raw);
-    const jobs = await Promise.all(deduped.map(async (job) => {
-      const fit = matchingProfile ? scoreJob(job, matchingProfile, evidenceText) : null;
-      const decision = byId.get(job.id) ?? null;
-      const flags = prepFlagsForJob(prepIndex, job.id);
-      const manifest = await loadJson(join(prepDir(job.id), 'generation.json'), null);
-      const freshness = assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs },
-        { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter });
-      const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
-      const tailoredCv = flags.tailoredCv;
-      const recruiter = recruiterStore.contacts[job.id] || null;
-      return {
-        ...job,
-        language: detectPostingLanguage(job),
-        writtenLanguage: postingWrittenLanguage(job),
-        germanRequired: detectGermanRequirement(job) === 'required',
-        decision,
-        fit,
-        isNew: newSet.has(job.id),
-        ...flags,
-        ageDays: currentSearch.ageDays,
-        currentSearch,
-        prepFreshness: freshness,
-        prepOutdated: Object.values(freshness).includes('outdated'),
-        prepNeedsReview: Object.values(freshness).includes('needs-review'),
-        recruiter: recruiter
-          ? {
-              name: recruiter.name || '',
-              email: recruiter.email || '',
-              linkedinUrl: recruiter.linkedinUrl || '',
-              foundEmail: Boolean(recruiter.email),
+    const jobs = [];
+    // Yield between small groups so cold archive scoring cannot freeze status/navigation.
+    for (let offset = 0; offset < deduped.length; offset += 25) {
+      const chunk = await Promise.all(deduped.slice(offset, offset + 25).map(async (job) => {
+        const fit = score(job);
+        const decision = byId.get(job.id) ?? null;
+        const flags = prepFlagsForJob(prepIndex, job.id);
+        const manifest = flags.tailoredCv || flags.tailoredPdf || flags.coverLetter
+          ? await loadJson(join(prepDir(job.id), 'generation.json'), null) : null;
+        const freshness = assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs },
+          { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter });
+        const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
+        const tailoredCv = flags.tailoredCv;
+        const recruiter = recruiterStore.contacts[job.id] || null;
+        return {
+          ...job,
+          language: detectPostingLanguage(job),
+          writtenLanguage: postingWrittenLanguage(job),
+          germanRequired: detectGermanRequirement(job) === 'required',
+          decision,
+          fit,
+          isNew: newSet.has(job.id),
+          ...flags,
+          ageDays: currentSearch.ageDays,
+          currentSearch,
+          prepFreshness: freshness,
+          prepOutdated: Object.values(freshness).includes('outdated'),
+          prepNeedsReview: Object.values(freshness).includes('needs-review'),
+          recruiter: recruiter
+            ? {
+                name: recruiter.name || '',
+                email: recruiter.email || '',
+                linkedinUrl: recruiter.linkedinUrl || '',
+                foundEmail: Boolean(recruiter.email),
             }
-          : null,
-        ats: detectAts(job.url),
-        prepPath:
-          decision?.prepPath
-          || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
-      };
-    }));
+            : null,
+          ats: detectAts(job.url),
+          prepPath:
+            decision?.prepPath
+            || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
+        };
+      }));
 
+      jobs.push(...chunk);
+      await yieldEventLoop();
+    }
     jobs.sort(compareFit);
 
     const { jobs: _j, ...meta } = data;
@@ -710,31 +723,15 @@ async function enrichJobs({ force = false } = {}) {
     };
   })();
 
-  jobsEnrichCache.inflight = run;
+  cache.inflight = run;
   try {
     const result = await run;
-    jobsEnrichCache = { at: Date.now(), data: result, inflight: null };
+    if (jobsEnrichCache === cache) jobsEnrichCache = { at: Date.now(), data: result, inflight: null };
     return result;
   } catch (err) {
-    jobsEnrichCache.inflight = null;
+    if (jobsEnrichCache === cache) cache.inflight = null;
     throw err;
   }
-}
-
-function paginate(items, url) {
-  const page = Math.max(1, Number(url.searchParams.get('page') || 1));
-  const pageSize = Math.min(50, Math.max(5, Number(url.searchParams.get('pageSize') || 10)));
-  const total = items.length;
-  const pages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(page, pages);
-  const start = (safePage - 1) * pageSize;
-  return {
-    page: safePage,
-    pageSize,
-    total,
-    pages,
-    items: items.slice(start, start + pageSize),
-  };
 }
 
 async function handleApi(req, res, url) {
@@ -749,7 +746,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/status') {
-    return json(res, 200, await getStatus());
+    return json(res, 200, await getStatus({ light: url.searchParams.get('light') === '1' }));
   }
 
   if (req.method === 'GET' && path === '/api/setup') {
@@ -851,7 +848,7 @@ async function handleApi(req, res, url) {
         pages: page.pages,
       },
       meta: enriched.meta,
-      companies: companySummaries(enriched.companies),
+      ...(url.searchParams.get('companies') === '1' ? { companies: companySummaries(enriched.companies) } : {}),
       digest: enriched.digest
         ? {
             generatedAt: enriched.digest.generatedAt,
@@ -881,11 +878,16 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'GET' && path === '/api/digest') {
     const enriched = await enrichJobs();
-    const newJobs = enriched.jobs.filter((j) => j.isNew && j.currentSearch.current);
+    const newJobs = digestItems(enriched.jobs, url);
+    if (url.searchParams.get('selection') === '1') {
+      return json(res, 200, { candidates: newJobs.map(({ id, title, company, fit, tailoredCv, tailoredPdf, coverLetter }) => ({ id, title, company, fit: fit ? { verdict: fit.verdict } : null, tailoredCv, tailoredPdf, coverLetter })) });
+    }
+    const { items, ...pagination } = paginate(newJobs, url);
     const history = await loadRunHistory();
     return json(res, 200, {
       digest: enriched.digest,
-      newJobs: newJobs.map(toJobListItem),
+      newJobs: items.map(toJobListItem),
+      pagination,
       count: newJobs.length,
       history: history.fetch,
     });
@@ -909,7 +911,8 @@ async function handleApi(req, res, url) {
       else if (j.tailoredCv) counts.cvOnly += 1;
       else counts.letterOnly += 1;
     }
-    return json(res, 200, { jobs: list.map(toJobListItem), total: list.length, counts });
+    const { items, ...pagination } = paginate(list, url);
+    return json(res, 200, { jobs: items.map(toJobListItem), pagination, total: list.length, counts });
   }
 
   if (req.method === 'GET' && path === '/api/tracker') {

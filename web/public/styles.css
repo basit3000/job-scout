@@ -2007,3 +2007,8 @@ body.setup-open .app {
   .tracker-note-form { padding: .75rem; }
   .application-dialog { width: calc(100vw - 1rem); }
 }
+.list-pagination { flex-wrap: wrap; justify-content: flex-start; gap: .5rem; padding: .7rem 1.2rem; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); }
+.list-pagination label { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted); }
+.list-pagination span { font-size: .8rem; color: var(--muted); }
+.list-feedback { padding: .75rem 1.2rem; color: var(--muted); display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
+[aria-busy="true"].job-list { opacity: .55; pointer-events: none; }

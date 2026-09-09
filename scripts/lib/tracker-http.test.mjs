@@ -4,6 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { prepFingerprint, loadPrepInputs } from './prep-state.mjs';
 import { ROOT } from './common.mjs';
 
 test('manual application lifecycle and submitted files through the real HTTP routes', { timeout: 30000 }, async (t) => {
@@ -18,6 +19,21 @@ test('manual application lifecycle and submitted files through the real HTTP rou
   });
   for (const dir of ['scripts/lib', 'web', 'markets']) await cp(join(ROOT, dir), join(root, dir), { recursive: true });
   await writeFile(join(root, 'package.json'), '{"type":"module"}');
+  await mkdir(join(root, '.workspace'), { recursive: true });
+  await writeFile(join(root, 'profile.json'), JSON.stringify({ name: 'Test', search: { titles: ['Developer'], includeTitlePatterns: ['Developer'] } }));
+  await writeFile(join(root, 'search-profile.json'), JSON.stringify({ market: 'DE', filters: { maxAgeDays: 30 }, cv: { source: 'local', agentProvider: 'cursor', agentModel: 'test-model' } }));
+  const jobs = Array.from({ length: 63 }, (_, i) => ({ id: `test:${i}`, company: `Company ${i}`, title: 'Developer', location: 'Berlin, Germany', description: 'Software developer role.', postedAt: new Date().toISOString(), url: `https://example.com/${i}` }));
+  await writeFile(join(root, '.workspace/jobs.json'), JSON.stringify({ jobs }));
+  await writeFile(join(root, '.workspace/digest.json'), JSON.stringify({ newIds: jobs.map(job => job.id) }));
+  const profile = JSON.parse(await readFile(join(root, 'profile.json'), 'utf8'));
+  const settings = { source: 'local', agentProvider: 'cursor', agentModel: 'test-model' };
+  const inputs = await loadPrepInputs(settings, root);
+  for (const job of jobs.slice(0, 16)) {
+    const dir = join(root, '.workspace/prep', job.id.replace(':', '_'));
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'cv.html'), '<p>Test CV</p>');
+    await writeFile(join(dir, 'generation.json'), JSON.stringify({ cv: { fingerprint: prepFingerprint({ job, profile, settings, inputs, scope: 'cv' }) } }));
+  }
   const server = join(root, 'web/server.mjs');
   await writeFile(server, (await readFile(server, 'utf8')).replace('server.listen(PORT, () => {', 'server.listen(PORT, () => { process.send({ port: server.address().port });'));
   child = spawn(process.execPath, [server], { cwd: root, windowsHide: true, env: { ...process.env, PORT: '0', NO_OPEN: '1', GOOGLE_SHEETS_SPREADSHEET_ID: '', APIFY_TOKEN: '', OVERLEAF_GIT_TOKEN: '', OVERLEAF_PROJECT_ID: '' }, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
@@ -30,6 +46,29 @@ test('manual application lifecycle and submitted files through the real HTTP rou
     const response = await fetch(base + path, { method, headers: { 'content-type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: response.status, data: await response.json() };
   };
+  const light = await request('/api/status?light=1', null, 'GET');
+  assert.equal(light.status, 200);
+  assert.equal(light.data.readyCount, null);
+  assert.deepEqual(light.data.agentProviders, []);
+  const digestOne = await request('/api/digest?page=1&pageSize=20', null, 'GET');
+  const digestTwo = await request('/api/digest?page=2&pageSize=20', null, 'GET');
+  assert.equal(digestOne.data.pagination.total, 63);
+  assert.equal(digestOne.data.newJobs.length, 20);
+  assert.equal(digestTwo.data.pagination.page, 2);
+  assert.equal(new Set([...digestOne.data.newJobs, ...digestTwo.data.newJobs].map(job => job.id)).size, 40);
+  const selection = await request('/api/digest?selection=1', null, 'GET');
+  assert.equal(selection.data.candidates.length, 63);
+  assert.equal(selection.data.candidates[0].description, undefined);
+  const results = await request('/api/jobs?page=99&pageSize=20', null, 'GET');
+  assert.equal(results.data.pagination.page, 4);
+  assert.equal(results.data.jobs.length, 3);
+  assert.equal(results.data.companies, undefined);
+  const ready = await request('/api/ready', null, 'GET');
+  assert.equal(ready.data.pagination.total, 16);
+  assert.equal(ready.data.jobs.length, 10);
+  const readyTwo = await request('/api/ready?page=2', null, 'GET');
+  assert.equal(readyTwo.data.jobs.length, 6);
+  assert.equal(new Set([...ready.data.jobs, ...readyTwo.data.jobs].map(job => job.id)).size, 16);
   const added = await request('/api/tracker/application', { company: 'Manual Co', title: 'Engineer', decision: 'applied', appliedDate: '2026-08-01', contactName: 'Taylor', url: 'https://example.com/job' });
   assert.equal(added.status, 201);
   const id = added.data.entry.id;

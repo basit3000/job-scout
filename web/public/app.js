@@ -1,3 +1,4 @@
+import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
 
@@ -310,6 +311,49 @@ function toggleFilterMenu(menu, btn, panel) {
   menu.classList.toggle('open', open);
 }
 
+const listPages = { digest: { page: 1, pageSize: 10 }, ready: { page: 1, pageSize: 10 } };
+const listRequests = {};
+const listPagers = {};
+for (const [name, list] of [['digest', els.digestList], ['ready', els.readyList]]) {
+  listPagers[name] = mountPager(list, name === 'digest' ? 'New matches' : 'Ready to apply', (page, pageSize) => {
+    listPages[name] = { page, pageSize };
+    (name === 'digest' ? refreshDigest : refreshReady)();
+    list.previousElementSibling?.scrollIntoView({ block: 'start' });
+  });
+}
+const resultsPager = mountPager(els.jobList, 'Find jobs', (page, pageSize) => {
+  state.page = page; els.pageSize.value = String(pageSize); refreshJobs();
+}, { bottom: false });
+let batchJobs = [], batchSelection = new Set();
+let batchPage = { page: 1, pageSize: 20 }, progressPage = { page: 1, pageSize: 20 };
+function localPage(items, requested) {
+  const pages = Math.max(1, Math.ceil(items.length / requested.pageSize));
+  const page = Math.min(requested.page, pages);
+  return { page, pages, pageSize: requested.pageSize, total: items.length, items: items.slice((page - 1) * requested.pageSize, page * requested.pageSize) };
+}
+const batchPager = mountPager(els.batchSelectList, 'Batch selection', (page, pageSize) => { batchPage = { page, pageSize }; renderBatchSelectList(batchJobs); }, { size: 20 });
+const progressPager = mountPager(els.batchProgressList, 'Batch progress', (page, pageSize) => { progressPage = { page, pageSize }; renderBatchProgress(state.batch); }, { size: 20 });
+function listFeedback(list, message, retry) {
+  let box = list.parentElement.querySelector(`[data-feedback="${list.id}"]`);
+  if (!box) {
+    box = document.createElement('div'); box.className = 'list-feedback';
+    box.dataset.feedback = list.id; box.setAttribute('role', 'status');
+    list.insertAdjacentElement('beforebegin', box);
+  }
+  box.replaceChildren(); box.hidden = !message;
+  if (message) box.append(document.createTextNode(message));
+  if (retry) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'btn small'; button.textContent = 'Retry'; button.onclick = retry; box.append(button);
+  }
+}
+async function loadPagedView(name, list, load, retry) {
+  listRequests[name]?.abort(); const controller = new AbortController(); listRequests[name] = controller;
+  list.setAttribute('aria-busy', 'true'); listFeedback(list, 'Loading…');
+  try { await load(controller.signal); if (!controller.signal.aborted) listFeedback(list, ''); }
+  catch (err) { if (!controller.signal.aborted) listFeedback(list, `Could not load this list: ${err.message}. `, retry); }
+  finally { if (listRequests[name] === controller) list.removeAttribute('aria-busy'); }
+}
+
 function renderFilterChecks(container, options, visibleSet, onChange) {
   if (!container) return;
   container.innerHTML = options
@@ -390,7 +434,7 @@ function onDecisionFilterChange({ rerender = false } = {}) {
   updateDecisionFilterUi();
   state.page = 1;
   refreshJobs();
-  if (state.view === 'digest') refreshDigest();
+  if (state.view === 'digest') { listPages.digest.page = 1; refreshDigest(); }
 }
 
 function onTrackerStatusChange() {
@@ -2080,17 +2124,20 @@ function setReadyBadge(count) {
   els.readyBadge.textContent = String(n);
 }
 
-async function refreshReady() {
+function refreshReady() { return loadPagedView('ready', els.readyList, loadReady, refreshReady); }
+async function loadReady(signal) {
   if (!els.readyList) return;
   const q = (els.readySearch?.value || '').trim();
-  const data = await api(`/api/ready${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  const params = new URLSearchParams({ ...listPages.ready, q });
+  const data = await api(`/api/ready?${params}`, { signal });
+  listPages.ready = data.pagination; listPagers.ready.update(data.pagination);
   const jobs = data.jobs || [];
   els.readyList.innerHTML = '';
   if (!q) setReadyBadge(data.total);
   if (els.readyMeta) {
     const c = data.counts || {};
     els.readyMeta.textContent = jobs.length
-      ? `${jobs.length} ready${q ? ` matching “${q}”` : ''} · ${c.both || 0} with CV + letter · ${c.cvOnly || 0} CV only · ${c.letterOnly || 0} letter only. Mark Applied when done and they drop off this list.`
+      ? `${data.total} ready${q ? ` matching “${q}”` : ''} · ${c.both || 0} with CV + letter · ${c.cvOnly || 0} CV only · ${c.letterOnly || 0} letter only. Mark Applied when done and they drop off this list.`
       : q
         ? `No ready postings match “${q}”.`
         : 'Postings with a tailored CV or cover letter that you have not applied to yet.';
@@ -2193,7 +2240,8 @@ function renderBatchProgress(snap) {
   if (els.batchProgressFill) els.batchProgressFill.style.width = `${batchPercent(snap)}%`;
   if (els.batchProgressLine) els.batchProgressLine.textContent = batchSummaryText(snap);
   if (els.batchProgressList) {
-    els.batchProgressList.innerHTML = (snap.items || [])
+    const window = localPage(snap.items || [], progressPage); progressPage = window; progressPager.update(window);
+    els.batchProgressList.innerHTML = window.items
       .map((it) => {
         const time = it.durationMs != null ? formatDuration(it.durationMs) : '';
         const detail = [it.error || it.note || (it.status === 'done' && it.tailorMode ? it.tailorMode : ''), time]
@@ -2295,7 +2343,7 @@ async function stopBatch() {
 }
 
 function batchSelectedIds() {
-  return [...(els.batchSelectList?.querySelectorAll('input[data-job]:checked') || [])].map((i) => i.dataset.job);
+  return [...batchSelection];
 }
 
 function updateBatchSelectCount() {
@@ -2315,8 +2363,9 @@ function updateBatchSelectCount() {
 
 function renderBatchSelectList(jobs) {
   if (!els.batchSelectList) return;
+  const window = localPage(jobs, batchPage); batchPage = window; batchPager.update(window);
   const groups = new Map();
-  for (const job of jobs) {
+  for (const job of window.items) {
     const key = (job.company || '—').trim() || '—';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(job);
@@ -2326,7 +2375,7 @@ function renderBatchSelectList(jobs) {
     .map(([company, list]) => `
       <div class="batch-group">
         <label class="batch-group-head">
-          <input type="checkbox" data-company="${escapeAttr(company)}" checked />
+          <input type="checkbox" data-company="${escapeAttr(company)}" />
           <span>${escapeHtml(company)}</span>
           <span class="meta">${list.length}</span>
         </label>
@@ -2335,7 +2384,7 @@ function renderBatchSelectList(jobs) {
             const has = job.tailoredCv || job.tailoredPdf;
             const letter = job.coverLetter;
             return `<label class="batch-row">
-              <input type="checkbox" data-job="${escapeAttr(job.id)}" data-has-cv="${has ? '1' : '0'}" data-fit="${escapeAttr(job.fit?.verdict || '')}" checked />
+              <input type="checkbox" data-job="${escapeAttr(job.id)}" data-has-cv="${has ? '1' : '0'}" data-fit="${escapeAttr(job.fit?.verdict || '')}" ${batchSelection.has(job.id) ? 'checked' : ''} />
               <span class="batch-row-title">${escapeHtml(job.title)}</span>
               ${job.fit ? `<span class="pill ${FIT_CLASS[job.fit.verdict] || ''}">${escapeHtml(job.fit.verdict)}</span>` : ''}
               ${has ? '<span class="pill ok">CV</span>' : ''}
@@ -2349,21 +2398,20 @@ function renderBatchSelectList(jobs) {
     box.addEventListener('change', () => {
       box.closest('.batch-group')?.querySelectorAll('input[data-job]').forEach((j) => {
         j.checked = box.checked;
+        if (j.checked) batchSelection.add(j.dataset.job); else batchSelection.delete(j.dataset.job);
       });
       updateBatchSelectCount();
     });
   });
   els.batchSelectList.querySelectorAll('input[data-job]').forEach((j) => {
-    j.addEventListener('change', updateBatchSelectCount);
+    j.addEventListener('change', () => { if (j.checked) batchSelection.add(j.dataset.job); else batchSelection.delete(j.dataset.job); updateBatchSelectCount(); });
   });
   updateBatchSelectCount();
 }
 
 function setBatchChecked(predicate) {
-  els.batchSelectList?.querySelectorAll('input[data-job]').forEach((j) => {
-    j.checked = predicate(j);
-  });
-  updateBatchSelectCount();
+  batchSelection = new Set(batchJobs.filter(job => predicate({ dataset: { hasCv: job.tailoredCv || job.tailoredPdf ? '1' : '0', fit: job.fit?.verdict || '' } })).map(job => job.id));
+  renderBatchSelectList(batchJobs);
 }
 
 function showBatchModal(view) {
@@ -2394,8 +2442,10 @@ function hideBatchModal() {
   if (els.batchModal) els.batchModal.hidden = true;
 }
 
-function openBatchSetup() {
-  const jobs = state.digestJobs || [];
+async function openBatchSetup() {
+  let jobs;
+  try { const data = await api(`/api/digest?${queryString()}&selection=1`); jobs = data.candidates || []; }
+  catch (err) { listFeedback(els.digestList, `Could not load batch selection: ${err.message}. `, openBatchSetup); return; }
   if (els.batchError) {
     els.batchError.hidden = true;
     els.batchError.textContent = '';
@@ -2414,6 +2464,7 @@ function openBatchSetup() {
       keyOk ? '' : ' Agent needs a working provider — otherwise each job falls back to Fast.'
     }`;
   }
+  batchJobs = jobs; batchSelection = new Set(jobs.map(job => job.id)); batchPage.page = 1;
   renderBatchSelectList(jobs);
   if (els.batchInstructions) els.batchInstructions.value = '';
   showBatchModal('setup');
@@ -2476,6 +2527,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && els.batchModal && !els.batchModal.hidden) hideBatchModal();
 });
 els.readySearch?.addEventListener('input', () => {
+  listPages.ready.page = 1;
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => refreshReady(), 200);
 });
@@ -2484,10 +2536,15 @@ async function refreshJobs() {
   jobsAbort?.abort();
   jobsAbort = new AbortController();
   const { signal } = jobsAbort;
+  listFeedback(els.jobList, 'Loading…');
+  els.jobList.setAttribute('aria-busy', 'true');
   try {
     const data = await api(`/api/jobs?${queryString()}`, { signal });
     if (signal.aborted) return;
     state.pagination = data.pagination;
+    state.page = data.pagination.page;
+    resultsPager.update(data.pagination);
+    listFeedback(els.jobList, '');
     state.jobs = data.jobs || [];
     updateResultsEmptyState(data);
     els.jobList.innerHTML = '';
@@ -2554,7 +2611,8 @@ async function refreshJobs() {
   } catch (err) {
     if (err?.name === 'AbortError') return;
     appendLog(`Results failed: ${err.message}`, 'stderr');
-  }
+    listFeedback(els.jobList, `Could not load jobs: ${err.message}. `, refreshJobs);
+  } finally { if (!signal.aborted) els.jobList.removeAttribute('aria-busy'); }
 }
 
 function updatePlanHint(s = state.status) {
@@ -2616,7 +2674,7 @@ async function refreshAgentModels(provider, selected) {
 }
 
 async function refreshStatus() {
-  state.status = await api('/api/status');
+  state.status = await api('/api/status?light=1');
   const s = state.status;
   els.candidateLine.textContent = [s.candidate, s.targetRole].filter(Boolean).join(' · ') || 'Local shortlist';
   if (s.marketId) els.marketSelect.value = s.marketId;
@@ -2656,7 +2714,7 @@ async function refreshStatus() {
   } else {
     els.digestBadge.hidden = true;
   }
-  setReadyBadge(s.readyCount);
+  if (s.readyCount != null) setReadyBadge(s.readyCount);
   if (s.batch) {
     // Items come over the stream; keep the ones we already have.
     applyBatchSnapshot({ ...s.batch, items: state.batch?.items || [] });
@@ -2683,6 +2741,7 @@ async function refreshMarkets() {
     .map((m) => `<option value="${escapeAttr(m.id)}">${escapeHtml(m.name)} (${escapeHtml(m.id)})</option>`)
     .join('');
   els.marketSelect.innerHTML = options;
+  if (state.status?.marketId) els.marketSelect.value = state.status.marketId;
   if (els.setupMarket) {
     els.setupMarket.innerHTML = options;
     if (![...els.setupMarket.options].some((o) => o.value === 'DE')) {
@@ -2980,9 +3039,10 @@ function renderTracker() {
   els.trackerList.appendChild(frag);
 }
 
-async function refreshTracker() {
+function refreshTracker() { return loadPagedView('tracker', els.trackerList, loadTracker, refreshTracker); }
+async function loadTracker(signal) {
   updateSheetsUi(state.status?.sheets);
-  const data = await api('/api/tracker');
+  const data = await api('/api/tracker', { signal });
   state.trackerItems = data.items || [];
   state.trackerCounts = data.counts || {};
   renderTracker();
@@ -3020,13 +3080,17 @@ function digestLangVisible(job) {
   return job?.language === lang;
 }
 
-async function refreshDigest() {
-  const data = await api('/api/digest');
-  const jobs = (data.newJobs || []).filter((j) => digestJobVisible(j) && digestLangVisible(j));
+function refreshDigest() { return loadPagedView('digest', els.digestList, loadDigest, refreshDigest); }
+async function loadDigest(signal) {
+  const params = new URLSearchParams(queryString());
+  params.set('page', listPages.digest.page); params.set('pageSize', listPages.digest.pageSize);
+  const data = await api(`/api/digest?${params}`, { signal });
+  listPages.digest = data.pagination; listPagers.digest.update(data.pagination);
+  const jobs = data.newJobs || [];
   state.digestJobs = jobs;
   if (els.batchOpenBtn) els.batchOpenBtn.disabled = !jobs.length && !state.batch?.running;
   els.digestMeta.textContent = data.digest?.generatedAt
-    ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
+    ? `${data.count} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
   if (els.digestTiming) {
     const d = data.digest || {};
@@ -3103,6 +3167,7 @@ function setView(view) {
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
   els.layout?.classList.toggle('tracker-wide', view === 'tracker');
+  if (view === 'results') refreshJobs();
   if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
   if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
   if (view === 'portals') refreshPortals().catch((err) => { appendLog(err.message, 'stderr');  });
@@ -3202,12 +3267,9 @@ async function stopSearch() {
 }
 
 async function refreshAll() {
-  await refreshStatus();
-  await refreshJobs();
-  if (state.view === 'tracker') await refreshTracker();
-  if (state.view === 'portals') await refreshPortals();
-  if (state.view === 'digest') await refreshDigest();
-  if (state.view === 'ready') await refreshReady();
+  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers }[state.view];
+  const results = await Promise.allSettled([refreshStatus(), refresh?.()]);
+  for (const result of results) if (result.status === 'rejected') appendLog(result.reason.message, 'stderr');
 }
 
 els.runBtn.addEventListener('click', () => {
@@ -3254,7 +3316,7 @@ els.langFilter?.addEventListener('change', () => {
   saveLang(els.langFilter.value);
   state.page = 1;
   refreshJobs();
-  if (state.view === 'digest') refreshDigest();
+  if (state.view === 'digest') { listPages.digest.page = 1; refreshDigest(); }
 });
 els.sortSelect?.addEventListener('change', () => {
   saveSort(els.sortSelect.value);
@@ -3545,26 +3607,27 @@ els.setupForm?.addEventListener('submit', async (ev) => {
 connectStream();
 
 (async function init() {
-  try {
-    initFilterMenus();
-    await refreshMarkets();
-    await refreshStatus();
-    if (!state.status?.setup?.needsSetup) await refreshJobs();
-    const initialView = location.hash.slice(1);
-    setView(['results', 'tracker', 'answers', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
-    if (state.status?.sheets?.configured) {
-      try {
-        const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
-        logSheetsPull(pull);
-        if (pull.pulled > 0 && !state.status?.setup?.needsSetup) await refreshJobs();
-      } catch (err) {
-        appendLog(`Sheets pull: ${err.message}`, 'stderr');
-      }
-    }
-    // Keep Allow paid OFF by default — JobSpy is free. Token presence is not consent to spend.
-  } catch (err) {
-    appendLog(`Init failed: ${err.message}`, 'stderr');
-    setChip('error', 'Error');
+  initFilterMenus();
+  const initialView = location.hash.slice(1);
+  setView(['results', 'tracker', 'answers', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
+  els.runBtn.disabled = true; els.emptyRunBtn.disabled = true;
+  const startup = await Promise.allSettled([refreshMarkets(), refreshStatus()]);
+  const startupReady = startup.every(result => result.status === 'fulfilled');
+  els.runBtn.disabled = !startupReady || Boolean(state.status?.fetchRunning);
+  els.emptyRunBtn.disabled = els.runBtn.disabled;
+  for (const result of startup) if (result.status === 'rejected') {
+    const box = document.createElement('div'); box.className = 'alert'; box.setAttribute('role', 'alert');
+    box.textContent = `Some settings could not load: ${result.reason.message}. `;
+    const retry = document.createElement('button'); retry.className = 'btn small'; retry.textContent = 'Retry';
+    retry.onclick = () => location.reload(); box.append(retry); els.alerts.append(box);
+  }
+  // Optional sync never blocks navigation or the first list.
+  if (state.status?.sheets?.configured) {
+    try {
+      const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
+      logSheetsPull(pull);
+      if (pull.pulled > 0) await refreshAll();
+    } catch (err) { appendLog(`Sheets pull: ${err.message}`, 'stderr'); }
   }
 })();
 

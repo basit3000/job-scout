@@ -1,3 +1,6 @@
+import { openApplicationEditor } from './application-editor.js';
+import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
+
 const $ = (id) => document.getElementById(id);
 
 const els = {
@@ -169,12 +172,14 @@ const els = {
   recruiterAgent: $('recruiterAgent'),
 };
 
-const DECISIONS = ['shortlisted', 'applied', 'skipped', 'interviewing', 'rejected', 'closed'];
+const DECISIONS = ['shortlisted', 'applied', 'interviewing', 'offer', 'accepted', 'rejected', 'closed', 'skipped'];
 const DECISION_LABELS = {
   shortlisted: 'Shortlisted',
   applied: 'Applied',
   skipped: 'Skipped',
   interviewing: 'Interviewing',
+  offer: 'Offer',
+  accepted: 'Accepted',
   rejected: 'Rejected',
   closed: 'Closed',
 };
@@ -186,6 +191,8 @@ const DECISION_FILTER_OPTIONS = [
   { id: 'applied', label: 'Applied' },
   { id: 'skipped', label: 'Skipped' },
   { id: 'interviewing', label: 'Interviewing' },
+  { id: 'offer', label: 'Offer' },
+  { id: 'accepted', label: 'Accepted' },
   { id: 'rejected', label: 'Rejected' },
   { id: 'closed', label: 'Closed' },
 ];
@@ -194,11 +201,11 @@ const TRACKER_STATUS_OPTIONS = DECISIONS.map((id) => ({
   label: DECISION_LABELS[id],
 }));
 /** Tracker default: the live pile, not skipped / rejected / closed. */
-const TRACKER_DEFAULT_VISIBLE = ['shortlisted', 'applied', 'interviewing'];
+const TRACKER_DEFAULT_VISIBLE = [...ACTIVE_STATUSES];
 /** Preset: hide terminal / done statuses — keep hunting in the active pile. */
-const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
+const ACTIVE_ONLY_HIDDEN = ['applied', 'interviewing', 'offer', 'accepted', 'skipped', 'rejected', 'closed'];
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
-const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
+const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns.v2';
 const LS_SORT = 'jobScout.sort';
 const LS_TRACKER_SORT = 'jobScout.trackerSort';
 const LS_TRACKER_PAGE_SIZE = 'jobScout.trackerPageSize';
@@ -245,6 +252,7 @@ let state = {
   trackerPage: 1,
   trackerPageSize: 20,
   trackerSort: 'newest',
+  trackerDueOnly: false,
   /** Digest jobs currently shown — the pool for Create CVs… */
   digestJobs: [],
   /** Last batch snapshot from the server */
@@ -613,7 +621,7 @@ function setChip(stateName, label) {
 
 function loadLogMinimized() {
   try {
-    return localStorage.getItem(LS_LOG_MINIMIZED) === '1';
+    return localStorage.getItem(LS_LOG_MINIMIZED) !== '0';
   } catch {
     return false;
   }
@@ -631,7 +639,7 @@ function applyLogMinimized(minimized) {
   els.layout?.classList.toggle('log-minimized', minimized);
   els.logPanel?.classList.toggle('is-minimized', minimized);
   if (els.toggleLogBtn) {
-    els.toggleLogBtn.textContent = minimized ? 'Expand' : 'Minimize';
+    els.toggleLogBtn.textContent = minimized ? 'Show activity' : 'Hide activity';
     els.toggleLogBtn.setAttribute('aria-expanded', minimized ? 'false' : 'true');
   }
 }
@@ -1017,7 +1025,7 @@ function renderJob(job, { compact = false } = {}) {
         }</h3>
         <p class="job-company">${escapeHtml(job.company || 'unknown')}</p>
       </div>
-      ${compact ? '' : '<button type="button" class="btn ghost toggle-desc">Details</button>'}
+      ${compact ? '' : '<button type="button" class="btn ghost toggle-desc" aria-expanded="false">View details</button>'}
     </div>
     <div class="job-facts">
       ${
@@ -1046,11 +1054,11 @@ function renderJob(job, { compact = false } = {}) {
         ? ''
         : `
     <div class="job-actions">
-      <button type="button" class="btn small ok" data-prep>Prep</button>
+      <button type="button" class="btn small ok" data-prep>Prepare documents</button>
       <button type="button" class="btn small ${
         decision ? `active${NEGATIVE_DECISIONS.has(decision) ? ' danger' : ''}` : ''
       }" data-status title="Change status" aria-haspopup="dialog">${
-        decision ? escapeHtml(DECISION_LABELS[decision] || decision) : 'Status'
+        decision ? escapeHtml(DECISION_LABELS[decision] || decision) : 'Save / change status'
       }</button>
       ${
         job.tailoredCv
@@ -1065,9 +1073,9 @@ function renderJob(job, { compact = false } = {}) {
       ${
         job.url
           ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
-             <button type="button" class="btn small" data-fill>Fill</button>
+             <button type="button" class="btn small" data-fill>${/linkedin\.com/i.test(job.url || '') ? 'Fill / submit Easy Apply' : 'Fill form'}</button>
              <button type="button" class="btn small" data-recruiter>Recruiter</button>
-             <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Apply</a>`
+             <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Open application ↗</a>`
           : ''
       }
     </div>
@@ -1100,6 +1108,8 @@ function renderJob(job, { compact = false } = {}) {
         }
         desc.dataset.loaded = '1';
       }
+      el.querySelector('.toggle-desc').setAttribute('aria-expanded', String(open));
+      el.querySelector('.toggle-desc').textContent = open ? 'Hide details' : 'View details';
       desc.hidden = !open;
       fitBox.hidden = !open;
       el.classList.toggle('open', open);
@@ -1639,7 +1649,7 @@ function updateSheetsUi(sheets = state.status?.sheets) {
   if (els.sheetsHint) {
     if (configured) {
       els.sheetsHint.hidden = false;
-      els.sheetsHint.textContent = `Google Sheet tab “${sheets.tab || 'Applications'}” — applied / interviewing / rejected / closed sync here.`;
+      els.sheetsHint.textContent = `Google Sheet tab “${sheets.tab || 'Applications'}” — Application statuses, including offers and acceptances, sync here.`;
     } else if (sheets?.hint) {
       els.sheetsHint.hidden = false;
       els.sheetsHint.textContent = `Google Sheets: ${sheets.hint}`;
@@ -2479,6 +2489,7 @@ async function refreshJobs() {
     if (signal.aborted) return;
     state.pagination = data.pagination;
     state.jobs = data.jobs || [];
+    updateResultsEmptyState(data);
     els.jobList.innerHTML = '';
 
     if (!data.pagination.total && !data.meta) {
@@ -2499,7 +2510,7 @@ async function refreshJobs() {
     const dup = (data.meta?.duplicatesRemoved ?? 0) + (data.meta?.duplicatesRemovedExtra ?? 0);
     const newN = data.meta?.newSinceLastFetch;
     const parts = [
-      `${data.pagination.total} in archive`,
+      `${data.pagination.total} matching jobs`,
       data.meta?.marketName || '—',
       when,
     ];
@@ -2512,6 +2523,12 @@ async function refreshJobs() {
     if (data.meta?.replaced) parts.push('replaced');
     els.jobsMeta.textContent = parts.join(' · ');
 
+    if ($('boardDetails')) $('boardDetails').hidden = !data.meta?.sourceStatus?.length;
+    if ($('boardSummary') && data.meta?.sourceStatus?.length) {
+      const sources = data.meta.sourceStatus;
+      const failed = sources.filter((source) => !source.ok).length;
+      $('boardSummary').textContent = `${sources.length - failed} sources returned results${failed ? ` · ${failed} need attention` : ''}`;
+    }
     if (data.meta?.sourceStatus?.length) {
       els.boardStatus.hidden = false;
       els.boardStatus.innerHTML = data.meta.sourceStatus
@@ -2633,7 +2650,7 @@ async function refreshStatus() {
     alerts.push(`profile.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
   }
   if (s.digestNewCount > 0) {
-    alerts.push(`${s.digestNewCount} new posting(s) since last fetch`);
+    // The New matches badge already communicates this without a duplicate alert.
     els.digestBadge.hidden = false;
     els.digestBadge.textContent = String(s.digestNewCount);
   } else {
@@ -2696,21 +2713,43 @@ function showSetup(needs) {
 }
 
 function filteredTrackerItems() {
-  const q = (els.trackerSearch?.value || '').trim().toLowerCase();
-  const newestFirst = state.trackerSort !== 'oldest';
-  const items = (state.trackerItems || []).filter((item) => {
-    if (!state.trackerVisibleColumns.has(item.decision)) return false;
-    if (!q) return true;
-    const hay = `${item.title || ''} ${item.company || ''} ${item.board || ''}`.toLowerCase();
-    return hay.includes(q);
+  return filterTracker(state.trackerItems, {
+    query: els.trackerSearch?.value || '', statuses: state.trackerVisibleColumns,
+    dueOnly: state.trackerDueOnly, sort: state.trackerSort,
   });
-  items.sort((a, b) => {
-    const ra = Number.isFinite(Number(a.at)) ? Number(a.at) : Date.parse(a.updatedAt || '') || 0;
-    const rb = Number.isFinite(Number(b.at)) ? Number(b.at) : Date.parse(b.updatedAt || '') || 0;
-    if (ra !== rb) return newestFirst ? rb - ra : ra - rb;
-    return 0;
-  });
-  return items;
+}
+
+function showTrackerFeedback(message, isError = false) {
+  const el = $('trackerFeedback');
+  el.hidden = false;
+  el.textContent = message;
+  el.classList.toggle('is-error', isError);
+}
+
+function selectTrackerPreset(preset) {
+  state.trackerDueOnly = preset === 'due';
+  state.trackerVisibleColumns = new Set(preset === 'all' ? DECISIONS : ['interviewing', 'offer', 'accepted'].includes(preset) ? [preset] : ACTIVE_STATUSES);
+  els.trackerSearch.value = '';
+  onTrackerStatusChange();
+}
+
+function renderTrackerSummary() {
+  const summary = trackerSummary(state.trackerItems);
+  const cards = [
+    ['all', summary.total, 'Saved jobs', 'Every stage, including closed'],
+    ['active', summary.active, 'In progress', 'Your active applications'],
+    ['interviewing', summary.interviewing, 'Interviewing', 'Keep the conversation moving'],
+    ['offer', state.trackerCounts.offer || 0, 'Offers', 'Review your opportunities'],
+    ['accepted', state.trackerCounts.accepted || 0, 'Accepted', 'Your next chapter'],
+    ['due', summary.due, 'Follow-ups due', 'Scheduled for today or earlier'],
+  ];
+  const matchesPreset = (preset) => {
+    const ids = preset === 'all' ? DECISIONS : ['interviewing', 'offer', 'accepted'].includes(preset) ? [preset] : ACTIVE_STATUSES;
+    return (preset === 'due') === state.trackerDueOnly && ids.length === state.trackerVisibleColumns.size && ids.every((id) => state.trackerVisibleColumns.has(id));
+  };
+  $('trackerSummary').innerHTML = cards.map(([id, count, label, hint]) => `<button type="button" class="summary-card${id === 'due' && count ? ' needs-attention' : ''}" data-summary="${id}" aria-pressed="${matchesPreset(id)}"><span>${label}</span><strong>${count}</strong><small>${hint}</small></button>`).join('');
+  $('trackerSummary').querySelectorAll('[data-summary]').forEach((button) => button.addEventListener('click', () => selectTrackerPreset(button.dataset.summary)));
+  document.querySelectorAll('[data-tracker-preset]').forEach((button) => button.setAttribute('aria-pressed', String(matchesPreset(button.dataset.trackerPreset))));
 }
 
 function renderTrackerTabs() {
@@ -2736,12 +2775,8 @@ function renderTrackerTabs() {
   els.trackerTabs.querySelectorAll('[data-status]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.status;
-      if (state.trackerVisibleColumns.has(id)) {
-        if (state.trackerVisibleColumns.size === 1) return;
-        state.trackerVisibleColumns.delete(id);
-      } else {
-        state.trackerVisibleColumns.add(id);
-      }
+      state.trackerDueOnly = false;
+      state.trackerVisibleColumns = new Set([id]);
       onTrackerStatusChange();
     });
   });
@@ -2749,6 +2784,7 @@ function renderTrackerTabs() {
 
 function renderTracker() {
   if (!els.trackerList) return;
+  renderTrackerSummary();
   renderTrackerTabs();
   const items = filteredTrackerItems();
   const visibleCount = (state.trackerItems || []).filter((item) =>
@@ -2756,7 +2792,8 @@ function renderTracker() {
   ).length;
   const q = (els.trackerSearch?.value || '').trim();
   const newestFirst = state.trackerSort !== 'oldest';
-  const sortLabel = newestFirst ? 'newest first' : 'oldest first';
+  const sortLabel = state.trackerDueOnly ? 'earliest follow-up first' : newestFirst ? 'newest first' : 'oldest first';
+  els.trackerSort.disabled = state.trackerDueOnly;
   const pageSize = state.trackerPageSize || 20;
   const pages = Math.max(1, Math.ceil(items.length / pageSize));
   if (state.trackerPage > pages) state.trackerPage = pages;
@@ -2770,14 +2807,14 @@ function renderTracker() {
     } else if (!items.length) {
       els.trackerMeta.textContent = q
         ? `0 of ${visibleCount} match “${q}” · ${sortLabel}`
-        : `${visibleCount} in view · ${sortLabel}. Not the search archive.`;
+        : `${visibleCount} in view · ${sortLabel}.`;
     } else {
       const from = start + 1;
       const to = start + pageItems.length;
       const range = `${from}–${to} of ${items.length}`;
       els.trackerMeta.textContent = q
         ? `${range} match “${q}” · ${sortLabel}`
-        : `${range} · ${sortLabel}. Not the search archive.`;
+        : `${range} · ${sortLabel}.`;
     }
   }
 
@@ -2791,25 +2828,25 @@ function renderTracker() {
   }
 
   if (!items.length) {
-    const emptyTitle = q ? 'No matches' : 'Nothing in these statuses';
-    const emptyBody = q
-      ? 'Try a different company or title, or turn on another status above.'
-      : 'Shortlist a posting or mark it Applied from Results.';
-    els.trackerList.innerHTML = `<div class="empty tracker-empty"><h3>${escapeHtml(emptyTitle)}</h3><p>${escapeHtml(emptyBody)}</p></div>`;
+    const emptyTitle = q ? 'No matching applications' : state.trackerDueOnly ? 'You’re all caught up' : 'No applications in this view';
+    const emptyBody = state.trackerDueOnly
+      ? 'No follow-ups match this view. Add a follow-up date from any active application’s Notes & follow-up.'
+      : q ? 'Try another search or reset the view to see all saved applications.'
+      : 'Save a job from Find jobs, or choose All statuses to see previous applications.';
+    els.trackerList.innerHTML = `<div class="empty tracker-empty"><h3>${escapeHtml(emptyTitle)}</h3><p>${escapeHtml(emptyBody)}</p><button type="button" class="btn" data-empty-all>Show all applications</button> <button type="button" class="btn primary" data-empty-find>Find jobs</button></div>`;
+    els.trackerList.querySelector('[data-empty-all]').addEventListener('click', () => selectTrackerPreset('all'));
+    els.trackerList.querySelector('[data-empty-find]').addEventListener('click', () => setView('results'));
     return;
   }
 
   const head = `<div class="tracker-row tracker-head">
-    <span>Company</span>
-    <span>Role</span>
+    <span>Applications</span>
     <button type="button" class="tracker-sort" data-tracker-sort aria-pressed="${newestFirst ? 'true' : 'false'}" aria-label="Sort by date, ${newestFirst ? 'newest first' : 'oldest first'}">
-      Date ${newestFirst ? '↓' : '↑'}
+      ${state.trackerDueOnly ? 'Follow-up ↑' : `Updated ${newestFirst ? '↓' : '↑'}`}
     </button>
-    <span>Board</span>
-    <span>Status</span>
-    <span></span>
   </div>`;
   els.trackerList.innerHTML = head;
+  els.trackerList.querySelector('[data-tracker-sort]').disabled = state.trackerDueOnly;
   els.trackerList.querySelector('[data-tracker-sort]')?.addEventListener('click', () => {
     saveTrackerSort(newestFirst ? 'oldest' : 'newest');
     if (els.trackerSort) els.trackerSort.value = state.trackerSort;
@@ -2819,10 +2856,13 @@ function renderTracker() {
   const frag = document.createDocumentFragment();
   for (const item of pageItems) {
     const title = item.title || item.id;
-    const boardLabel = formatBoard(item.board);
+    const boardLabel = item.board === 'manual' ? 'Added manually' : formatBoard(item.board);
     const when = formatTrackerWhen(item);
     const row = document.createElement('article');
     row.className = `tracker-row is-${item.decision}`;
+    row.dataset.jobId = item.id;
+    const due = followUpState(item);
+    const dueLabel = due === 'overdue' ? `Overdue · ${item.followUpDate}` : due === 'today' ? 'Follow up today' : due === 'upcoming' ? `Follow up · ${item.followUpDate}` : '';
     const statusOpts = DECISIONS.map(
       (d) =>
         `<option value="${escapeAttr(d)}"${item.decision === d ? ' selected' : ''}>${escapeHtml(
@@ -2830,6 +2870,7 @@ function renderTracker() {
         )}</option>`,
     ).join('');
     row.innerHTML = `
+      <div class="tracker-identity">
       <div class="tracker-company">${escapeHtml(item.company || '—')}</div>
       <div class="tracker-role">
         ${
@@ -2838,9 +2879,12 @@ function renderTracker() {
             : `<span>${escapeHtml(title)}</span>`
         }
       </div>
+      </div>
+      <div class="tracker-metadata">
       <div class="tracker-date" title="${escapeAttr(item.updatedAt || item.date || '')}">
-        <span>${escapeHtml(when.date)}</span>
-        ${when.time ? `<span class="tracker-time">${escapeHtml(when.time)}</span>` : ''}
+        <span>Updated ${escapeHtml(when.date)}</span>
+        <small class="application-date">Applied: ${validDateKey(item.appliedDate) ? escapeHtml(item.appliedDate) : 'not recorded'}</small>
+        ${dueLabel ? `<span class="follow-up-badge ${due}">${escapeHtml(dueLabel)}</span>` : ''}
       </div>
       <div class="tracker-board">${escapeHtml(boardLabel || '—')}${
         item.ats?.label
@@ -2849,25 +2893,60 @@ function renderTracker() {
           ? ` · ${escapeHtml(item.ats.label)}`
           : ''
       }</div>
+      </div>
+      <div class="tracker-controls">
       <label class="tracker-status">
         <span class="visually-hidden">Status</span>
         <select data-status>${statusOpts}</select>
       </label>
       <div class="tracker-actions">
+        <button type="button" class="btn small primary" data-edit-application>Details${item.attachments?.length ? ` · ${item.attachments.length} ${item.attachments.length === 1 ? 'file' : 'files'}` : ''}</button>
         ${
           item.url
-            ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
-               <button type="button" class="btn small" data-fill>Fill</button>
+            ? `${item.decision === 'shortlisted' ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button><button type="button" class="btn small" data-fill>${/linkedin\.com/i.test(item.url || '') ? 'Fill / submit Easy Apply' : 'Fill form'}</button>` : ''}
                <a class="btn small" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`
             : ''
         }
         ${
           item.prepPath
-            ? `<a class="btn small" href="/api/prep/${encodeURIComponent(item.id)}/cv.html" target="_blank" rel="noopener">CV</a>`
+            ? `<a class="btn small" href="/api/prep/${encodeURIComponent(item.id)}/cv.html" target="_blank" rel="noopener">Prepared CV</a>`
             : ''
         }
       </div>
+      </div>
     `;
+    row.querySelector('[data-edit-application]').addEventListener('click', () => editApplication(item));
+    const details = document.createElement('details');
+    details.className = 'tracker-notes';
+    details.innerHTML = `<summary>${item.note || item.followUpDate ? 'Edit notes & follow-up' : 'Add notes & follow-up'}</summary>
+      ${item.note ? `<p class="note-preview">${escapeHtml(item.note)}</p>` : ''}
+      <form class="tracker-note-form">
+        <label>Notes<textarea name="note" rows="3" maxlength="10000" placeholder="Contact, interview details, or your next step…">${escapeHtml(item.note || '')}</textarea></label>
+        <label>Follow-up date<input type="date" name="followUpDate" value="${escapeAttr(validDateKey(item.followUpDate) ? item.followUpDate : '')}" /></label>
+        <div class="note-form-actions"><button type="submit" class="btn primary small">Save notes</button><button type="button" class="btn ghost small" data-clear-date>Clear date</button><span class="meta">Reminders appear in Follow-ups due.</span></div>
+        <p class="note-feedback" role="status" hidden></p>
+      </form>`;
+    row.appendChild(details);
+    const noteForm = details.querySelector('form');
+    details.querySelector('[data-clear-date]').addEventListener('click', () => { noteForm.elements.followUpDate.value = ''; });
+    noteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = noteForm.querySelector('[type="submit"]');
+      const feedback = details.querySelector('.note-feedback');
+      const followUpDate = noteForm.elements.followUpDate.value;
+      if (followUpDate && !validDateKey(followUpDate)) { feedback.hidden = false; feedback.textContent = 'Enter a valid follow-up date.'; return; }
+      button.disabled = true;
+      button.textContent = 'Saving…';
+      try {
+        await api('/api/decisions', { method: 'PATCH', body: JSON.stringify({ id: item.id, note: noteForm.elements.note.value.trim(), followUpDate: followUpDate || null }) });
+        await refreshTracker();
+        showTrackerFeedback(`Saved notes for ${item.company || title}.`);
+        [...els.trackerList.querySelectorAll('article')].find((entry) => entry.dataset.jobId === item.id)?.querySelector('summary')?.focus();
+      } catch (err) {
+        feedback.hidden = false;
+        feedback.textContent = `Could not save: ${err.message}. Your edits are still here.`;
+      } finally { button.disabled = false; button.textContent = 'Save notes'; }
+    });
     row.querySelector('[data-copy-pack]')?.addEventListener('click', async () => {
       try {
         await copyApplyPack(item);
@@ -2893,6 +2972,7 @@ function renderTracker() {
       } catch (err) {
         ev.target.value = item.decision;
         appendLog(err.message, 'stderr');
+        showTrackerFeedback(`Could not update ${title}: ${err.message}`, true);
       }
     });
     frag.appendChild(row);
@@ -2926,7 +3006,7 @@ function decisionKey(job) {
 /** Digest is an inbox of new postings — hide applied (and any Results-filter hides). */
 function digestJobVisible(job) {
   const key = decisionKey(job);
-  if (key === 'applied') return false;
+  if (['applied', 'interviewing', 'offer', 'accepted'].includes(key)) return false;
   const hide = hiddenFromVisible(
     DECISION_FILTER_OPTIONS.map((o) => o.id),
     state.visibleDecisions,
@@ -3007,7 +3087,15 @@ async function refreshPortals() {
 
 function setView(view) {
   state.view = view;
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.tab').forEach((t) => {
+    const active = t.dataset.view === view;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+    t.tabIndex = active ? 0 : -1;
+  });
+  $('searchToolbar').hidden = !['results', 'digest'].includes(view);
+  els.runBtn.textContent = ['results', 'digest'].includes(view) ? 'Run search' : 'Find new jobs';
+  history.replaceState(null, '', `#${view}`);
   els.viewResults.hidden = view !== 'results';
   els.viewTracker.hidden = view !== 'tracker';
   els.viewAnswers.hidden = view !== 'answers';
@@ -3015,11 +3103,11 @@ function setView(view) {
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
   els.layout?.classList.toggle('tracker-wide', view === 'tracker');
-  if (view === 'tracker') refreshTracker();
-  if (view === 'answers') refreshAnswers();
-  if (view === 'portals') refreshPortals();
-  if (view === 'digest') refreshDigest();
-  if (view === 'ready') refreshReady();
+  if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
+  if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'portals') refreshPortals().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'digest') refreshDigest().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'ready') refreshReady().catch((err) => { appendLog(err.message, 'stderr');  });
 }
 
 async function runSearch() {
@@ -3122,7 +3210,10 @@ async function refreshAll() {
   if (state.view === 'ready') await refreshReady();
 }
 
-els.runBtn.addEventListener('click', runSearch);
+els.runBtn.addEventListener('click', () => {
+  if (!['results', 'digest'].includes(state.view)) { setView('results'); return; }
+  runSearch();
+});
 els.emptyRunBtn.addEventListener('click', runSearch);
 els.stopBtn?.addEventListener('click', stopSearch);
 els.searchInput.addEventListener('input', () => {
@@ -3393,6 +3484,20 @@ els.overleafPush?.addEventListener('change', async () => {
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => setView(tab.dataset.view));
+  const panel = $('view' + tab.dataset.view[0].toUpperCase() + tab.dataset.view.slice(1));
+  tab.id = `tab-${tab.dataset.view}`;
+  tab.setAttribute('aria-controls', panel.id);
+  panel.setAttribute('role', 'tabpanel');
+  panel.setAttribute('aria-labelledby', tab.id);
+  tab.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = [...document.querySelectorAll('.tabs .tab')];
+    const index = tabs.indexOf(tab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+    setView(tabs[next].dataset.view);
+  });
 });
 
 els.setupForm?.addEventListener('submit', async (ev) => {
@@ -3445,6 +3550,8 @@ connectStream();
     await refreshMarkets();
     await refreshStatus();
     if (!state.status?.setup?.needsSetup) await refreshJobs();
+    const initialView = location.hash.slice(1);
+    setView(['results', 'tracker', 'answers', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
     if (state.status?.sheets?.configured) {
       try {
         const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
@@ -3460,3 +3567,41 @@ connectStream();
     setChip('error', 'Error');
   }
 })();
+
+function updateResultsEmptyState(data) {
+  const filtered = Boolean(els.searchInput.value.trim() || els.fitFilter.value !== 'all' || els.langFilter.value !== 'all' || state.visibleDecisions.size !== DECISION_FILTER_OPTIONS.length);
+  $('emptyTitle').textContent = filtered ? 'No jobs match these filters' : data.meta ? 'No jobs in this search' : 'Your next opportunity starts here';
+  $('emptyHint').textContent = filtered ? 'Try a broader search or reset your filters to see more jobs.' : 'Choose a market and run a search. Shortlist promising roles to keep them in your tracker.';
+  $('emptyResetBtn').hidden = !filtered;
+  els.emptyRunBtn.hidden = filtered;
+}
+
+function resetResultFilters(focus = false) {
+  els.searchInput.value = '';
+  els.fitFilter.value = 'all';
+  els.langFilter.value = 'all';
+  try { localStorage.setItem(LS_LANG, 'all'); } catch { /* optional preference */ }
+  state.visibleDecisions = new Set(focus ? ['none', 'shortlisted'] : DECISION_FILTER_OPTIONS.map((option) => option.id));
+  state.page = 1;
+  onDecisionFilterChange({ rerender: true });
+}
+
+$('resetResultsBtn').addEventListener('click', () => resetResultFilters());
+$('emptyResetBtn').addEventListener('click', () => resetResultFilters());
+$('focusResultsBtn').addEventListener('click', () => resetResultFilters(true));
+document.querySelectorAll('[data-tracker-preset]').forEach((button) => button.addEventListener('click', () => selectTrackerPreset(button.dataset.trackerPreset)));
+
+function editApplication(item = null) {
+  openApplicationEditor(item, { api, onSaved: async (message, savedEntry) => {
+    if (savedEntry) {
+      state.trackerVisibleColumns.add(savedEntry.decision);
+      state.trackerDueOnly = false;
+      els.trackerSearch.value = '';
+      state.trackerPage = 1;
+    }
+    try { await refreshTracker(); showTrackerFeedback(message); }
+    catch (err) { showTrackerFeedback(`${message} Could not refresh the list: ${err.message}`, true); }
+    $('addApplicationBtn').focus();
+  } });
+}
+$('addApplicationBtn').addEventListener('click', () => editApplication());

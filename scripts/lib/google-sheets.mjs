@@ -21,7 +21,7 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 /** Statuses written/updated in the sheet (application pipeline). */
-export const SHEET_SYNC_DECISIONS = ['applied', 'interviewing', 'rejected', 'closed'];
+export const SHEET_SYNC_DECISIONS = ['applied', 'interviewing', 'offer', 'accepted', 'rejected', 'closed'];
 
 export const SHEET_HEADERS = [
   'Date',
@@ -120,7 +120,7 @@ export function remapShiftedSheetRow(row = [], dateHint = '') {
 export function rowFromEntry(entry, job = null) {
   const remote = job?.remote === true ? 'yes' : job?.remote === false ? 'no' : '';
   return [
-    entry.date || '',
+    entry.appliedDate || entry.date || '',
     entry.company || job?.company || '',
     entry.title || job?.title || '',
     entry.decision || '',

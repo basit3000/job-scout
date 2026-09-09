@@ -1490,6 +1490,38 @@ a.btn.primary-link:hover {
   border-radius: 3px;
 }
 
+.prep-review {
+  margin: 0.65rem 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+  background: var(--panel-alt);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius);
+}
+
+.prep-review.revise {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+}
+
+.prep-review h4 {
+  margin: 0 0 0.35rem;
+  font-size: 0.82rem;
+  color: var(--ink);
+}
+
+.prep-review p {
+  margin: 0.2rem 0;
+}
+
+.prep-review ul {
+  margin: 0.25rem 0 0.4rem 1.1rem;
+  padding: 0;
+}
+
+.prep-review li {
+  font-size: 0.8rem;
+}
+
 .tip {
   margin: 0;
   padding: 0 1rem 0.9rem;

@@ -11,7 +11,7 @@ import { mkdir, readFile, writeFile, copyFile, readdir, rm, unlink } from 'node:
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
-import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
+import { compileTexToPdf, htmlFileToPdf, countPdfPages, keepFirstPdfPage } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
 import { readBraceGroup } from './tex-parse.mjs';
 import {
@@ -22,6 +22,12 @@ import {
   tokenizeWords,
 } from './tex-bullets.mjs';
 import { applyNextFitPass, ensureAtsTextLayer, experienceItemCount } from './tex-fit.mjs';
+import {
+  applyJobAwareOptionalDrops,
+  applyNextOptionalSpaceDrop,
+  ensureOptionalLines,
+  loadOptionalLines,
+} from './cv-optional.mjs';
 import { checkAtsText, extractPdfText } from './pdf-text.mjs';
 
 loadDotEnv();
@@ -492,31 +498,60 @@ async function pageCountForTex(dir, texName) {
   return { pages, path: compiled.path, via: compiled.via };
 }
 
-async function fitOneTexToOnePage(dir, name) {
+async function fitOneTexToOnePage(dir, name, job = null) {
   const path = join(dir, name);
   let tex = await readFile(path, 'utf8');
   const expBefore = experienceItemCount(tex);
   const applied = [];
+  const actions = [];
+
+  const restored = ensureOptionalLines(tex, loadOptionalLines());
+  if (restored.changed) {
+    tex = restored.tex;
+    actions.push(`restored optional lines: ${restored.added.join('; ')}`);
+    await writeFile(path, tex);
+  }
+
+  if (job) {
+    const drops = applyJobAwareOptionalDrops(tex, job);
+    if (drops.changed) {
+      tex = drops.tex;
+      actions.push(...drops.actions);
+      await writeFile(path, tex);
+    }
+  }
+
   let last = await pageCountForTex(dir, name);
   if (last.pages == null) {
-    return { ok: false, skipped: true, reason: last.error, pages: null, applied };
+    return { ok: false, skipped: true, reason: last.error, pages: null, applied, actions };
   }
   if (last.pages === 1) {
-    return { ok: true, pages: 1, applied: [], already: true };
+    return { ok: true, pages: 1, applied, already: true, actions };
   }
 
   while (last.pages > 1) {
     const next = applyNextFitPass(tex, applied);
-    if (!next.changed) break;
-    if (experienceItemCount(next.tex) < expBefore) {
-      break;
+    if (next.changed) {
+      if (experienceItemCount(next.tex) < expBefore) break;
+      tex = next.tex;
+      applied.push(next.pass);
+      await writeFile(path, tex);
+      last = await pageCountForTex(dir, name);
+      if (last.pages == null) {
+        return { ok: false, skipped: true, reason: last.error, pages: null, applied, actions };
+      }
+      continue;
     }
-    tex = next.tex;
-    applied.push(next.pass);
+    const space = applyNextOptionalSpaceDrop(tex, applied);
+    if (!space.changed) break;
+    if (experienceItemCount(space.tex) < expBefore) break;
+    tex = space.tex;
+    applied.push(space.pass);
+    actions.push(space.label);
     await writeFile(path, tex);
     last = await pageCountForTex(dir, name);
     if (last.pages == null) {
-      return { ok: false, skipped: true, reason: last.error, pages: null, applied };
+      return { ok: false, skipped: true, reason: last.error, pages: null, applied, actions };
     }
   }
 
@@ -525,19 +560,18 @@ async function fitOneTexToOnePage(dir, name) {
     pages: last.pages,
     applied,
     overflow: last.pages > 1,
+    actions,
   };
 }
 
 /**
- * Compile-check main.tex and ats.tex. If either is over one page, squeeze
- * spacing/typography/filler wording (never drop Experience bullets).
+ * Compile-check main.tex and ats.tex. Restore optional extras, drop ones the
+ * posting does not need, then squeeze. Never drop Experience bullets.
  */
-export async function fitOverleafCvsToOnePage() {
+export async function fitOverleafCvsToOnePage(job = null, { prepDir } = {}) {
   const dir = overleafDir();
   const files = await listTexFiles(dir);
   const targets = ['ats.tex', 'main.tex'].filter((n) => files.includes(n));
-  // The parser copy never hyphenates a keyword. Applied before the page check so the
-  // fit passes see the final line breaks.
   if (targets.includes('ats.tex')) {
     const path = join(dir, 'ats.tex');
     const r = ensureAtsTextLayer(await readFile(path, 'utf8'));
@@ -545,12 +579,29 @@ export async function fitOverleafCvsToOnePage() {
   }
   const perFile = {};
   for (const name of targets) {
-    perFile[name] = await fitOneTexToOnePage(dir, name);
+    perFile[name] = await fitOneTexToOnePage(dir, name, job);
   }
   const pages = Object.fromEntries(
     Object.entries(perFile).map(([k, v]) => [k, v.pages]),
   );
   const ok = targets.length > 0 && targets.every((n) => perFile[n]?.pages === 1);
+  if (prepDir) {
+    try {
+      const lines = ['# Page check', '', 'Never drops Experience. Optional: courses, spoken languages, certificates.', ''];
+      for (const name of targets) {
+        const f = perFile[name];
+        lines.push(`## ${name}`, '');
+        lines.push(`Pages after content cuts: ${f.pages ?? '?'}${f.ok ? ' (one page)' : ''}`);
+        for (const a of f.actions || []) lines.push(`- ${a}`);
+        if (f.applied?.length) lines.push(`- fit passes: ${f.applied.join(', ')}`);
+        if (f.overflow) lines.push('- still over one page — PDF crop is the fallback');
+        lines.push('');
+      }
+      await writeFile(join(prepDir, 'page-check.md'), `${lines.join('\n').trim()}\n`);
+    } catch {
+      /* optional */
+    }
+  }
   return { ok, files: perFile, pages, targets };
 }
 
@@ -660,6 +711,12 @@ export async function compileOverleafPdfs(prepDir) {
     if (!result.ok) {
       result = await compileTexViaHtmlFallback(texName, join(prepDir, destName), prepDir);
     }
+    if (result.ok && (result.pages == null || result.pages > 1)) {
+      const crop = await keepFirstPdfPage(join(prepDir, destName));
+      if (crop.cropped) {
+        result = { ...result, pages: 1, cropped: true, cropVia: crop.via };
+      }
+    }
     return result;
   }
 
@@ -766,7 +823,7 @@ export async function runOverleafTailor({
     extraInstructions,
     portfolio,
   });
-  const fit = await fitOverleafCvsToOnePage();
+  const fit = await fitOverleafCvsToOnePage(job, { prepDir });
   let pushResult = { pushed: false, reason: 'skipped' };
   if (push) {
     pushResult = await pushOverleaf(
@@ -801,7 +858,7 @@ export async function assembleOverleafAfterAgent({
   // Do not pull — the agent just edited `.workspace/overleaf`. A pull would
   // stash those edits and waste the tailor pass.
   emit('Fitting Overleaf CVs to one page…');
-  const fit = await fitOverleafCvsToOnePage();
+  const fit = await fitOverleafCvsToOnePage(job, { prepDir });
   let pushResult = { pushed: false, reason: 'local edits only' };
   if (push) {
     emit('Pushing Overleaf .tex…');

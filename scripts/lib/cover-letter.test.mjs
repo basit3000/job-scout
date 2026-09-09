@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { polishCoverLetter, assembleCoverLetter } from './cover-letter.mjs';
+import { polishCoverLetter, assembleCoverLetter, trimLetterToOnePage } from './cover-letter.mjs';
 
 describe('polishCoverLetter', () => {
   it('removes em dashes and spaced hyphen asides', () => {
@@ -81,5 +81,31 @@ Widget is a FastAPI service.
     assert.match(letter, /Widget is a FastAPI service/);
     assert.doesNotMatch(letter, /Earlier:/);
     assert.doesNotMatch(letter, /I also built similar things myself/);
+  });
+});
+
+describe('trimLetterToOnePage', () => {
+  it('keeps the greeting and drops a low-relevance extra paragraph', () => {
+    const letter = [
+      'Application for Backend Engineer',
+      '',
+      'Dear hiring team,',
+      '',
+      'I want to keep building FastAPI REST APIs like the ones I ship at work.',
+      '',
+      'I also enjoy cooking and hiking on weekends with no relation to this role.',
+      '',
+      'Kind regards,',
+      '',
+      'Alex Example',
+    ].join('\n');
+    const r = trimLetterToOnePage(letter, {
+      title: 'Backend Engineer',
+      description: 'FastAPI REST APIs Python Docker',
+    }, { force: true });
+    assert.match(r.letter, /Dear hiring team/);
+    assert.match(r.letter, /Kind regards/);
+    assert.match(r.letter, /FastAPI/);
+    assert.doesNotMatch(r.letter, /hiking/);
   });
 });

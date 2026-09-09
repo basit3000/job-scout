@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
-import { htmlFileToPdf } from './pdf.mjs';
+import { htmlFileToPdf, countPdfPages, keepFirstPdfPage } from './pdf.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
   agentRunnerAvailable,
@@ -17,6 +17,7 @@ import {
   seedPrepForAgent,
 } from './cv-agent.mjs';
 import { verifyLetterAfterAgent } from './cv-verify.mjs';
+import { runReviewerPass, loadReviewSummary } from './cv-review.mjs';
 import {
   Document, Packer, Paragraph, TextRun,
   convertInchesToTwip,
@@ -139,6 +140,77 @@ export function polishCoverLetter(text) {
   letter = letter.replace(/(?<!<)!+(?!--)/g, '.'); // keep <!-- --> markers intact
   letter = letter.replace(/[ \t]{2,}/g, ' ').replace(/ ,/g, ',');
   return letter.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function postingBlob(job) {
+  return `${job?.title || ''} ${job?.description || ''}`.toLowerCase();
+}
+
+function paragraphScore(para, blob) {
+  const words = String(para || '').toLowerCase().match(/[a-z][a-z0-9+#.]{2,}/g) || [];
+  if (!words.length) return 0;
+  let hits = 0;
+  for (const w of words) {
+    if (blob.includes(w)) hits += 1;
+  }
+  return hits;
+}
+
+/**
+ * Drop the least posting-relevant body paragraphs until the letter is likely
+ * one A4 page. Keeps the subject, greeting, first body paragraph, and sign-off.
+ */
+export function trimLetterToOnePage(letter, job, opts = {}) {
+  const src = String(letter || '').replace(/\s+$/, '') + '\n';
+  const parts = src.split(/\n{2,}/);
+  if (parts.length <= 4) return { letter: src, dropped: [] };
+
+  const isSignoff = (p) => /kind regards/i.test(p) || /^(sincerely|best regards)/i.test(p);
+  const isSubject = (p) => /^application for/i.test(p.trim());
+  const isGreeting = (p) => /^(dear|hallo|hello)\b/i.test(p.trim());
+
+  const head = [];
+  const body = [];
+  const tail = [];
+  let seenBody = false;
+  for (const p of parts) {
+    if (!seenBody && (isSubject(p) || isGreeting(p) || head.length < 2)) {
+      head.push(p);
+      if (isGreeting(p) || (!isSubject(p) && head.length >= 2)) seenBody = true;
+      continue;
+    }
+    if (isSignoff(p) || tail.length) {
+      tail.push(p);
+      continue;
+    }
+    body.push(p);
+  }
+  if (body.length <= 1) return { letter: src, dropped: [] };
+
+  const blob = postingBlob(job);
+  const ranked = body.map((p, i) => ({ i, p, score: paragraphScore(p, blob) }));
+  // Keep the first body paragraph; drop lowest-scoring extras from the rest.
+  const keepFirst = ranked[0];
+  const rest = ranked.slice(1).sort((a, b) => a.score - b.score);
+  const dropped = [];
+  const dropSet = new Set();
+  const tooLong = () => {
+    const joined = [...head, keepFirst.p, ...ranked.slice(1).filter((r) => !dropSet.has(r.i)).map((r) => r.p), ...tail].join('\n\n');
+    return joined.split(/\s+/).filter(Boolean).length > (opts.force ? 260 : 340);
+  };
+  if (opts.force && rest.length) {
+    const victim = rest.shift();
+    dropSet.add(victim.i);
+    dropped.push(victim.p.slice(0, 80));
+  }
+  while (rest.length > 0 && tooLong()) {
+    const victim = rest.shift();
+    dropSet.add(victim.i);
+    dropped.push(victim.p.slice(0, 80));
+  }
+  const nextBody = ranked.filter((r) => r.i === 0 || !dropSet.has(r.i)).map((r) => r.p);
+  const out = [...head, ...nextBody, ...tail].join('\n\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return { letter: out, dropped };
 }
 
 async function loadSavedInstructions(dir) {
@@ -494,6 +566,21 @@ export async function generateCoverLetterPack(job, profile, fit, {
             if (gate.ok) {
               letter = candidate;
               usedMode = 'agent';
+              const review = await runReviewerPass({
+                scope: 'letter',
+                job,
+                prepDir: dir,
+                profile,
+                extraInstructions: instr,
+                cvSource: 'local',
+                overleafPush: false,
+                provider,
+                model,
+                onEvent,
+                letter: candidate,
+                polishLetter: polishCoverLetter,
+              });
+              if (review.letter) letter = review.letter;
             } else {
               await writeFile(join(dir, 'cover-letter.rejected.md'), candidate);
               fallbackReason = `quality gate: ${gate.hard[0]}`;
@@ -514,6 +601,46 @@ export async function generateCoverLetterPack(job, profile, fit, {
     pdfPath = artifacts.pdfPath;
     docxPath = artifacts.docxPath;
     pdfError = artifacts.pdfError;
+
+    const pageNotes = [];
+    let pages = pdfPath ? await countPdfPages(pdfPath) : null;
+    if (pages > 1) {
+      emit({ stream: 'meta', line: `Cover letter PDF is ${pages} pages — trimming least relevant paragraphs…`, t: Date.now() });
+      const trimmed = trimLetterToOnePage(letter, job, { force: true });
+      if (trimmed.dropped.length) {
+        letter = trimmed.letter;
+        pageNotes.push(`dropped ${trimmed.dropped.length} paragraph(s) that did not match the posting`);
+        const again = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
+        pdfPath = artifacts.pdfPath = again.pdfPath;
+        docxPath = again.docxPath;
+        pdfError = again.pdfError;
+        pages = pdfPath ? await countPdfPages(pdfPath) : pages;
+      }
+    }
+    if (pdfPath && (pages == null || pages > 1)) {
+      const crop = await keepFirstPdfPage(pdfPath);
+      if (crop.cropped) {
+        pageNotes.push(`cropped PDF to page 1 (${crop.via})`);
+        pages = 1;
+        emit({ stream: 'ok', line: 'Cover letter PDF cropped to page 1 (fallback).', t: Date.now() });
+      } else if (pages > 1) {
+        pageNotes.push(`still ${pages} pages after trim; crop failed`);
+        emit({ stream: 'stderr', line: 'Cover letter still over one page — Experience-style cuts do not apply; shorten the draft.', t: Date.now() });
+      }
+    }
+    try {
+      const existing = await readFile(join(dir, 'page-check.md'), 'utf8').catch(() => '');
+      const section = [
+        '## Cover letter',
+        '',
+        `Pages: ${pages ?? '?'}`,
+        ...pageNotes.map((n) => `- ${n}`),
+        '',
+      ].join('\n');
+      await writeFile(join(dir, 'page-check.md'), `${existing.trim()}\n\n${section}`.trim() + '\n');
+    } catch {
+      /* optional */
+    }
   }
 
   const exported = await exportCoverLetterDownloads({
@@ -532,6 +659,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
     tailorMode: usedMode,
     fallbackReason,
     agent,
+    review: dir ? await loadReviewSummary(dir) : null,
     pdfError: pdfError || exported?.error || null,
     export: exported,
     baseName: cvFileBaseName(profile?.name),

@@ -8,7 +8,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
-import { htmlFileToPdf, countPdfPages, keepFirstPdfPage } from './pdf.mjs';
+import { htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
   agentRunnerAvailable,
@@ -17,6 +17,9 @@ import {
   seedPrepForAgent,
 } from './cv-agent.mjs';
 import { verifyLetterAfterAgent } from './cv-verify.mjs';
+import { generateDocuments } from './prep-state.mjs';
+import { artifactContext } from './artifact-context.mjs';
+import { loadJson } from './common.mjs';
 import { runReviewerPass, loadReviewSummary } from './cv-review.mjs';
 import {
   Document, Packer, Paragraph, TextRun,
@@ -211,15 +214,6 @@ export function trimLetterToOnePage(letter, job, opts = {}) {
   const nextBody = ranked.filter((r) => r.i === 0 || !dropSet.has(r.i)).map((r) => r.p);
   const out = [...head, ...nextBody, ...tail].join('\n\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
   return { letter: out, dropped };
-}
-
-async function loadSavedInstructions(dir) {
-  try {
-    const raw = await readFile(join(dir, 'instructions.md'), 'utf8');
-    return raw.replace(/^#\s*Extra instructions\s*/i, '').trim();
-  } catch {
-    return '';
-  }
 }
 
 function fallbackCoverLetter(job, profile, fit) {
@@ -493,7 +487,21 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
   return { pdfPath, docxPath, pdfError };
 }
 
-export async function generateCoverLetterPack(job, profile, fit, {
+export async function generateCoverLetterPack(job, profile, fit, options = {}) {
+  if (artifactContext.getStore()) return generateCoverLetterUncached(job, profile, fit, options);
+  const config = await loadJson(join(ROOT, 'search-profile.json'), {});
+  const settings = { ...config.cv, ...options.settings };
+  const result = await generateDocuments({ job, profile, settings,
+    instructions: options.extraInstructions || '', mode: options.tailorMode || 'fast', scopes: ['letter'] },
+  (dir) => generateCoverLetterUncached(job, profile, fit, { ...options, prepDir: dir }));
+  if (!result.needsReview) result.export = await exportCoverLetterDownloads({
+    jobId: job.id, company: job.company, profileName: profile.name, jobTitle: job.title,
+    mdText: result.letter, pdfPath: join(result.dir, 'cover-letter.pdf'), docxPath: join(result.dir, 'cover-letter.docx'),
+  });
+  return result;
+}
+
+async function generateCoverLetterUncached(job, profile, fit, {
   prepDir: dir,
   extraInstructions = '',
   tailorMode = 'fast',
@@ -518,7 +526,6 @@ export async function generateCoverLetterPack(job, profile, fit, {
 
   if (dir) {
     await mkdir(dir, { recursive: true });
-    if (!instr) instr = await loadSavedInstructions(dir);
     await writeFile(join(dir, 'cover-letter.md'), letter);
     await writeFile(join(dir, 'cover-letter.draft.md'), letter);
 
@@ -618,15 +625,9 @@ export async function generateCoverLetterPack(job, profile, fit, {
       }
     }
     if (pdfPath && (pages == null || pages > 1)) {
-      const crop = await keepFirstPdfPage(pdfPath);
-      if (crop.cropped) {
-        pageNotes.push(`cropped PDF to page 1 (${crop.via})`);
-        pages = 1;
-        emit({ stream: 'ok', line: 'Cover letter PDF cropped to page 1 (fallback).', t: Date.now() });
-      } else if (pages > 1) {
-        pageNotes.push(`still ${pages} pages after trim; crop failed`);
-        emit({ stream: 'stderr', line: 'Cover letter still over one page — Experience-style cuts do not apply; shorten the draft.', t: Date.now() });
-      }
+      pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
+      pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';
+      emit({ stream: 'stderr', line: pdfError, t: Date.now() });
     }
     try {
       const existing = await readFile(join(dir, 'page-check.md'), 'utf8').catch(() => '');
@@ -644,6 +645,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
   }
 
   const exported = await exportCoverLetterDownloads({
+    jobId: job.id,
     company: job.company,
     profileName: profile?.name,
     jobTitle: job.title,

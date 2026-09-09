@@ -165,59 +165,6 @@ export async function countPdfPages(pdfPath) {
   }
 }
 
-/**
- * Best-effort: keep only page 1. Tries qpdf / pdfseparate, then a simple /Count rewrite.
- */
-export function rewritePdfKeepFirstPage(buf) {
-  let s = Buffer.isBuffer(buf) ? buf.toString('latin1') : String(buf ?? '');
-  let changed = false;
-  s = s.replace(/(\/Type\s*\/Pages[\s\S]{0,400}\/Count\s+)(\d+)/g, (full, pre, n) => {
-    if (Number(n) <= 1) return full;
-    changed = true;
-    return `${pre}1`;
-  });
-  s = s.replace(/\/Kids\s*\[([^\]]+)\]/g, (full, inner) => {
-    const refs = inner.trim().split(/\s+(?=\d+\s+\d+\s+R)/).filter(Boolean);
-    if (refs.length <= 1) return full;
-    changed = true;
-    return `/Kids [${refs[0].trim()}]`;
-  });
-  return changed ? Buffer.from(s, 'latin1') : null;
-}
-
-export async function keepFirstPdfPage(pdfPath) {
-  const pages = await countPdfPages(pdfPath);
-  if (!pages || pages <= 1) return { ok: true, pages: pages || 1, cropped: false };
-  const tmp = `${pdfPath}.page1.pdf`;
-  const tools = [
-    ['qpdf', [pdfPath, '--pages', '.', '1', '--', tmp]],
-    ['pdfseparate', ['-f', '1', '-l', '1', pdfPath, tmp]],
-  ];
-  for (const [bin, args] of tools) {
-    try {
-      await run(bin, args, { timeout: 30000 });
-      await access(tmp);
-      const { copyFile, unlink } = await import('node:fs/promises');
-      await copyFile(tmp, pdfPath);
-      try { await unlink(tmp); } catch { /* ignore */ }
-      return { ok: true, pages: 1, cropped: true, via: bin };
-    } catch {
-      /* next */
-    }
-  }
-  try {
-    const buf = await readFile(pdfPath);
-    const next = rewritePdfKeepFirstPage(buf);
-    if (next) {
-      await writeFile(pdfPath, next);
-      return { ok: true, pages: 1, cropped: true, via: 'rewrite' };
-    }
-  } catch {
-    /* ignore */
-  }
-  return { ok: false, pages, cropped: false, error: 'could not crop page 2' };
-}
-
 /** Try tectonic / latexmk / pdflatex on a .tex file. Auto-fetches tectonic once. */
 export async function compileTexToPdf(texPath, outDir) {
   let tectonicBin = null;

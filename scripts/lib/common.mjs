@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { artifactContext } from './artifact-context.mjs';
 
 export const run = promisify(execFile);
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -266,7 +267,10 @@ export function workspaceDir() {
 }
 
 export function prepDir(jobId) {
+  const staged = artifactContext.getStore();
+  if (staged?.jobId === jobId) return staged.dir;
   const id = String(jobId).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
+  if (!id || id === '.' || id === '..') throw new Error('Invalid job ID');
   return join(workspaceDir(), 'prep', id);
 }
 

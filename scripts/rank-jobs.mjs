@@ -4,21 +4,14 @@
 //   node scripts/rank-jobs.mjs
 //   node scripts/rank-jobs.mjs --limit 15
 
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
-import { ROOT, loadJson, workspaceDir, value } from './lib/common.mjs';
+import { ROOT, loadJson, workspaceDir, value, loadMarket, flag } from './lib/common.mjs';
+import { currentSearchState } from './lib/current-search.mjs';
+import { loadPrepInputs } from './lib/prep-state.mjs';
+import { withMatchingAnswers } from './lib/match-requirements.mjs';
+import { loadSavedAnswers } from './lib/saved-answers.mjs';
 import { rankJobs, summariseRanking } from './lib/rank.mjs';
-
-async function loadCvText() {
-  for (const name of ['resume.md', 'resume.txt', 'resume.tex']) {
-    try {
-      return await readFile(join(ROOT, 'cv', name), 'utf8');
-    } catch {
-      /* try next */
-    }
-  }
-  return '';
-}
 
 function renderShortlist(ranked, meta, summary) {
   const lines = [];
@@ -64,8 +57,15 @@ async function main() {
   }
 
   const limit = Number(value('--limit', 25));
-  const cvText = await loadCvText();
-  const ranked = rankJobs(bundle.jobs, profile, cvText).slice(0, limit);
+  const config = await loadJson(join(ROOT, 'search-profile.json'), {});
+  const market = await loadMarket(config);
+  const inputs = await loadPrepInputs(config.cv || {});
+  const cvText = Object.entries(inputs).filter(([name]) => !name.includes('cover-letter')).map(([, text]) => text).join('\n');
+  const jobs = bundle.jobs.map((job) => {
+    const currentSearch = currentSearchState(job, profile, config, market);
+    return { ...job, ageDays: currentSearch.ageDays, currentSearch };
+  }).filter((job) => flag('--history') || job.currentSearch.current);
+  const ranked = rankJobs(jobs, withMatchingAnswers(profile, await loadSavedAnswers()), cvText).slice(0, limit);
   const summary = summariseRanking(ranked);
   const meta = {
     market: bundle.market,

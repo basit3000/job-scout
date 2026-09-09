@@ -11,7 +11,7 @@ import { mkdir, readFile, writeFile, copyFile, readdir, rm, unlink } from 'node:
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
-import { compileTexToPdf, htmlFileToPdf, countPdfPages, keepFirstPdfPage } from './pdf.mjs';
+import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
 import { readBraceGroup } from './tex-parse.mjs';
 import {
@@ -594,7 +594,7 @@ export async function fitOverleafCvsToOnePage(job = null, { prepDir } = {}) {
         lines.push(`Pages after content cuts: ${f.pages ?? '?'}${f.ok ? ' (one page)' : ''}`);
         for (const a of f.actions || []) lines.push(`- ${a}`);
         if (f.applied?.length) lines.push(`- fit passes: ${f.applied.join(', ')}`);
-        if (f.overflow) lines.push('- still over one page — PDF crop is the fallback');
+        if (f.overflow) lines.push('- Needs review: complete PDF preserved; shorten or adjust the layout.');
         lines.push('');
       }
       await writeFile(join(prepDir, 'page-check.md'), `${lines.join('\n').trim()}\n`);
@@ -712,10 +712,7 @@ export async function compileOverleafPdfs(prepDir) {
       result = await compileTexViaHtmlFallback(texName, join(prepDir, destName), prepDir);
     }
     if (result.ok && (result.pages == null || result.pages > 1)) {
-      const crop = await keepFirstPdfPage(join(prepDir, destName));
-      if (crop.cropped) {
-        result = { ...result, pages: 1, cropped: true, cropVia: crop.via };
-      }
+      result = { ...result, needsReview: true, reviewReason: 'One-page fit could not be verified; complete PDF preserved.' };
     }
     return result;
   }

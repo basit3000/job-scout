@@ -36,6 +36,7 @@ import {
 import { verifyCvAfterAgent } from './cv-verify.mjs';
 import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
+import { generateDocuments, prepStatus } from './prep-state.mjs';
 
 export { prepDir };
 
@@ -290,9 +291,10 @@ async function publishDownloads(job, profile, dir, { hasAts, hasMain, hasPdf }) 
   if (!atsPath && !mainPath) return null;
   try {
     return await exportCvDownloads({
+      jobId: job.id,
       company: job.company,
       profileName: profile?.name,
-      atsPdfPath: atsPath,
+      atsPdfPath: atsPath || (!hasMain ? mainPath : null),
       mainPdfPath: hasMain ? mainPath : null,
       jobTitle: job.title,
     });
@@ -326,7 +328,7 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
   const settings = await loadCvSettings();
   let downloadExport = null;
   if (job && profile) {
-    downloadExport = await publishDownloads(job, profile, prepDir(jobId), flags);
+    downloadExport = await exportPrepDownloads(job, profile);
   }
   return {
     dir: prepDir(jobId),
@@ -371,7 +373,6 @@ async function finalizePrepPack({
 }) {
   const files = {
     'job-posting.md': buildJobPostingMd(job),
-    'cover-letter.md': await buildCoverLetter(job, profile, fit),
     'cv.md': cvMd,
     'cv.html': cvHtml,
     'requirements.md': requirementsMd,
@@ -688,6 +689,29 @@ function escapeForPre(s) {
 
 /** Write prep files + tailored CV under .workspace/prep/<id>/ */
 export async function writePrepPack(job, profile, fit, savedAnswers = {}, options = {}) {
+  const settings = { ...(await loadCvSettings()), ...options };
+  const mode = settings.tailorMode || 'agent';
+  const includeLetter = options.includeCoverLetter !== false;
+  const state = await prepStatus(job, profile, settings, {
+    cv: true, letter: includeLetter, instructions: options.extraInstructions || '', mode,
+  });
+  if ((options.useCache || options.recreate === false) && Object.values(state).every((s) => s === 'current')
+    && await hasCvPdf(job.id)) {
+    return loadCachedPrepPack(job.id, fit, job, profile);
+  }
+  const pack = await generateDocuments({ job, profile, settings,
+    instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'] },
+  () => writePrepPackUncached(job, profile, fit, savedAnswers, { ...options, recreate: true, useCache: false }));
+  if (!pack.needsReview) {
+    const exported = await exportPrepDownloads(job, profile);
+    pack.downloadFolderAbs = exported.absoluteDir || null;
+    pack.downloadFolder = exported.relativeDir || null;
+    pack.downloadError = exported.error || null;
+  }
+  return pack;
+}
+
+async function writePrepPackUncached(job, profile, fit, savedAnswers = {}, options = {}) {
   const dir = prepDir(job.id);
   await mkdir(dir, { recursive: true });
 
@@ -695,12 +719,6 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   const extraInstructions = String(options.extraInstructions || '').trim();
   const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
   settings.onEvent = onEvent;
-
-  // Cache short-circuit (explicit)
-  if (options.useCache === true || (options.recreate === false && (await hasCvPdf(job.id)))) {
-    const cached = await loadCachedPrepPack(job.id, fit, job, profile);
-    if (cached) return cached;
-  }
 
   const requestedMode = options.tailorMode === 'fast' || settings.tailorMode === 'fast'
     ? 'fast'
@@ -894,12 +912,13 @@ export async function readPrepFile(jobId, filename) {
   }
 }
 
-/** Re-export PDFs + cover letter into <project-root>/downloads/<Company>/. */
+/** Re-export PDFs + cover letter into <project-root>/downloads/<Company>/<Role>-<JobID>/. */
 export async function exportPrepDownloads(job, profile) {
   if (!job?.id) return { error: 'job required' };
   const flags = await pdfFlags(job.id);
   const dir = prepDir(job.id);
-  const cvExport = await publishDownloads(job, profile, dir, flags);
+  const freshness = await prepStatus(job, profile, await loadCvSettings());
+  const cvExport = freshness.cv === 'current' ? await publishDownloads(job, profile, dir, flags) : null;
 
   let letterMd = '';
   try {
@@ -910,8 +929,9 @@ export async function exportPrepDownloads(job, profile) {
   const letterPdf = join(dir, 'cover-letter.pdf');
   const letterDocx = join(dir, 'cover-letter.docx');
   let letterExport = null;
-  if (letterMd) {
+  if (letterMd && freshness.letter === 'current') {
     letterExport = await exportCoverLetterDownloads({
+      jobId: job.id,
       company: job.company,
       profileName: profile?.name,
       jobTitle: job.title,
@@ -929,7 +949,7 @@ export async function exportPrepDownloads(job, profile) {
     files,
     absoluteDir: letterExport?.absoluteDir || cvExport?.absoluteDir,
     relativeDir: letterExport?.relativeDir || cvExport?.relativeDir,
-    error: !files.length ? (cvExport?.error || 'Nothing to export') : null,
+    error: !files.length ? (cvExport?.error || 'Documents are outdated or need review; recreate Prep before exporting.') : null,
   };
 }
 

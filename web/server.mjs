@@ -31,6 +31,7 @@ import { scoreJob } from '../scripts/lib/fit.mjs';
 import {
   writePrepPack,
   readPrepPack,
+  loadCachedPrepPack,
   readPrepFile,
   hasCvPdf,
   loadPrepFlagsIndex,
@@ -77,6 +78,9 @@ import {
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 import { handleRecruiterApi } from './recruiter-routes.mjs';
 import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
+import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
+import { currentSearchState } from '../scripts/lib/current-search.mjs';
+import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
 
 loadDotEnv();
 
@@ -120,7 +124,7 @@ const prepState = {
 
 /**
  * Batch Prep: run writePrepPack for many jobs one after another.
- * Never opens folders — files land in .workspace/prep/<id>/ and downloads/<Company>/
+ * Never opens folders — files land in .workspace/prep/<id>/ and downloads/<Company>/<Role>-<JobID>/
  * and the Ready tab picks them up.
  */
 const batchState = {
@@ -233,7 +237,10 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         if (batchState.skipExisting) {
           const flags = prepFlagsForJob(await loadPrepFlagsIndex(), job.id);
           const hasAll = flags.tailoredPdf && (!batchState.includeCoverLetter || flags.coverLetter);
-          if (hasAll) {
+          const freshness = await prepStatus(job, profile, await loadCvSettings(), {
+            cv: true, letter: batchState.includeCoverLetter, instructions: extraInstructions, mode: batchState.mode,
+          });
+          if (hasAll && Object.values(freshness).every((s) => s === 'current')) {
             item.status = 'skipped';
             item.note = 'already has files';
             markBatchItemDuration(item);
@@ -255,7 +262,8 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         } catch {
           /* decision optional */
         }
-        item.status = 'done';
+        item.status = pack.needsReview ? 'failed' : 'done';
+        if (pack.needsReview) item.error = `Needs review: complete draft at ${pack.draftDir || pack.dir}; previous documents preserved when available.`;
         item.tailorMode = pack?.tailorMode || batchState.mode;
         if (batchState.stopping && pack?.fallbackReason) {
           item.note = 'agent stopped — Fast fallback written';
@@ -444,6 +452,11 @@ async function applyPackForJobId(id, jobHint = null) {
   if (!profile) return { error: 'profile.json required' };
   const answers = await loadSavedAnswers();
   const pack = buildApplyPack({ job, profile, answers });
+  const documentState = await prepStatus(job, profile, await loadCvSettings(), {
+    cv: Boolean(pack.files.cvPdf), letter: Boolean(pack.files.coverLetterMd || pack.files.coverLetterPdf),
+  });
+  pack.documentState = documentState;
+  pack.documentsNeedReview = Object.values(documentState).some((s) => s !== 'current');
   applyAssistState.latest = pack;
   return { pack };
 }
@@ -561,6 +574,7 @@ async function getStatus() {
 }
 
 function jobIsReady(job) {
+  if (job.prepOutdated || job.prepNeedsReview || !job.currentSearch?.current) return false;
   if (!(job.tailoredCv || job.tailoredPdf || job.coverLetter)) return false;
   return !READY_EXCLUDED.has(job.decision?.decision || '');
 }
@@ -616,6 +630,12 @@ async function enrichJobs({ force = false } = {}) {
     const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
     const newSet = new Set(digest?.newIds ?? []);
     const prepIndex = await loadPrepFlagsIndex();
+    const cvSettings = await loadCvSettings();
+    const prepInputs = await loadPrepInputs(cvSettings);
+    const evidenceText = Object.entries(prepInputs).filter(([name]) => !name.includes('cover-letter')).map(([, text]) => text).join('\n');
+    const matchingProfile = profile ? withMatchingAnswers(profile, await loadSavedAnswers()) : null;
+    const searchConfig = await loadSearchProfile();
+    const currentMarket = await loadMarket(searchConfig);
     const recruiterStore = await loadRecruiterStore();
 
     if (!data) {
@@ -631,10 +651,14 @@ async function enrichJobs({ force = false } = {}) {
     const raw = data.jobs ?? [];
     const before = raw.length;
     const deduped = dedupeJobs(raw);
-    const jobs = deduped.map((job) => {
-      const fit = profile ? scoreJob(job, profile) : null;
+    const jobs = await Promise.all(deduped.map(async (job) => {
+      const fit = matchingProfile ? scoreJob(job, matchingProfile, evidenceText) : null;
       const decision = byId.get(job.id) ?? null;
       const flags = prepFlagsForJob(prepIndex, job.id);
+      const manifest = await loadJson(join(prepDir(job.id), 'generation.json'), null);
+      const freshness = assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs },
+        { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter });
+      const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
       const tailoredCv = flags.tailoredCv;
       const recruiter = recruiterStore.contacts[job.id] || null;
       return {
@@ -646,6 +670,11 @@ async function enrichJobs({ force = false } = {}) {
         fit,
         isNew: newSet.has(job.id),
         ...flags,
+        ageDays: currentSearch.ageDays,
+        currentSearch,
+        prepFreshness: freshness,
+        prepOutdated: Object.values(freshness).includes('outdated'),
+        prepNeedsReview: Object.values(freshness).includes('needs-review'),
         recruiter: recruiter
           ? {
               name: recruiter.name || '',
@@ -659,7 +688,7 @@ async function enrichJobs({ force = false } = {}) {
           decision?.prepPath
           || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
       };
-    });
+    }));
 
     jobs.sort(compareFit);
 
@@ -759,6 +788,7 @@ async function handleApi(req, res, url) {
   if (req.method === 'GET' && path === '/api/jobs') {
     const enriched = await enrichJobs();
     let list = enriched.jobs;
+    if (url.searchParams.get('scope') !== 'history') list = list.filter((j) => j.currentSearch.current);
 
     const q = (url.searchParams.get('q') || '').trim().toLowerCase();
     if (q) {
@@ -844,7 +874,7 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'GET' && path === '/api/digest') {
     const enriched = await enrichJobs();
-    const newJobs = enriched.jobs.filter((j) => j.isNew);
+    const newJobs = enriched.jobs.filter((j) => j.isNew && j.currentSearch.current);
     const history = await loadRunHistory();
     return json(res, 200, {
       digest: enriched.digest,
@@ -1059,6 +1089,9 @@ async function handleApi(req, res, url) {
     const loaded = await applyPackForJobId(id, body.job);
     if (loaded.error) return json(res, 404, { error: loaded.error });
     const payload = fillAssistPayload(loaded.pack);
+    if (loaded.pack.documentsNeedReview) return json(res, 409, {
+      error: 'Documents are outdated or need review. Recreate Prep before using Fill.',
+    });
     if (!(await playwrightAvailable())) {
       return json(res, 200, {
         ok: true,
@@ -1093,6 +1126,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'POST' && path === '/api/prep') {
+    if (prepState.running) return json(res, 409, { error: 'Preparation is running; wait for it to finish.' });
     if (batchState.running) {
       return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
     }
@@ -1104,7 +1138,6 @@ async function handleApi(req, res, url) {
     if (!profile) return json(res, 400, { error: 'profile.json required' });
     const saved = await loadSavedAnswers();
     const fit = job.fit || scoreJob(job, profile);
-    const recreate = body.recreate === true;
     const extraInstructions = typeof body.extraInstructions === 'string'
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
@@ -1112,34 +1145,38 @@ async function handleApi(req, res, url) {
     const includeCoverLetter = body.includeCoverLetter !== false;
 
     // Cached pack: skip rebuild unless recreate (sync)
-    if (!recreate && (await hasCvPdf(job.id))) {
-      const pack = await writePrepPack(job, profile, fit, saved, {
-        useCache: true,
-        recreate: false,
-        extraInstructions,
-        tailorMode: mode,
-        includeCoverLetter,
+    if (body.recreate === false) {
+      const freshness = await prepStatus(job, profile, await loadCvSettings(), {
+        cv: true, letter: includeCoverLetter, instructions: extraInstructions || undefined,
       });
+      if (!(await hasCvPdf(job.id)) || Object.values(freshness).some((s) => s !== 'current')) {
+        return json(res, 409, { error: 'Documents are missing, outdated, or need review. Choose Recreate to generate replacements.' });
+      }
+      const pack = await loadCachedPrepPack(job.id, fit, job, profile);
       invalidateJobsCache();
       return json(res, 200, { ok: true, cached: true, pack, fit });
     }
 
     // Fast mode stays synchronous
+    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     if (mode === 'fast') {
-      const pack = await writePrepPack(job, profile, fit, saved, {
-        recreate: true,
-        useCache: false,
-        extraInstructions,
-        tailorMode: 'fast',
-        includeCoverLetter,
-      });
+      prepState.running = true;
       try {
-        await attachPrepPath(job, pack);
-      } catch {
-        /* decision optional */
-      }
-      invalidateJobsCache();
-      return json(res, 200, { ok: true, cached: false, pack, fit, mode: 'fast' });
+        const pack = await writePrepPack(job, profile, fit, saved, {
+          recreate: true,
+          useCache: false,
+          extraInstructions,
+          tailorMode: 'fast',
+          includeCoverLetter,
+        });
+        try {
+          await attachPrepPath(job, pack);
+        } catch {
+          /* decision optional */
+        }
+        invalidateJobsCache();
+        return json(res, 200, { ok: true, cached: false, pack, fit, mode: 'fast' });
+      } finally { prepState.running = false; }
     }
 
     if (prepState.running) {
@@ -1271,6 +1308,7 @@ async function handleApi(req, res, url) {
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
 
+    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     batchState.running = true;
     batchState.stopping = false;
     batchState.startedAt = new Date().toISOString();
@@ -1380,6 +1418,7 @@ async function handleApi(req, res, url) {
 
   // POST /api/cover-letter { id, mode, extraInstructions }
   if (req.method === 'POST' && path === '/api/cover-letter') {
+    if (prepState.running) return json(res, 409, { error: 'Preparation is running; wait for it to finish.' });
     if (batchState.running) {
       return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
     }
@@ -1397,6 +1436,8 @@ async function handleApi(req, res, url) {
     const settings = await loadCvSettings();
     const dir = prepDir(job.id);
 
+    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
+
     const packResult = (result) => ({
       ok: true,
       letter: result.letter,
@@ -1408,14 +1449,18 @@ async function handleApi(req, res, url) {
       relativeDir: result.export?.relativeDir || null,
       files: result.export?.files || [],
       pdfError: result.pdfError || null,
+      needsReview: result.needsReview || false,
+      draftDir: result.draftDir || (result.needsReview ? result.dir : null),
     });
 
     if (mode === 'fast') {
+      prepState.running = true;
       try {
         const result = await generateCoverLetterPack(job, profile, fit, {
           prepDir: dir,
           extraInstructions,
           tailorMode: 'fast',
+          settings,
         });
         invalidateJobsCache();
         const payload = packResult(result);
@@ -1423,7 +1468,7 @@ async function handleApi(req, res, url) {
         return json(res, 200, payload);
       } catch (err) {
         return json(res, 500, { error: err.message || String(err) });
-      }
+      } finally { prepState.running = false; }
     }
 
     if (prepState.running) {
@@ -1450,6 +1495,7 @@ async function handleApi(req, res, url) {
           tailorMode: 'agent',
           provider: settings.agentProvider,
           model: settings.agentModel,
+          settings,
           onEvent: (entry) => {
             prepState.buffer.push(entry);
             if (prepState.buffer.length > 800) prepState.buffer.shift();
@@ -1497,7 +1543,7 @@ async function handleApi(req, res, url) {
     });
   }
 
-  // POST /api/prep/open-folder { id } — export into project downloads/<Company>/ + open Explorer
+  // POST /api/prep/open-folder { id } — export into project downloads/<Company>/<Role>-<JobID>/ + open Explorer
   if (req.method === 'POST' && path === '/api/prep/open-folder') {
     const body = await readBody(req);
     const enriched = await enrichJobs();
@@ -1546,7 +1592,7 @@ async function handleApi(req, res, url) {
                 ? `${short} CV.pdf`
                 : file;
 
-        // Also write into <project>/downloads/<Company>/
+        // Also write into <project>/downloads/<Company>/<Role>-<JobID>/
         let folderHint = '';
         if (download) {
           try {
@@ -1678,6 +1724,7 @@ async function handleApi(req, res, url) {
       }
     }
     await writeFile(SEARCH_PROFILE, `${JSON.stringify(config, null, 2)}\n`);
+    invalidateJobsCache();
     return json(res, 200, await getStatus());
   }
 

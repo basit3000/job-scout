@@ -33,6 +33,7 @@ const els = {
   fitFilter: $('fitFilter'),
   langFilter: $('langFilter'),
   sortSelect: $('sortSelect'),
+  resultScope: $('resultScope'),
   pageSize: $('pageSize'),
   pager: $('pager'),
   pageLabel: $('pageLabel'),
@@ -977,6 +978,7 @@ function queryString() {
     fit: els.fitFilter.value,
     lang: els.langFilter?.value || 'all',
     sort: els.sortSelect?.value || 'fit',
+    scope: els.resultScope?.value || 'current',
   });
   const hide = hiddenFromVisible(
     DECISION_FILTER_OPTIONS.map((o) => o.id),
@@ -994,7 +996,8 @@ function renderJob(job, { compact = false } = {}) {
   const facts = [
     job.location,
     job.remote === true ? 'Remote' : null,
-    job.ageDays != null ? `${job.ageDays}d ago` : null,
+    job.ageDays != null ? `Posted ${job.ageDays}d ago` : 'Posting date unknown',
+    job.currentSearch?.lastSeenAt ? `Last seen ${new Date(job.currentSearch.lastSeenAt).toLocaleDateString()}` : null,
     job.board ? `${formatBoard(job.board)}${job.via ? ` via ${job.via}` : ''}` : null,
     job.salary,
   ].filter(Boolean);
@@ -1026,8 +1029,12 @@ function renderJob(job, { compact = false } = {}) {
       ${langLabel ? `<span class="pill lang-${escapeAttr(written)}">${escapeHtml(langLabel)}</span>` : ''}
       ${job.germanRequired && written === 'en' ? '<span class="pill lang-de">German required</span>' : ''}
       ${atsPill(job.ats)}
-      ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
-      ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}
+      ${job.prepOutdated ? '<span class="pill flag">Outdated documents</span>' : ''}
+      ${job.prepNeedsReview ? '<span class="pill flag">Documents need review</span>' : ''}
+      ${job.currentSearch && !job.currentSearch.current ? `<span class="pill flag" title="${escapeAttr(job.currentSearch.reasons.join('; '))}">Outside current search</span>` : ''}
+      ${fit?.eligibility?.status === 'needs-checking' ? '<span class="pill flag">Requirements need checking</span>' : ''}
+      ${job.tailoredCv && job.prepFreshness?.cv === 'current' ? '<span class="pill ok">CV ready</span>' : ''}
+      ${job.coverLetter && job.prepFreshness?.letter === 'current' ? '<span class="pill ok">Letter ready</span>' : ''}
       ${job.recruiter?.foundEmail ? '<span class="pill ok">Recruiter</span>' : ''}
       ${job.recruiter?.name && !job.recruiter?.foundEmail ? '<span class="pill">Recruiter name</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
@@ -1422,7 +1429,10 @@ function syncPrepModalActions(hasCache) {
     else els.prepModalRecreate.textContent = 'Create letter (agent)';
   }
   if (els.prepModalUseExisting) {
-    els.prepModalUseExisting.hidden = !hasCache || !createCv;
+    els.prepModalUseExisting.hidden = !hasCache || !createCv
+      || els.prepModal.dataset.currentCv !== 'true'
+      || (createCoverLetter && els.prepModal.dataset.currentLetter !== 'true')
+      || Boolean(readPrepInstructions());
   }
 }
 
@@ -1455,6 +1465,8 @@ function openPrepModal(job, opts = {}) {
       return;
     }
     const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
+    els.prepModal.dataset.currentCv = String(Boolean(job.tailoredPdf && job.prepFreshness?.cv === 'current'));
+    els.prepModal.dataset.currentLetter = String(job.prepFreshness?.letter === 'current');
     const keyOk = Boolean(state.status?.cursorApiKeyPresent);
     const letterFirst = Boolean(opts.preferCoverLetter);
     els.prepModalTitle.textContent = 'Prep';
@@ -1463,12 +1475,12 @@ function openPrepModal(job, opts = {}) {
       : `Check what to generate. Create runs the agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
     if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
     if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
-    syncPrepModalActions(hasCache);
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
       els.prepInstrCustom.hidden = true;
     }
+    syncPrepModalActions(hasCache);
     els.prepModal.hidden = false;
 
     const finish = (value) => {
@@ -1477,6 +1489,7 @@ function openPrepModal(job, opts = {}) {
       els.prepModalRecreate?.removeEventListener('click', onRecreate);
       els.prepModalFast?.removeEventListener('click', onFast);
       els.prepInstrPreset?.removeEventListener('change', onPreset);
+      els.prepInstrCustom?.removeEventListener('input', onChecks);
       els.prepCreateCv?.removeEventListener('change', onChecks);
       els.prepCreateCoverLetter?.removeEventListener('change', onChecks);
       els.prepModal.removeEventListener('click', onBackdrop);
@@ -1506,6 +1519,7 @@ function openPrepModal(job, opts = {}) {
       if (els.prepInstrCustom) {
         els.prepInstrCustom.hidden = els.prepInstrPreset.value !== 'custom';
       }
+      syncPrepModalActions(hasCache);
     };
     const onChecks = () => syncPrepModalActions(hasCache);
     els.prepModalCancel?.addEventListener('click', onCancel);
@@ -1513,6 +1527,7 @@ function openPrepModal(job, opts = {}) {
     els.prepModalRecreate?.addEventListener('click', onRecreate);
     els.prepModalFast?.addEventListener('click', onFast);
     els.prepInstrPreset?.addEventListener('change', onPreset);
+    els.prepInstrCustom?.addEventListener('input', onChecks);
     els.prepCreateCv?.addEventListener('change', onChecks);
     els.prepCreateCoverLetter?.addEventListener('change', onChecks);
     els.prepModal.addEventListener('click', onBackdrop);
@@ -1677,6 +1692,11 @@ function showLogView() {
 }
 
 async function finishPrepUi(job, data) {
+  if (data.pack?.needsReview) {
+    appendLog(`Needs review: complete draft at ${data.pack.draftDir || data.pack.dir}. ${data.pack.preservedPrevious ? 'Previous documents were preserved.' : 'Adjust the document and recreate it before applying.'}`, 'stderr');
+    await refreshJobs();
+    return;
+  }
   state.lastPrepJobId = job.id;
   if (data.cached) appendLog('Skipped compile — cached PDFs.');
   if (data.pack?.tailorMode) {
@@ -1736,6 +1756,10 @@ async function finishPrepUi(job, data) {
 }
 
 function applyCoverLetterResult(job, res) {
+  if (res.needsReview) {
+    appendLog(`Cover letter needs review: complete draft at ${res.draftDir}. Previous documents were preserved when available.`, 'stderr');
+    return;
+  }
   const included = (res.included || []).map((b) => b.id).filter(Boolean);
   if (res.tailorMode) {
     appendLog(
@@ -3135,6 +3159,7 @@ els.sortSelect?.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
 });
+els.resultScope?.addEventListener('change', () => { state.page = 1; refreshJobs(); });
 els.pageSize.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();

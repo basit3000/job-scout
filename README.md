@@ -139,7 +139,7 @@ GOOGLE_SHEETS_CREDENTIALS=secrets/google-sheets.json
 GOOGLE_SHEETS_TAB=Applications
 ```
 
-Columns: Date, Company, Title, Applied, Links, Location, Board, Note, Follow-up, Salary, Remote, Updated at.
+Columns: Date, Company, Title, Status, Links, Location, Board, Note, Follow-up, Salary, Remote, Updated at.
 
 ## Shared vs local
 

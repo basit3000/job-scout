@@ -27,7 +27,7 @@ export const SHEET_HEADERS = [
   'Date',
   'Company',
   'Title',
-  'Applied',
+  'Status',
   'Links',
   'Location',
   'Board',
@@ -71,7 +71,7 @@ export function isCurrentSheetHeader(row) {
   return cells[0] === 'Date'
     && cells[1] === 'Company'
     && cells[2] === 'Title'
-    && cells[3] === 'Applied'
+    && cells[3] === 'Status'
     && cells[4] === 'Links';
 }
 
@@ -198,7 +198,7 @@ export function parseSheetDataRow(header, cells) {
     date: obj.Date || cells?.[0] || '',
     company: obj.Company || cells?.[1] || '',
     title: obj.Title || cells?.[2] || '',
-    applied: obj.Applied || cells?.[3] || '',
+    applied: obj.Status || cells?.[3] || '',
     links: obj.Links || cells?.[4] || '',
   };
 }

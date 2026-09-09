@@ -46,14 +46,14 @@ describe('parseReviewMarkdown', () => {
     assert.match(r.gaps[0], /Kubernetes/);
   });
 
-  it('downgrades revise to pass when Must fix is empty', () => {
+  it('rejects contradictory or incomplete review output', () => {
     const r = parseReviewMarkdown(`Verdict: revise\nATS: 9/10\n\n## Must fix\n- _none_\n`);
-    assert.equal(r.verdict, 'pass');
+    assert.equal(r.verdict, 'not_reviewed');
     assert.equal(r.mustFix.length, 0);
   });
 
   it('treats pass-with-nits as pass', () => {
-    const r = parseReviewMarkdown(`Verdict: pass\n\n## Should fix\n- Shorten bullet 3.\n`);
+    const r = parseReviewMarkdown(`Verdict: pass\nATS: 9/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_\n\n## Should fix\n- Shorten bullet 3.\n`);
     assert.equal(r.verdict, 'pass');
     assert.equal(r.shouldFix.length, 1);
   });

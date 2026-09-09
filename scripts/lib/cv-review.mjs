@@ -1,18 +1,16 @@
 /**
- * Second-pass reviewer after the Prep writer + deterministic quality gate.
- *
- * The reviewer agent only writes review.md / cover-letter-review.md. If it
- * verdicts "revise" with must-fix items, Job Scout runs the writer once more
- * with those items, then re-runs the quality gate. A hard-gate miss on that
- * loop restores the already-accepted files so PDFs still ship.
+ * Review the final rendered document, with at most one repair and verification.
+ * A review is valid only for its document fingerprint. Missing reviews and
+ * unresolved repairs remain visible and prevent automatic publication.
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { ROOT } from './common.mjs';
 import { currentEvidenceRel, runCvTailorAgent } from './cv-agent.mjs';
 import { verifyCvAfterAgent, verifyLetterAfterAgent } from './cv-verify.mjs';
+import { DOCUMENT_FILES, documentFingerprint, stageFinalDocumentText } from './review-documents.mjs';
 
 export const ACCEPTED_DIR = 'accepted';
 const MAX_MUST_FIX = 6;
@@ -54,17 +52,14 @@ function parseScore(md, label) {
   const m = String(md || '').match(re);
   if (!m) return null;
   const n = Number(m[1]);
-  return Number.isFinite(n) ? Math.max(0, Math.min(10, n)) : null;
+  return Number.isInteger(n) && n >= 1 && n <= 10 ? n : null;
 }
 
-export function parseReviewMarkdown(md) {
+export function parseReviewMarkdown(md, scope = 'cv') {
   const src = String(md || '').trim();
   const verdictRaw = src.match(/^verdict:\s*(\S+)/im)?.[1] || '';
   const verdictWord = verdictRaw.toLowerCase().replace(/[^a-z]/g, '');
-  let verdict = 'pass';
-  if (verdictWord === 'revise' || verdictWord === 'fail' || verdictWord === 'reject') {
-    verdict = 'revise';
-  }
+  let verdict = ['pass', 'revise'].includes(verdictWord) ? verdictWord : 'not_reviewed';
   const scores = {};
   for (const [key, label] of Object.entries(SCORE_KEYS)) {
     scores[key] = parseScore(src, label);
@@ -74,7 +69,11 @@ export function parseReviewMarkdown(md) {
   const fine = bulletsUnder(src, 'Fine as-is');
   const gaps = bulletsUnder(src, 'Gaps \\(do not invent\\)')
     .concat(bulletsUnder(src, 'Gaps'));
-  if (!mustFix.length) verdict = 'pass';
+  const requiredScores = scope === 'letter' ? ['postingFit', 'coverLetter'] : ['ats', 'postingFit', 'recruiterScan'];
+  const valid = verdict !== 'not_reviewed' && /^##\s+Must fix\s*$/im.test(src)
+    && requiredScores.every((key) => scores[key] !== null)
+    && (verdict === 'revise' ? mustFix.length > 0 : mustFix.length === 0);
+  if (!valid) verdict = 'not_reviewed';
   return {
     verdict,
     scores,
@@ -83,6 +82,7 @@ export function parseReviewMarkdown(md) {
     fine,
     gaps,
     empty: !src,
+    error: valid ? null : 'Reviewer output is missing, malformed, or contradictory',
   };
 }
 
@@ -181,6 +181,14 @@ async function writeReviewSummary(prepDir, patch) {
   return next;
 }
 
+export async function clearReview(prepDir, scope) {
+  const previous = (await loadReviewSummary(prepDir)) || {};
+  delete previous[scope];
+  await writeFile(join(prepDir, 'review-summary.json'), JSON.stringify(previous, null, 2));
+  await unlink(join(prepDir, scope === 'letter' ? 'cover-letter-review.md' : 'review.md'))
+    .catch((e) => { if (e.code !== 'ENOENT') throw e; });
+}
+
 function toPublicReview(parsed, extra = {}) {
   return {
     verdict: parsed.verdict,
@@ -191,177 +199,100 @@ function toPublicReview(parsed, extra = {}) {
     ranFixLoop: Boolean(extra.ranFixLoop),
     restored: Boolean(extra.restored),
     error: extra.error || null,
+    documentFingerprint: extra.documentFingerprint || null,
+    reviewedAt: new Date().toISOString(),
   };
 }
 
-/**
- * Review the tailored CV or letter. Never throws — Prep continues if the
- * reviewer is unavailable; the writer output already passed the quality gate.
- */
+/** Review only rendered, fitted documents. At most one repair and one verification. */
 export async function runReviewerPass({
-  scope = 'cv',
-  job,
-  prepDir,
-  profile = null,
-  extraInstructions = '',
-  cvSource = 'local',
-  overleafPush = true,
-  provider = null,
-  model = null,
-  onEvent = null,
-  letter = '',
-  polishLetter = (s) => String(s || ''),
+  scope = 'cv', job, prepDir, profile = null, extraInstructions = '',
+  cvSource = 'local', provider = null, model = null, onEvent = null,
+  letter = '', polishLetter = (s) => String(s || ''), prepare = async () => {},
+  // Inject adapters for offline workflow tests, never an alternate production policy.
+  runAgent = runCvTailorAgent, verifyCv = verifyCvAfterAgent,
+  verifyLetter = verifyLetterAfterAgent, stageText = stageFinalDocumentText,
 } = {}) {
   const emit = emitOn(onEvent);
   const letterScope = scope === 'letter';
-  const empty = {
-    verdict: 'pass',
-    scores: {},
-    mustFix: [],
-    shouldFix: [],
-    fine: [],
-    gaps: [],
-    empty: true,
-    ranFixLoop: false,
-    restored: false,
-    error: null,
+  const reviewName = letterScope ? 'cover-letter-review.md' : 'review.md';
+  const stage = letterScope ? 'letter' : 'cv';
+  const common = { job, prepDir, profile, extraInstructions, cvSource, provider, model, onEvent, overleafPush: false };
+  let ranFixLoop = false;
+  let restored = false;
+  let originalReview = null;
+  const save = async (parsed, error = parsed.error) => {
+    const result = { ...parsed, ranFixLoop, restored, error: error || null,
+      documentFingerprint: await documentFingerprint(prepDir, scope) };
+    await writeReviewSummary(prepDir, { [scope]: toPublicReview(result, result) });
+    if (letterScope) result.letter = await readFile(join(prepDir, 'cover-letter.md'), 'utf8').catch(() => letter);
+    return result;
   };
-
-  emit(letterScope ? 'Reviewer — scoring the cover letter…' : 'Reviewer — scoring the tailored CV…');
-
-  try {
-    await runCvTailorAgent({
-      job,
-      prepDir,
-      profile,
-      extraInstructions,
-      cvSource,
-      overleafPush: false,
-      provider,
-      model,
-      onEvent,
-      task: letterScope ? 'review-letter' : 'review-cv',
-    });
-  } catch (err) {
-    const error = err?.message || String(err);
-    emit(`Reviewer skipped (${error}) — shipping the quality-gated draft.`, 'stderr');
-    const parsed = { ...empty, error };
-    await writeReviewSummary(prepDir, { [letterScope ? 'letter' : 'cv']: toPublicReview(parsed, { error }) });
-    return parsed;
-  }
-
-  const raw = await readReviewFile(prepDir, scope);
-  const parsed = parseReviewMarkdown(raw);
-  if (parsed.empty) {
-    emit('Reviewer wrote no review file — continuing without a fix loop.', 'stderr');
-    await writeReviewSummary(prepDir, { [letterScope ? 'letter' : 'cv']: toPublicReview(parsed) });
-    return { ...parsed, ranFixLoop: false, restored: false, error: 'reviewer wrote no file' };
-  }
-
-  const scoreBits = Object.entries(SCORE_KEYS)
-    .map(([key, label]) => (parsed.scores[key] == null ? null : `${label} ${parsed.scores[key]}/10`))
-    .filter(Boolean)
-    .join(' · ');
-  emit(
-    `Reviewer verdict: ${parsed.verdict}${scoreBits ? ` (${scoreBits})` : ''}${
-      parsed.mustFix.length ? ` · ${parsed.mustFix.length} must-fix` : ''
-    }`,
-    parsed.verdict === 'revise' ? 'meta' : 'ok',
-  );
-
-  if (parsed.verdict !== 'revise' || !parsed.mustFix.length) {
-    await writeReviewSummary(prepDir, { [letterScope ? 'letter' : 'cv']: toPublicReview(parsed) });
-    return { ...parsed, ranFixLoop: false, restored: false, error: null };
-  }
-
-  emit(`Reviewer requested one fix loop (${parsed.mustFix.length} item(s)).`);
-  const fixInstr = formatFixInstructions(parsed, extraInstructions);
-  const reviewRead = `${relToRoot(prepDir)}/${letterScope ? 'cover-letter-review.md' : 'review.md'}`;
-
-  try {
-    if (letterScope) {
-      await copyAcceptedLetter(prepDir, letter);
-      await runCvTailorAgent({
-        job,
-        prepDir,
-        profile,
-        extraInstructions: fixInstr,
-        cvSource: 'local',
-        overleafPush: false,
-        provider,
-        model,
-        onEvent,
-        task: 'cover-letter',
-        staging: { evidence: false, overleaf: false, snapshot: false, gaps: true },
-        extraReads: [reviewRead],
-        sessionKey: 'letterFix',
-      });
-      const edited = await readFile(join(prepDir, 'cover-letter.md'), 'utf8');
-      const candidate = polishLetter(edited);
-      const gate = await verifyLetterAfterAgent({
-        prepDir,
-        letter: candidate,
-        job,
-        evidencePath: currentEvidenceRel(),
-        extraInstructions: fixInstr,
-        emit: (line, stream = 'meta') => emit(line, stream),
-      });
-      if (!gate.ok) {
-        const restored = await restoreAcceptedLetter(prepDir);
-        emit('Fix loop failed the letter quality gate — keeping the previous letter.', 'stderr');
-        const publicReview = toPublicReview(parsed, { ranFixLoop: true, restored: true });
-        await writeReviewSummary(prepDir, { letter: publicReview });
-        return { ...parsed, ranFixLoop: true, restored: true, letter: restored, error: null };
+  const inspect = async (checks = []) => {
+    const finalName = await stageText(prepDir, scope);
+    // Never reuse a report from a previous attempt or generation.
+    await unlink(join(prepDir, reviewName)).catch((e) => { if (e.code !== 'ENOENT') throw e; });
+    const protectedPaths = [...DOCUMENT_FILES.cv, ...DOCUMENT_FILES.letter].map((n) => join(prepDir, n));
+    if (cvSource === 'overleaf') protectedPaths.push(...['main.tex', 'ats.tex'].map((n) => join(ROOT, '.workspace', 'overleaf', n)));
+    const snapshot = new Map();
+    for (const path of protectedPaths) snapshot.set(path, await readFile(path).catch((e) => { if (e.code !== 'ENOENT') throw e; return null; }));
+    let agentError;
+    try {
+      await runAgent({ ...common, task: letterScope ? 'review-letter' : 'review-cv',
+        finalTextRel: `${relToRoot(prepDir)}/${finalName}`, repairChecks: checks,
+        sessionKey: `${stage}Review${checks.length ? 'Check' : ''}` });
+    } catch (e) { agentError = e; }
+    let changed = false;
+    for (const [path, before] of snapshot) {
+      const after = await readFile(path).catch((e) => { if (e.code !== 'ENOENT') throw e; return null; });
+      if (before === null ? after !== null : after === null || !before.equals(after)) {
+        changed = true;
+        if (before === null) await unlink(path);
+        else await writeFile(path, before);
       }
-      await writeFile(join(prepDir, 'cover-letter.md'), candidate.endsWith('\n') ? candidate : `${candidate}\n`);
-      const publicReview = toPublicReview(parsed, { ranFixLoop: true, restored: false });
-      await writeReviewSummary(prepDir, { letter: publicReview });
-      return { ...parsed, ranFixLoop: true, restored: false, letter: candidate, error: null };
     }
-
-    await copyAcceptedCv({ prepDir, cvSource });
-    await runCvTailorAgent({
-      job,
-      prepDir,
-      profile,
-      extraInstructions: fixInstr,
-      cvSource,
-      overleafPush,
-      provider,
-      model,
-      onEvent,
-      task: 'cv',
-      staging: { evidence: false, overleaf: false, snapshot: false, gaps: true },
-      extraReads: [reviewRead],
-      sessionKey: 'cvFix',
-    });
-    const gate = await verifyCvAfterAgent({
-      prepDir,
-      cvSource,
-      job,
-      profile,
-      evidencePath: currentEvidenceRel(),
-      extraInstructions: fixInstr,
-      emit: (line, stream = 'meta') => emit(line, stream),
-    });
-    if (gate.reverted) {
-      await restoreAcceptedCv({ prepDir, cvSource });
-      emit('Fix loop failed the CV quality gate — keeping the previous tailor.', 'stderr');
-      const publicReview = toPublicReview(parsed, { ranFixLoop: true, restored: true });
-      await writeReviewSummary(prepDir, { cv: publicReview });
-      return { ...parsed, ranFixLoop: true, restored: true, error: null };
+    if (changed) throw new Error('Reviewer changed a document; original documents restored');
+    if (agentError) throw agentError;
+    return parseReviewMarkdown(await readReviewFile(prepDir, scope), scope);
+  };
+  try {
+    await unlink(join(prepDir, reviewName)).catch((e) => { if (e.code !== 'ENOENT') throw e; });
+    await prepare();
+    originalReview = await inspect();
+    if (originalReview.verdict !== 'revise') return await save(originalReview);
+    emit(`Reviewer requested one repair (${originalReview.mustFix.length} item(s)).`);
+    if (letterScope) await copyAcceptedLetter(prepDir, await readFile(join(prepDir, 'cover-letter.md'), 'utf8'));
+    else await copyAcceptedCv({ prepDir, cvSource });
+    ranFixLoop = true;
+    await runAgent({ ...common, task: letterScope ? 'cover-letter' : 'cv', repair: true,
+      extraInstructions: formatFixInstructions(originalReview, extraInstructions),
+      staging: { evidence: false, overleaf: false, snapshot: false, gaps: false },
+      sessionKey: `${stage}Fix` });
+    if (letterScope) {
+      const candidate = polishLetter(await readFile(join(prepDir, 'cover-letter.md'), 'utf8'));
+      const gate = await verifyLetter({ ...common, letter: candidate, evidencePath: currentEvidenceRel(), emit });
+      if (!gate.ok) throw new Error('Repair failed the factual or style checks');
+      await writeFile(join(prepDir, 'cover-letter.md'), candidate);
+    } else {
+      const gate = await verifyCv({ ...common, evidencePath: currentEvidenceRel(), emit });
+      if (!gate.ok) throw new Error('Repair failed the factual or style checks');
     }
-    const publicReview = toPublicReview(parsed, { ranFixLoop: true, restored: false });
-    await writeReviewSummary(prepDir, { cv: publicReview });
-    return { ...parsed, ranFixLoop: true, restored: false, error: null };
+    // Fitting can change content. Verify only after the repaired final render.
+    await prepare();
+    const verified = await inspect(originalReview.mustFix);
+    if (verified.verdict === 'not_reviewed') verified.mustFix = originalReview.mustFix;
+    return await save(verified);
   } catch (err) {
     const error = err?.message || String(err);
-    emit(`Fix loop failed (${error}) — keeping the quality-gated draft.`, 'stderr');
-    if (letterScope) await restoreAcceptedLetter(prepDir);
-    else await restoreAcceptedCv({ prepDir, cvSource });
-    const publicReview = toPublicReview(parsed, { ranFixLoop: true, restored: true, error });
-    await writeReviewSummary(prepDir, { [letterScope ? 'letter' : 'cv']: publicReview });
-    return { ...parsed, ranFixLoop: true, restored: true, error };
+    emit(`Review needs attention: ${error}`, 'stderr');
+    if (ranFixLoop) {
+      restored = true;
+      if (letterScope) await restoreAcceptedLetter(prepDir);
+      else await restoreAcceptedCv({ prepDir, cvSource });
+      try { await prepare(); } catch (e) { emit(`Restored draft needs attention: ${e.message}`, 'stderr'); }
+      return save(originalReview, error);
+    }
+    return save({ ...parseReviewMarkdown('', scope), verdict: 'not_reviewed' }, error);
   }
 }
 

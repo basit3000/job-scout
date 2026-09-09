@@ -267,6 +267,7 @@ export async function buildFactCorpus({
     await readIf(join(ROOT, 'cv', 'tech-stack.md')),
     await readIf(join(ROOT, 'cv', 'resume.md')),
     await readIf(join(ROOT, 'cv', 'cover-letter.md')),
+    await readIf(join(ROOT, 'cv', 'cover-letter-notes.md')),
     await readIf(join(ROOT, 'profile.json')),
     await readIf(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md')),
     await readIf(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'references', 'tech-stack.md')),
@@ -459,6 +460,19 @@ export function verifyMarkdownCv({ before, after, corpus }) {
     const afterHeads = (md.match(/^###\s+[^\n]+/gm) || []).map((s) => s.toLowerCase().trim());
     for (const h of afterHeads) {
       if (!beforeHeads.has(h)) hard.push(`cv.md: entry heading not on the original CV: "${h.replace(/^###\s+/, '')}"`);
+    }
+  }
+
+  // Employment and education identities must survive tailoring, just as in LaTeX.
+  const sectionBody = (text, name) => String(text || '').replace(/\r\n?/g, '\n').match(new RegExp(`^##\\s+${name}\\s*\\n([\\s\\S]*?)(?=^##\\s|$(?![\\s\\S]))`, 'im'))?.[1] || '';
+  for (const name of ['Experience', 'Education']) {
+    const original = sectionBody(before, name);
+    const edited = sectionBody(md, name);
+    for (const heading of original.match(/^###\s+.+$/gm) || []) {
+      if (!edited.split('\n').includes(heading)) hard.push(`cv.md: ${name} entry removed or changed: ${heading}`);
+    }
+    if (name === 'Experience' && (edited.match(/^\s*[-*]\s+/gm) || []).length < (original.match(/^\s*[-*]\s+/gm) || []).length) {
+      hard.push('cv.md: Experience bullets dropped');
     }
   }
 
@@ -666,7 +680,8 @@ export async function verifyCvAfterAgent({
   }
   const corpus = await buildFactCorpus({
     beforeTexts,
-    extraTexts: [String(extraInstructions || '')],
+    // Instructions (including reviewer repairs) are directions, never evidence.
+    extraTexts: [],
     evidencePath: evidencePath ? join(ROOT, evidencePath) : '',
     job,
   });
@@ -752,16 +767,17 @@ export async function verifyLetterAfterAgent({
   job,
   evidencePath = '',
   extraInstructions = '',
+  cvSource = 'local',
   emit = () => {},
 }) {
   const beforeTexts = [];
-  for (const n of ['main.tex', 'ats.tex', 'resume.md']) {
+  for (const n of cvSource === 'overleaf' ? ['main.tex', 'ats.tex'] : ['resume.md']) {
     const t = await loadSnapshot(prepDir, n);
     if (t) beforeTexts.push(t);
   }
   // Without a snapshot (letter-only run) the live CV files are the fact source.
   if (!beforeTexts.length) {
-    for (const n of ['main.tex', 'ats.tex']) {
+    for (const n of cvSource === 'overleaf' ? ['main.tex', 'ats.tex'] : []) {
       const t = await readIf(join(ROOT, '.workspace', 'overleaf', n));
       if (t) beforeTexts.push(t);
     }
@@ -769,7 +785,7 @@ export async function verifyLetterAfterAgent({
   const draft = await readIf(join(prepDir, 'cover-letter.draft.md'));
   const corpus = await buildFactCorpus({
     beforeTexts,
-    extraTexts: [String(extraInstructions || ''), draft],
+    extraTexts: [draft],
     evidencePath: evidencePath ? join(ROOT, evidencePath) : '',
     job,
   });

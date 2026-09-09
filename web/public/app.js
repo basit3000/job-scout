@@ -1692,7 +1692,28 @@ function showLogView() {
 }
 
 async function finishPrepUi(job, data) {
+  const agent = data.pack?.agent;
+  if (agent?.usageSummary) {
+    const summary = agent.usageSummary;
+    const usage = summary.counters || {};
+    appendLog(`Agent usage: ${summary.attempts} attempts · ${formatDuration(summary.durationMs)} · ${usage.inputTokens == null ? 'unknown' : Number(usage.inputTokens).toLocaleString()} input / ${usage.outputTokens == null ? 'unknown' : Number(usage.outputTokens).toLocaleString()} output tokens${summary.complete ? '' : ' · incomplete provider usage'}`);
+  } else if (agent?.usage || agent?.tools || agent?.durationMs) {
+    const bits = [];
+    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
+    if (agent.tools) bits.push(`${agent.tools} tools`);
+    if (agent.usage?.inputTokens != null) {
+      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
+    }
+    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
+  }
   if (data.pack?.needsReview) {
+    for (const [scope, report] of Object.entries(data.pack.documentReports || {})) {
+      for (const reason of report.reasons || []) appendLog(`${scope}: ${reason}`, 'stderr');
+    }
+    for (const [scope, review] of Object.entries(data.pack.review || {})) {
+      if (!review || typeof review !== 'object') continue;
+      for (const item of review.mustFix || []) appendLog(`${scope} must fix: ${item}`, 'stderr');
+    }
     appendLog(`Needs review: complete draft at ${data.pack.draftDir || data.pack.dir}. ${data.pack.preservedPrevious ? 'Previous documents were preserved.' : 'Adjust the document and recreate it before applying.'}`, 'stderr');
     await refreshJobs();
     return;
@@ -1705,16 +1726,6 @@ async function finishPrepUi(job, data) {
         data.pack.fallbackReason ? ` (fallback: ${data.pack.fallbackReason})` : ''
       }`,
     );
-  }
-  const agent = data.pack?.agent;
-  if (agent?.usage || agent?.tools || agent?.durationMs) {
-    const bits = [];
-    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
-    if (agent.tools) bits.push(`${agent.tools} tools`);
-    if (agent.usage?.inputTokens != null) {
-      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
-    }
-    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
   }
   if (data.pack?.coverLetterMode) {
     appendLog(
@@ -1896,7 +1907,7 @@ function reviewScoreBits(scores) {
 
 function reviewSectionHtml(label, block, href) {
   if (!block) return '';
-  const verdict = String(block.verdict || 'pass');
+  const verdict = block.verdict === 'not_reviewed' || !block.verdict ? 'Not reviewed' : String(block.verdict);
   const loop = block.ranFixLoop
     ? block.restored
       ? ' · fix loop reverted'
@@ -1908,12 +1919,12 @@ function reviewSectionHtml(label, block, href) {
     : '';
   return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(reviewScoreBits(block.scores))}${escapeHtml(loop)}${
     href ? ` · <a href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ''
-  }</p>${mustHtml}`;
+  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}`;
 }
 
 function reviewPanel(review, jobId) {
   if (!review || (!review.cv && !review.letter)) return '';
-  const revise = review.cv?.verdict === 'revise' || review.letter?.verdict === 'revise';
+  const revise = [review.cv, review.letter].some((r) => r && r.verdict !== 'pass');
   const base = jobId ? `/api/prep/${encodeURIComponent(jobId)}` : '';
   return `<div class="prep-review${revise ? ' revise' : ''}">
     <h4>Reviewer</h4>

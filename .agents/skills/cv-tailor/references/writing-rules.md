@@ -121,12 +121,12 @@ Worked pattern — same project, same facts, posting cares about APIs and Docker
 
 Same theme and length; emphasis follows the posting; every clause is in the portfolio.
 
-**Budget:** for a typical tailor pass, change roughly a third to half of Experience and
-Projects bullets; leave the rest. Prefer clause reordering over full sentence replacement.
+**Editing scope:** change only bullets that benefit from tailoring; there is no rewrite quota.
+Prefer clause reordering over full sentence replacement. Repair passes change only the named issues.
 Experience bullets may re-emphasise duties that already appear on the CV; never invent
 duties, tools, or scope the existing CV did not state and the evidence pack cannot verify.
 Do not drop Experience bullets to make room for keyword stuffing — keep the current set
-and only trim if the one-page check fails.
+and shorten clauses if needed without removing an Experience bullet.
 
 ## Tone and mechanics
 

@@ -187,6 +187,15 @@
             </div>
             <div class="filters">
               <input type="search" id="trackerSearch" placeholder="Filter company or title…" />
+              <select id="trackerSort" aria-label="Sort by date">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+              <select id="trackerPageSize" aria-label="Page size">
+                <option value="10">10 / page</option>
+                <option value="20" selected>20 / page</option>
+                <option value="50">50 / page</option>
+              </select>
               <div class="sheets-bar" id="sheetsBar">
                 <a class="btn ghost small" id="sheetsOpenLink" href="#" target="_blank" rel="noopener" hidden>Open Sheet</a>
                 <button type="button" class="btn ghost small" id="sheetsSyncBtn" hidden>Sync to Sheets</button>
@@ -196,6 +205,11 @@
           <p class="meta sheets-hint" id="sheetsHint" hidden></p>
           <div class="tracker-tabs" id="trackerTabs" role="group" aria-label="Filter by status"></div>
           <div id="trackerList" class="tracker-list"></div>
+          <div class="pager" id="trackerPager" hidden>
+            <button type="button" class="btn ghost" id="trackerPrevPage">Previous</button>
+            <span id="trackerPageLabel">Page 1</span>
+            <button type="button" class="btn ghost" id="trackerNextPage">Next</button>
+          </div>
         </section>
 
         <section class="jobs-panel" id="viewAnswers" hidden aria-label="Saved answers">

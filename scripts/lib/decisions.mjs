@@ -43,10 +43,12 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
     followUpDate = null;
   }
 
+  const now = new Date();
   const entry = {
     id,
     decision,
-    date: new Date().toISOString().slice(0, 10),
+    date: now.toISOString().slice(0, 10),
+    updatedAt: now.toISOString(),
     title: job?.title ?? snapshot?.title ?? prev?.title ?? null,
     company: job?.company ?? snapshot?.company ?? prev?.company ?? null,
     url: job?.url ?? snapshot?.url ?? prev?.url ?? null,

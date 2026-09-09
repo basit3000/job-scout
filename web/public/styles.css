@@ -1100,6 +1100,11 @@ a.btn.primary-link:hover {
   color: var(--ink-soft);
 }
 
+.pager button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 /* Tracker ----------------------------------------------------------------- */
 
 .tracker-tabs {
@@ -1173,7 +1178,7 @@ a.btn.primary-link:hover {
 
 .tracker-row {
   display: grid;
-  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1.6fr) 7.2rem 7rem 9.2rem auto;
+  grid-template-columns: minmax(8rem, 12rem) minmax(0, 1.6fr) 8.2rem 7rem 9.2rem auto;
   gap: 0.5rem 0.85rem;
   align-items: center;
   padding: 0.65rem 1rem;
@@ -1237,6 +1242,39 @@ a.btn.primary-link:hover {
 .tracker-board {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.tracker-date {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.tracker-time {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+}
+
+.tracker-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tracker-sort:hover,
+.tracker-sort:focus-visible {
+  color: var(--ink);
 }
 
 .tracker-status select {

@@ -7,6 +7,8 @@ import {
   buildCoverLetterAgentBrief,
   buildReviewerBrief,
   buildReviewerPrompt,
+  buildRepairBrief,
+  inlineReviewContext,
 } from './cv-agent.mjs';
 
 const base = {
@@ -172,5 +174,39 @@ describe('buildAgentPrompt extraReads', () => {
     });
     assert.match(prompt, /\.workspace\/prep\/job1\/cv\.md/);
     assert.match(prompt, /review\.md/);
+  });
+});
+
+describe('review context and repair boundaries', () => {
+  it('gives reviewers candidate instructions, letter notes and final PDF text with relevant scores', () => {
+    const options = { ...base, extraInstructions: 'Keep simple English', notesRel: 'notes.md', finalTextRel: 'final.md' };
+    const cv = buildReviewerPrompt({ ...options, scope: 'cv' });
+    assert.match(cv, /Keep simple English/);
+    assert.match(cv, /final.md/);
+    assert.doesNotMatch(cv, /Cover letter: n\/10/);
+    const letter = buildReviewerPrompt({ ...options, scope: 'letter', letterRel: 'letter.md' });
+    assert.match(letter, /notes.md/);
+    assert.match(letter, /Cover letter: n\/10/);
+    assert.doesNotMatch(letter, /ATS: n\/10/);
+  });
+
+  it('inlines each input once and rejects oversized context before a model call', async () => {
+    const prompt = buildReviewerPrompt({ ...base, cvSource: 'overleaf', finalTextRel: 'final.md' });
+    const reads = [];
+    const packed = await inlineReviewContext(prompt, async (path) => { reads.push(path); return `Facts for ${path}`; });
+    assert.equal(new Set(reads).size, reads.length);
+    assert.ok(reads.includes('.workspace/overleaf/main.tex'));
+    assert.ok(reads.includes('.workspace/overleaf/ats.tex'));
+    assert.match(packed, /Do not read files or run shell commands/);
+    assert.match(packed, /Facts for final.md/);
+    await assert.rejects(inlineReviewContext(prompt, async () => 'x'.repeat(180_001)), /exceeds/);
+  });
+
+  it('repair has no full rewrite quota and keeps unsupported requests out', () => {
+    const repair = buildRepairBrief({ letter: true });
+    assert.match(repair, /Apply ONLY/);
+    assert.match(repair, /never evidence/);
+    assert.doesNotMatch(repair, /third to half|Every.*phrase|First screen/);
+    assert.doesNotMatch(buildAgentBrief({ localRules: '' }), /Change about a third to half/);
   });
 });

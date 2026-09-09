@@ -14,6 +14,7 @@ import {
   overleafStatus,
   runOverleafTailor,
   assembleOverleafAfterAgent,
+  pushValidatedOverleaf,
   readOverleafAts,
 } from './overleaf-cv.mjs';
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
@@ -34,7 +35,7 @@ import {
   normalizeAgentProvider,
 } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
-import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
+import { clearReview, loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
 import { generateDocuments, prepStatus } from './prep-state.mjs';
 
@@ -490,6 +491,7 @@ async function finalizePrepPack({
 async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, options = {}) {
   const dir = prepDir(job.id);
   await mkdir(dir, { recursive: true });
+  await clearReview(dir, 'cv');
 
   const model = await buildTailoredCvAsync(job, profile, fit);
   if (extraInstructions) {
@@ -516,7 +518,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
       );
     }
     overleafResult = await runOverleafTailor({
-      push: settings.overleafPush !== false,
+      push: false,
       keywords: model.keywords || [],
       job,
       prepDir: dir,
@@ -567,7 +569,7 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
       );
     }
     overleafResult = await assembleOverleafAfterAgent({
-      push: settings.overleafPush !== false,
+      push: false,
       job,
       prepDir: dir,
       onEvent: onEvent || settings.onEvent || null,
@@ -636,48 +638,29 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     throw new Error(`quality gate: ${gate.hard[0]}${more}`);
   }
 
-  const review = await runReviewerPass({
-    scope: 'cv',
-    job,
-    prepDir: dir,
-    profile,
-    extraInstructions,
-    cvSource: settings.source,
-    overleafPush: settings.overleafPush !== false,
-    provider: settings.agentProvider || 'cursor',
-    model: settings.agentModel || null,
-    onEvent,
-  });
-  if (review.ranFixLoop) {
-    onEvent?.({
-      stream: review.restored ? 'stderr' : 'ok',
-      line: review.restored
-        ? 'Reviewer fix loop reverted — keeping the first quality-gated CV.'
-        : 'Reviewer fix loop applied — compiling PDFs…',
-      t: Date.now(),
-    });
-  }
-
-  onEvent?.({
-    stream: 'meta',
-    line: 'Quality gate passed — compiling PDFs and writing the prep pack…',
-    t: Date.now(),
-  });
-  const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
-
-  return finalizePrepPack({
-    job,
-    profile,
-    fit,
-    savedAnswers,
-    dir,
-    settings,
-    extraInstructions,
-    ...assembled,
-    overleafResult: assembled.overleafResult,
-    tailorMode: 'agent',
-    agentMeta,
-  });
+  let pack;
+  const prepare = async () => {
+    // Fit, render, then check any changes made by fitting. A scrub needs a new render.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
+      const finalGate = await verifyCvAfterAgent({ prepDir: dir, cvSource: settings.source,
+        job, profile, evidencePath: currentEvidenceRel(), extraInstructions });
+      if (!finalGate.ok) throw new Error(`Final CV validation failed: ${finalGate.hard.join('; ')}`);
+      if (finalGate.fixes.length) continue;
+      pack = await finalizePrepPack({ job, profile, fit, savedAnswers, dir, settings,
+        extraInstructions, ...assembled, overleafResult: assembled.overleafResult,
+        tailorMode: 'agent', agentMeta });
+      return;
+    }
+    throw new Error('CV content kept changing during final validation');
+  };
+  await runReviewerPass({ scope: 'cv', job, prepDir: dir, profile, extraInstructions,
+    cvSource: settings.source, provider: settings.agentProvider || 'cursor',
+    model: settings.agentModel || null, onEvent, prepare });
+  if (!pack) throw new Error('CV could not be rendered for review');
+  pack.review = await loadReviewSummary(dir);
+  pack.agent = await loadAgentSession(dir);
+  return pack;
 }
 
 function escapeForPre(s) {
@@ -703,6 +686,15 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
     instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'] },
   () => writePrepPackUncached(job, profile, fit, savedAnswers, { ...options, recreate: true, useCache: false }));
   if (!pack.needsReview) {
+    if (settings.source === 'overleaf' && settings.overleafPush !== false) {
+      try {
+        const pushed = await pushValidatedOverleaf({ job, prepDir: pack.dir });
+        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: pushed.pushed, pushReason: pushed.reason });
+      } catch (error) {
+        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: false, pushReason: error.message });
+        options.onEvent?.({ stream: 'stderr', line: `Overleaf push skipped: ${error.message}` });
+      }
+    }
     const exported = await exportPrepDownloads(job, profile);
     pack.downloadFolderAbs = exported.absoluteDir || null;
     pack.downloadFolder = exported.relativeDir || null;
@@ -794,12 +786,14 @@ async function attachCoverLetterAfterPrep(pack, {
   try {
     const letter = await generateCoverLetterPack(job, profile, fit, {
       prepDir: dir,
+      cvSource: settings.source,
       extraInstructions,
       tailorMode,
       provider: settings.agentProvider,
       model: settings.agentModel,
       onEvent,
     });
+    pack.agent = await loadAgentSession(dir);
     pack.coverLetter = letter.letter;
     pack.coverLetterIncluded = letter.included;
     pack.coverLetterMode = letter.tailorMode;

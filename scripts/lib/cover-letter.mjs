@@ -493,7 +493,7 @@ export async function generateCoverLetterPack(job, profile, fit, options = {}) {
   const settings = { ...config.cv, ...options.settings };
   const result = await generateDocuments({ job, profile, settings,
     instructions: options.extraInstructions || '', mode: options.tailorMode || 'fast', scopes: ['letter'] },
-  (dir) => generateCoverLetterUncached(job, profile, fit, { ...options, prepDir: dir }));
+  (dir) => generateCoverLetterUncached(job, profile, fit, { ...options, cvSource: settings.source || 'local', prepDir: dir }));
   if (!result.needsReview) result.export = await exportCoverLetterDownloads({
     jobId: job.id, company: job.company, profileName: profile.name, jobTitle: job.title,
     mdText: result.letter, pdfPath: join(result.dir, 'cover-letter.pdf'), docxPath: join(result.dir, 'cover-letter.docx'),
@@ -508,6 +508,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
   onEvent = null,
   provider = null,
   model = null,
+  cvSource = 'local',
 } = {}) {
   const assembled = assembleCoverLetter(await loadCoverLetterTemplate(), job, profile);
   let letter = assembled.letter || fallbackCoverLetter(job, profile, fit);
@@ -552,7 +553,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
             prepDir: dir,
             profile,
             extraInstructions: instr,
-            cvSource: 'local',
+            cvSource,
             overleafPush: false,
             provider,
             model,
@@ -568,26 +569,12 @@ async function generateCoverLetterUncached(job, profile, fit, {
               job,
               evidencePath: currentEvidenceRel(),
               extraInstructions: instr,
+              cvSource,
               emit: (line, stream = 'meta') => emit({ stream, line, t: Date.now() }),
             });
             if (gate.ok) {
               letter = candidate;
               usedMode = 'agent';
-              const review = await runReviewerPass({
-                scope: 'letter',
-                job,
-                prepDir: dir,
-                profile,
-                extraInstructions: instr,
-                cvSource: 'local',
-                overleafPush: false,
-                provider,
-                model,
-                onEvent,
-                letter: candidate,
-                polishLetter: polishCoverLetter,
-              });
-              if (review.letter) letter = review.letter;
             } else {
               await writeFile(join(dir, 'cover-letter.rejected.md'), candidate);
               fallbackReason = `quality gate: ${gate.hard[0]}`;
@@ -604,44 +591,60 @@ async function generateCoverLetterUncached(job, profile, fit, {
       }
     }
 
-    const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
-    pdfPath = artifacts.pdfPath;
-    docxPath = artifacts.docxPath;
-    pdfError = artifacts.pdfError;
+    const prepare = async () => {
+      letter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
+      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
+      pdfPath = artifacts.pdfPath;
+      docxPath = artifacts.docxPath;
+      pdfError = artifacts.pdfError;
 
-    const pageNotes = [];
-    let pages = pdfPath ? await countPdfPages(pdfPath) : null;
-    if (pages > 1) {
-      emit({ stream: 'meta', line: `Cover letter PDF is ${pages} pages — trimming least relevant paragraphs…`, t: Date.now() });
-      const trimmed = trimLetterToOnePage(letter, job, { force: true });
-      if (trimmed.dropped.length) {
-        letter = trimmed.letter;
-        pageNotes.push(`dropped ${trimmed.dropped.length} paragraph(s) that did not match the posting`);
-        const again = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
-        pdfPath = artifacts.pdfPath = again.pdfPath;
-        docxPath = again.docxPath;
-        pdfError = again.pdfError;
-        pages = pdfPath ? await countPdfPages(pdfPath) : pages;
+      const pageNotes = [];
+      let pages = pdfPath ? await countPdfPages(pdfPath) : null;
+      if (pages > 1) {
+        emit({ stream: 'meta', line: `Cover letter PDF is ${pages} pages — trimming least relevant paragraphs…`, t: Date.now() });
+        const trimmed = trimLetterToOnePage(letter, job, { force: true });
+        if (trimmed.dropped.length) {
+          letter = trimmed.letter;
+          pageNotes.push(`dropped ${trimmed.dropped.length} paragraph(s) that did not match the posting`);
+          const again = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
+          pdfPath = artifacts.pdfPath = again.pdfPath;
+          docxPath = again.docxPath;
+          pdfError = again.pdfError;
+          pages = pdfPath ? await countPdfPages(pdfPath) : pages;
+        }
       }
-    }
-    if (pdfPath && (pages == null || pages > 1)) {
-      pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
-      pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';
-      emit({ stream: 'stderr', line: pdfError, t: Date.now() });
-    }
-    try {
-      const existing = await readFile(join(dir, 'page-check.md'), 'utf8').catch(() => '');
-      const section = [
-        '## Cover letter',
-        '',
-        `Pages: ${pages ?? '?'}`,
-        ...pageNotes.map((n) => `- ${n}`),
-        '',
-      ].join('\n');
-      await writeFile(join(dir, 'page-check.md'), `${existing.trim()}\n\n${section}`.trim() + '\n');
-    } catch {
-      /* optional */
-    }
+      if (pdfPath && (pages == null || pages > 1)) {
+        pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
+        pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';
+        emit({ stream: 'stderr', line: pdfError, t: Date.now() });
+      }
+      try {
+        const existing = await readFile(join(dir, 'page-check.md'), 'utf8').catch(() => '');
+        const section = [
+          '## Cover letter',
+          '',
+          `Pages: ${pages ?? '?'}`,
+          ...pageNotes.map((n) => `- ${n}`),
+          '',
+        ].join('\n');
+        await writeFile(join(dir, 'page-check.md'), `${existing.trim()}\n\n${section}`.trim() + '\n');
+      } catch {
+        /* optional */
+      }
+      if (usedMode === 'agent') {
+        const finalGate = await verifyLetterAfterAgent({ prepDir: dir, letter, job,
+          evidencePath: currentEvidenceRel(), extraInstructions: instr, cvSource });
+        if (!finalGate.ok) throw new Error(`Final letter validation failed: ${finalGate.hard.join('; ')}`);
+      }
+    };
+    // Persist the selected draft (the agent may have been rejected) before rendering.
+    await writeFile(join(dir, 'cover-letter.md'), letter);
+    if (usedMode === 'agent') {
+      const review = await runReviewerPass({ scope: 'letter', job, prepDir: dir, profile,
+        extraInstructions: instr, cvSource, provider, model, onEvent,
+        letter, polishLetter: polishCoverLetter, prepare });
+      if (review.letter) letter = review.letter;
+    } else await prepare();
   }
 
   const exported = await exportCoverLetterDownloads({

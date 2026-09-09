@@ -9,8 +9,10 @@
 
 import { mkdir, readFile, writeFile, copyFile, readdir, rm, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { run, loadDotEnv, workspaceDir } from './common.mjs';
+import { stageFinalDocumentText, reviewStatusReason } from './review-documents.mjs';
 import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
 import { readBraceGroup } from './tex-parse.mjs';
@@ -821,13 +823,9 @@ export async function runOverleafTailor({
     portfolio,
   });
   const fit = await fitOverleafCvsToOnePage(job, { prepDir });
-  let pushResult = { pushed: false, reason: 'skipped' };
-  if (push) {
-    pushResult = await pushOverleaf(
-      `Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'}`,
-    );
-  }
   const pdf = await compileOverleafPdfs(prepDir);
+  await recordOverleafSources(prepDir);
+  const pushResult = push ? await pushValidatedOverleaf({ job, prepDir }) : { pushed: false, reason: 'deferred until final validation' };
   return {
     sync,
     tailor,
@@ -856,16 +854,10 @@ export async function assembleOverleafAfterAgent({
   // stash those edits and waste the tailor pass.
   emit('Fitting Overleaf CVs to one page…');
   const fit = await fitOverleafCvsToOnePage(job, { prepDir });
-  let pushResult = { pushed: false, reason: 'local edits only' };
-  if (push) {
-    emit('Pushing Overleaf .tex…');
-    pushResult = await pushOverleaf(
-      `Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'} (agent)`,
-    );
-    emit(pushResult.pushed ? 'Overleaf pushed' : `Overleaf push skipped (${pushResult.reason})`);
-  }
-  emit('Compiling Overleaf PDFs into the prep pack…');
+  emit('Compiling Overleaf PDFs into the prep pack?');
   const pdf = await compileOverleafPdfs(prepDir);
+  await recordOverleafSources(prepDir);
+  const pushResult = push ? await pushValidatedOverleaf({ job, prepDir }) : { pushed: false, reason: 'deferred until final validation' };
   if (pdf.atsText) {
     if (pdf.atsText.ok) emit(`ATS text layer: clean${pdf.atsText.warnings.length ? ` (${pdf.atsText.warnings.length} note(s) in README)` : ''}`, 'ok');
     else emit(`ATS text layer: ${pdf.atsText.problems.join('; ')}`, 'stderr');
@@ -879,4 +871,30 @@ export async function assembleOverleafAfterAgent({
     overleafDir: overleafDir(),
     via: 'agent',
   };
+}
+
+async function overleafSourceFingerprint() {
+  const hash = createHash('sha256');
+  for (const name of ['main.tex', 'ats.tex']) {
+    const content = await readFile(join(overleafDir(), name)).catch((e) => { if (e.code !== 'ENOENT') throw e; return null; });
+    hash.update(name).update(content ? 'present' : 'missing');
+    if (content) hash.update(content);
+  }
+  return hash.digest('hex');
+}
+
+async function recordOverleafSources(prepDir) {
+  await writeFile(join(prepDir, 'overleaf-source.json'), JSON.stringify({ fingerprint: await overleafSourceFingerprint() }));
+}
+
+export async function pushValidatedOverleaf({ job, prepDir, push = pushOverleaf,
+  stageText = stageFinalDocumentText, sourceFingerprint = overleafSourceFingerprint }) {
+  // Do not publish a different job's working tree or an unvalidated final PDF.
+  const receipt = JSON.parse(await readFile(join(prepDir, 'overleaf-source.json'), 'utf8'));
+  if (receipt.fingerprint !== await sourceFingerprint()) throw new Error('Overleaf sources changed since PDF generation');
+  await stageText(prepDir, 'cv');
+  const summary = JSON.parse(await readFile(join(prepDir, 'review-summary.json'), 'utf8').catch(() => '{}'));
+  const reason = await reviewStatusReason(prepDir, 'cv', summary.cv);
+  if (reason) throw new Error(reason);
+  return push(`Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'}`);
 }

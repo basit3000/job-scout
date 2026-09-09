@@ -4,11 +4,12 @@ import { dirname, join } from 'node:path';
 import { ROOT, loadJson, prepDir, workspaceDir } from './common.mjs';
 import { artifactContext } from './artifact-context.mjs';
 import { extractPdfText } from './pdf-text.mjs';
+import { reviewStatusReason } from './review-documents.mjs';
 
 const MANIFEST = 'generation.json';
 const activeJobs = new Set();
-const CV_FILES = ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf', 'instructions.md'];
-const LETTER_FILES = ['cover-letter.md', 'cover-letter.html', 'cover-letter.pdf', 'cover-letter.docx'];
+const CV_FILES = ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf', 'instructions.md', 'review.md', 'cv-final-text.md'];
+const LETTER_FILES = ['cover-letter.md', 'cover-letter.html', 'cover-letter.pdf', 'cover-letter.docx', 'cover-letter-review.md', 'letter-final-text.md'];
 const readText = (path) => readFile(path, 'utf8').catch(() => '');
 const exists = (path) => access(path).then(() => true, () => false);
 
@@ -56,11 +57,17 @@ export function assessPrep(manifest, context, { cv = true, letter = true, instru
 export async function prepStatus(job, profile, settings, options = {}) {
   const inputs = options.inputs || await loadPrepInputs(settings);
   const manifest = await loadJson(join(prepDir(job.id), MANIFEST), null);
-  return assessPrep(manifest, { job, profile, settings, inputs }, options);
+  const state = assessPrep(manifest, { job, profile, settings, inputs }, options);
+  const reviews = await loadJson(join(prepDir(job.id), 'review-summary.json'), {});
+  for (const scope of Object.keys(state)) {
+    if (state[scope] === 'current' && await reviewStatusReason(prepDir(job.id), scope, reviews[scope])) state[scope] = 'needs-review';
+  }
+  return state;
 }
 
 export async function inspectDocuments(dir, scopes) {
   const files = await readdir(dir);
+  const review = await loadJson(join(dir, 'review-summary.json'), {});
   const reports = {};
   for (const scope of scopes) {
     const pdfs = files.filter((f) => scope === 'cv' ? /^cv(?:-ats|-main)?\.pdf$/.test(f) : f === 'cover-letter.pdf');
@@ -75,6 +82,8 @@ export async function inspectDocuments(dir, scopes) {
         reasons.push(`${name}: could not verify PDF pages and text`);
       }
     }
+    const reviewReason = await reviewStatusReason(dir, scope, review[scope]);
+    if (reviewReason) reasons.push(reviewReason);
     reports[scope] = { needsReview: reasons.length > 0, reasons };
   }
   return reports;
@@ -96,6 +105,11 @@ export async function generateDocuments({ job, profile, settings, instructions =
     await mkdir(staged, { recursive: true });
     hadAccepted = await exists(accepted);
     if (hadAccepted) await cp(accepted, staged, { recursive: true });
+    const reviews = await loadJson(join(staged, 'review-summary.json'), {});
+    for (const scope of scopes) delete reviews[scope];
+    await writeFile(join(staged, 'review-summary.json'), JSON.stringify(reviews, null, 2));
+    // Attempts belong to this generation; the old ledger stays in prep-history.
+    await unlink(join(staged, 'agent-session.json')).catch((e) => { if (e.code !== 'ENOENT') throw e; });
     for (const name of scopes.flatMap((s) => s === 'cv' ? CV_FILES : LETTER_FILES)) {
       await unlink(join(staged, name)).catch((err) => { if (err.code !== 'ENOENT') throw err; });
     }

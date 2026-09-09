@@ -51,16 +51,33 @@ typography / filler wording — Experience bullets are kept). A first create als
 writes the cover letter with the same extra instructions, then opens
 `downloads/<Company>/<Role>-<JobID>/`. If the chosen agent is unavailable, Prep falls back to Fast.
 
-Agent mode then runs a **reviewer** (same backend) that scores ATS parse, posting
-fit, and the recruiter first screen. If it lists evidenced must-fix items, the
-writer gets **one** extra pass; a quality-gate miss on that loop keeps the first
-good draft. Reports land in the prep pack as `review.md` and `cover-letter-review.md`.
+A **page checker** first fits the documents, preserving Experience and every PDF page.
+Optional courses, languages and certificates may be removed when irrelevant or needed
+for space. Overflow remains a complete draft marked **Needs review**.
 
-A **page checker** then restores optional extras (courses, spoken languages,
-certificates) from the gitignored overlay if present, drops ones the posting does
-not need (no German required → drop the languages line), and keeps both CV and
-cover letter to **one page**. Experience is never cut. If the PDF is still two
-pages after those cuts, the complete PDF is preserved and marked **Needs review**. Pages are never discarded to meet the limit.
+Agent mode reviews the **final rendered PDF text** alongside the source document,
+candidate evidence, notes and the same custom instructions used by the writer.
+CV and letter reviews use separate, relevant scores; the letter reviewer also reads
+the CV to check consistency. Instructions and reviewer suggestions never count as
+new factual evidence. Add new achievements or metrics to your profile/CV sources first.
+
+There is at most **one repair per document**. The repaired document is fitted and
+rendered again, then reviewed against the original must-fix items. A failed repair
+restores the previous draft. Missing/malformed reviews show **Not reviewed**;
+unresolved fixes show **Needs review**. Neither is automatically exported or pushed.
+A passing review is tied to the exact document files, so edits invalidate it.
+Reports are `review.md`, `cover-letter-review.md` and `review-summary.json` in the prep pack.
+Overleaf is pushed only after final document validation, provided its source files
+still match the files used to generate the PDFs.
+
+Each reviewer gets one prepared input packet instead of a list of files to discover.
+Packets exceeding 180,000 characters are rejected before a model call rather than
+silently truncated. Normal CV + letter generation uses four agent sessions; repairing
+and verifying both can use eight. These are sessions, not individual API calls.
+`agent-session.json` preserves every writer/reviewer/repair attempt and aggregates
+available SDK token counters and durations. CLI token usage is explicitly unknown;
+partial totals are labelled incomplete. Cache and reasoning counters are kept separate,
+and no dollar cost is inferred. Fast mode makes no LLM calls.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 

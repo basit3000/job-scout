@@ -51,6 +51,17 @@ typography / filler wording — Experience bullets are kept). A first create als
 writes the cover letter with the same extra instructions, then opens
 `downloads/<Company>/`. If the chosen agent is unavailable, Prep falls back to Fast.
 
+Agent mode then runs a **reviewer** (same backend) that scores ATS parse, posting
+fit, and the recruiter first screen. If it lists evidenced must-fix items, the
+writer gets **one** extra pass; a quality-gate miss on that loop keeps the first
+good draft. Reports land in the prep pack as `review.md` and `cover-letter-review.md`.
+
+A **page checker** then restores optional extras (courses, spoken languages,
+certificates) from the gitignored overlay if present, drops ones the posting does
+not need (no German required → drop the languages line), and keeps both CV and
+cover letter to **one page**. Experience is never cut. If the PDF is still two
+pages after those cuts, page 2 is cropped as a last resort.
+
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 
 ### Cover letter

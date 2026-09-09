@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parsePdfPageCount } from './pdf.mjs';
+import { parsePdfPageCount, rewritePdfKeepFirstPage } from './pdf.mjs';
 import {
   injectSpacingFit,
   tightenTypography,
@@ -50,6 +50,19 @@ test('parsePdfPageCount reads /Type /Pages /Count', () => {
     'latin1',
   );
   assert.equal(parsePdfPageCount(pdf), 2);
+});
+
+test('rewritePdfKeepFirstPage sets Count to 1', () => {
+  const pdf = Buffer.from(
+    '%PDF-1.1\n1 0 obj<< /Type /Catalog /Pages 2 0 R >>endobj\n'
+      + '2 0 obj<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>endobj\n'
+      + 'trailer<< /Root 1 0 R >>\n%%EOF\n',
+    'latin1',
+  );
+  const next = rewritePdfKeepFirstPage(pdf);
+  assert.ok(next);
+  assert.equal(parsePdfPageCount(next), 1);
+  assert.match(next.toString('latin1'), /\/Kids \[3 0 R\]/);
 });
 
 test('injectSpacingFit is idempotent and keeps Experience items', () => {

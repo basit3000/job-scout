@@ -34,6 +34,7 @@ import {
   normalizeAgentProvider,
 } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
+import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
 
 export { prepDir };
@@ -250,7 +251,7 @@ ${pdfLines.join('\n')}
 - [Job posting](./job-posting.md)
 - [Cover letter](./cover-letter.md)
 - [Checklist](./checklist.md)
-- Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md) (read before sending)
+- Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md), [reviewer](./review.md), [page check](./page-check.md) (read before sending)
 
 Format: \`${WRITING_RULES_GENERIC}\`. Local mode edits from \`cv/resume.md\`.
 ${olLines.join('\n')}
@@ -343,6 +344,7 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
     applyUrl: job?.url || null,
     jobId,
     agent: await loadAgentSession(prepDir(jobId)),
+    review: await loadReviewSummary(prepDir(jobId)),
     downloadFolder: downloadExport?.relativeDir || null,
     downloadFolderAbs: downloadExport?.absoluteDir || null,
     downloadError: downloadExport?.error || null,
@@ -462,6 +464,7 @@ async function finalizePrepPack({
     tailorMode,
     fallbackReason,
     agent: agent || null,
+    review: await loadReviewSummary(dir),
     extraInstructions: extraInstructions || null,
     cached: false,
     jobId: job.id,
@@ -632,6 +635,28 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     throw new Error(`quality gate: ${gate.hard[0]}${more}`);
   }
 
+  const review = await runReviewerPass({
+    scope: 'cv',
+    job,
+    prepDir: dir,
+    profile,
+    extraInstructions,
+    cvSource: settings.source,
+    overleafPush: settings.overleafPush !== false,
+    provider: settings.agentProvider || 'cursor',
+    model: settings.agentModel || null,
+    onEvent,
+  });
+  if (review.ranFixLoop) {
+    onEvent?.({
+      stream: review.restored ? 'stderr' : 'ok',
+      line: review.restored
+        ? 'Reviewer fix loop reverted — keeping the first quality-gated CV.'
+        : 'Reviewer fix loop applied — compiling PDFs…',
+      t: Date.now(),
+    });
+  }
+
   onEvent?.({
     stream: 'meta',
     line: 'Quality gate passed — compiling PDFs and writing the prep pack…',
@@ -762,6 +787,7 @@ async function attachCoverLetterAfterPrep(pack, {
     pack.coverLetterMode = letter.tailorMode;
     pack.coverLetterFallback = letter.fallbackReason || null;
     pack.coverLetterPdfError = letter.pdfError || null;
+    pack.review = letter.review || (await loadReviewSummary(dir));
     if (letter.export?.absoluteDir) {
       pack.downloadFolderAbs = letter.export.absoluteDir;
       pack.downloadFolder = letter.export.relativeDir;
@@ -820,6 +846,7 @@ export async function readPrepPack(jobId) {
       hasCv,
       ...flags,
       cvMd,
+      review: await loadReviewSummary(dir),
       ...packDownloads(jobId, flags),
     };
   } catch {
@@ -847,6 +874,10 @@ export async function readPrepFile(jobId, filename) {
     'quality-report.md',
     'keyword-gaps.md',
     'cover-letter-report.md',
+    'review.md',
+    'cover-letter-review.md',
+    'review-summary.json',
+    'page-check.md',
     'cv-ats.txt',
   ]);
   if (!allowed.has(filename)) return null;

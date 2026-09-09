@@ -1858,6 +1858,45 @@ async function runPrepFlow(job, opts = {}) {
   }
 }
 
+function reviewScoreBits(scores) {
+  if (!scores) return '';
+  const parts = [
+    scores.ats != null ? `ATS ${scores.ats}/10` : '',
+    scores.postingFit != null ? `fit ${scores.postingFit}/10` : '',
+    scores.recruiterScan != null ? `scan ${scores.recruiterScan}/10` : '',
+    scores.coverLetter != null ? `letter ${scores.coverLetter}/10` : '',
+  ].filter(Boolean);
+  return parts.length ? ` (${parts.join(' · ')})` : '';
+}
+
+function reviewSectionHtml(label, block, href) {
+  if (!block) return '';
+  const verdict = String(block.verdict || 'pass');
+  const loop = block.ranFixLoop
+    ? block.restored
+      ? ' · fix loop reverted'
+      : ' · fix loop applied'
+    : '';
+  const must = (block.mustFix || []).slice(0, 4);
+  const mustHtml = must.length
+    ? `<ul>${must.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+    : '';
+  return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(reviewScoreBits(block.scores))}${escapeHtml(loop)}${
+    href ? ` · <a href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ''
+  }</p>${mustHtml}`;
+}
+
+function reviewPanel(review, jobId) {
+  if (!review || (!review.cv && !review.letter)) return '';
+  const revise = review.cv?.verdict === 'revise' || review.letter?.verdict === 'revise';
+  const base = jobId ? `/api/prep/${encodeURIComponent(jobId)}` : '';
+  return `<div class="prep-review${revise ? ' revise' : ''}">
+    <h4>Reviewer</h4>
+    ${reviewSectionHtml('CV', review.cv, base ? `${base}/review.md` : '')}
+    ${reviewSectionHtml('Cover letter', review.letter, base ? `${base}/cover-letter-review.md` : '')}
+  </div>`;
+}
+
 function showPrep(data, { reveal = true } = {}) {
   if (reveal) {
     els.sideTitle.textContent = 'Prep';
@@ -1889,6 +1928,7 @@ function showPrep(data, { reveal = true } = {}) {
       ${escapeHtml(cachedNote)}${escapeHtml(modeNote)}</p>
     ${pack.extraInstructions ? `<p class="meta">Instructions: ${escapeHtml(pack.extraInstructions)}</p>` : ''}
     ${olLine ? `<p class="meta">${escapeHtml(olLine)}</p>` : ''}
+    ${reviewPanel(pack.review, pack.jobId || data.jobId)}
     <div class="prep-actions">
       <button type="button" class="btn small primary-link" id="saveCompanyFolder">Save PDFs to company folder</button>
       <button type="button" class="btn small" id="generateCoverLetter">Generate cover letter</button>

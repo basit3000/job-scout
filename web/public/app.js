@@ -1,3 +1,4 @@
+import { createModelPicker } from './agent-model-picker.js';
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
@@ -2636,42 +2637,21 @@ async function saveSettings(partial) {
   return state.status;
 }
 
-async function refreshAgentModels(provider, selected) {
-  if (!els.agentModel) return;
-  const prov = provider || els.agentProvider?.value || 'cursor';
-  try {
-    const data = await api(`/api/prep/models?provider=${encodeURIComponent(prov)}`);
-    const models = data.models || [];
-    const sel = selected != null ? selected : (data.selected ?? '');
-    const opts = models.map((m) => {
-      const id = m.id ?? '';
-      const label = m.displayName || id || 'CLI default';
-      return `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`;
-    });
-    if (!models.some((m) => (m.id ?? '') === '')) {
-      opts.unshift('<option value="">CLI / account default</option>');
-    }
-    els.agentModel.innerHTML = opts.join('');
-    if ([...els.agentModel.options].some((o) => o.value === sel)) {
-      els.agentModel.value = sel;
-    } else if (sel) {
-      const opt = document.createElement('option');
-      opt.value = sel;
-      opt.textContent = sel;
-      els.agentModel.appendChild(opt);
-      els.agentModel.value = sel;
-    }
-    const avail = data.availability;
-    if (avail && !avail.ok) {
-      els.agentProvider.title = avail.detail || 'Provider not ready';
-    } else if (avail?.detail) {
-      els.agentProvider.title = avail.detail;
-    }
-  } catch (err) {
-    els.agentModel.innerHTML = '<option value="">(could not load models)</option>';
-    appendLog(`Agent models: ${err.message}`, 'stderr');
-  }
-}
+const modelPicker = createModelPicker({
+  select: els.agentModel,
+  provider: els.agentProvider,
+  customInput: $('agentModelCustom'),
+  hint: $('agentModelsHint'),
+  refreshButton: $('refreshAgentModels'),
+  fetchCatalog: (provider, refresh) => api(`/api/prep/models?provider=${encodeURIComponent(provider)}${refresh ? '&refresh=1' : ''}`),
+  saveModel: async (agentProvider, agentModel) => {
+    await saveSettings({ agentProvider, agentModel });
+    appendLog(`Agent model → ${agentModel || '(configured default)'}`);
+  },
+  onError: (error) => appendLog(`Agent models: ${error.message}`, 'stderr'),
+});
+
+const refreshAgentModels = (...args) => modelPicker.load(...args);
 
 async function refreshStatus() {
   state.status = await api('/api/status?light=1');
@@ -2697,7 +2677,9 @@ async function refreshStatus() {
   if (els.overleafPush && document.activeElement !== els.overleafPush) {
     els.overleafPush.checked = s.cv?.overleafPush !== false;
   }
-  void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
+  if (!els.agentProvider.disabled && document.activeElement !== els.agentModel && document.activeElement !== $('agentModelCustom')) {
+    void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
+  }
   updatePlanHint(s);
   updateSheetsUi(s.sheets);
   showSetup(Boolean(s.setup?.needsSetup) && !s.setup?.profileParseError);
@@ -3516,23 +3498,20 @@ els.cvSource?.addEventListener('change', async () => {
   }
 });
 els.agentProvider?.addEventListener('change', async () => {
+  const agentProvider = els.agentProvider.value;
+  modelPicker.invalidate();
+  els.agentProvider.disabled = true;
   try {
-    const agentProvider = els.agentProvider.value;
-    await saveSettings({ agentProvider });
+    const saved = await saveSettings({ agentProvider });
     appendLog(`Prep agent → ${agentProvider}`);
-    await refreshAgentModels(agentProvider, '');
-    const st = state.status?.agentProviders?.find((p) => p.id === agentProvider);
+    els.agentProvider.disabled = false;
+    await refreshAgentModels(agentProvider, saved.cv?.agentModel || '');
+    const st = saved.agentProviders?.find((p) => p.id === agentProvider);
     if (st && !st.ok) appendLog(st.detail || 'Provider not ready', 'stderr');
   } catch (err) {
     appendLog(err.message, 'stderr');
-  }
-});
-els.agentModel?.addEventListener('change', async () => {
-  try {
-    await saveSettings({ agentModel: els.agentModel.value });
-    appendLog(`Agent model → ${els.agentModel.value || '(default)'}`);
-  } catch (err) {
-    appendLog(err.message, 'stderr');
+    els.agentProvider.disabled = false;
+    await refreshStatus();
   }
 });
 els.overleafPush?.addEventListener('change', async () => {

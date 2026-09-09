@@ -34,7 +34,7 @@ One true sentence about that project.
 
 Quoted phrases match as a whole (`"machine learning"`); unquoted words match on word boundaries. Do not invent metrics.
 
-**Create CV** writes the letter on first run. **Cover letter** on a result, or **Generate cover letter** in the prep pack, regenerates it. Outputs: `downloads/<Company>/<Your Name> Cover Letter.pdf` (+ `.docx`, `.md`).
+**Create CV** writes the letter on first run. **Cover letter** on a result, or **Generate cover letter** in the prep pack, regenerates it. Outputs: `downloads/<Company>/<Role>-<JobID>/<Your Name> Cover Letter.pdf` (+ `.docx`, `.md`). Each role has its own folder containing its CV and cover letter. The ID suffix keeps separate postings with the same title from overwriting one another.
 
 Optional: set `"cv": { "updateMaster": true }` in `search-profile.json` to write the tailored order back into `resume.md` (otherwise only the prep pack is updated).
 

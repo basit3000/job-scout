@@ -93,10 +93,13 @@
                 <option value="codex">OpenAI Codex</option>
               </select>
             </label>
-            <label class="field" title="Model for the selected agent. Empty = CLI default (Claude Code / Codex).">
+            <label class="field agent-model-field" title="Models reported by the selected provider. Configured default uses your existing configuration.">
               <span>Agent model</span>
-              <select id="agentModel" aria-label="Prep agent model"></select>
+              <select id="agentModel" aria-label="Prep agent model" aria-describedby="agentModelsHint"></select>
+              <input id="agentModelCustom" aria-label="Custom agent model ID" placeholder="Exact model ID, then Enter" hidden />
+              <small id="agentModelsHint" role="status"></small>
             </label>
+            <button id="refreshAgentModels" type="button" class="btn" title="Reload models from the selected provider">Refresh models</button>
             <div class="toolbar-toggles">
               <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
                 <input type="checkbox" id="overleafPush" checked />

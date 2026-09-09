@@ -43,6 +43,15 @@ Pick the backend in the UI **Agent** control (or `cv.agentProvider` / `AGENT_PRO
 
 Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / `CLAUDE_CODE_MODEL` / `CODEX_MODEL`.
 
+Selecting an agent loads its model catalog: Cursor uses its account API, Codex uses
+the installed CLI's `model/list`, and Claude Code uses its initialization catalog.
+No generation prompt is sent for discovery. **Refresh models** reloads the list;
+successful results are cached for five minutes. If discovery fails, the UI labels
+previously loaded results or offers **Configured default** and **Custom model**.
+Each provider remembers its own selection. Discovery requires a current CLI and its
+normal login (or `CURSOR_API_KEY` for Cursor); a listed model can still have usage
+or billing requirements shown by the provider.
+
 **Create CV** in the modal uses the agent. **Fast (keyword)** skips it: reorder plus
 light re-emphasis of existing Experience bullets (current CV is source of truth;
 portfolio may add one posting-named tag on Projects). After edits, both Overleaf CVs

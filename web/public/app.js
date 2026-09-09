@@ -97,6 +97,7 @@ const els = {
   batchSelectNone: $('batchSelectNone'),
   batchSelectMissing: $('batchSelectMissing'),
   batchSelectStrong: $('batchSelectStrong'),
+  batchSelectWorth: $('batchSelectWorth'),
   batchSelectCount: $('batchSelectCount'),
   batchSelectList: $('batchSelectList'),
   batchIncludeLetter: $('batchIncludeLetter'),
@@ -2422,6 +2423,7 @@ els.batchSelectAll?.addEventListener('click', () => setBatchChecked(() => true))
 els.batchSelectNone?.addEventListener('click', () => setBatchChecked(() => false));
 els.batchSelectMissing?.addEventListener('click', () => setBatchChecked((j) => j.dataset.hasCv !== '1'));
 els.batchSelectStrong?.addEventListener('click', () => setBatchChecked((j) => j.dataset.fit === 'Strong'));
+els.batchSelectWorth?.addEventListener('click', () => setBatchChecked((j) => j.dataset.fit === 'Worth a shot'));
 els.batchModal?.addEventListener('click', (ev) => {
   if (ev.target === els.batchModal) hideBatchModal();
 });

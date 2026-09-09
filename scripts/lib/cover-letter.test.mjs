@@ -54,4 +54,32 @@ YOUR_OTHER_SENTENCE_OF_BACKGROUND
     assert.match(b.letter, /YOUR_OTHER_SENTENCE_OF_BACKGROUND/);
     assert.doesNotMatch(b.letter, /YOUR_ONE_SENTENCE_OF_BACKGROUND/);
   });
+
+  it('inserts matching past and project sentences without dummy intros', () => {
+    const template = `Application for [Role]
+
+Core.
+
+<!-- include:past -->
+
+<!-- include:projects -->
+
+<!-- optional-blocks -->
+:::past acme postgres
+At Acme I built PostgreSQL models.
+:::
+:::project widget fastapi
+Widget is a FastAPI service.
+:::
+`;
+    const { letter } = assembleCoverLetter(
+      template,
+      { title: 'Backend', company: 'Co', description: 'FastAPI and postgres APIs.' },
+      {},
+    );
+    assert.match(letter, /At Acme I built PostgreSQL models/);
+    assert.match(letter, /Widget is a FastAPI service/);
+    assert.doesNotMatch(letter, /Earlier:/);
+    assert.doesNotMatch(letter, /I also built similar things myself/);
+  });
 });

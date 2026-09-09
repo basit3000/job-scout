@@ -112,13 +112,10 @@ export function assembleCoverLetter(templateText, job, profile) {
   const haystack = jobHaystack(job);
   const past = pickBlocks(blocks, 'past', haystack, 2);
   const projects = pickBlocks(blocks, 'project', haystack, 2);
-  const motive = pickBlocks(blocks, 'motive', haystack, 2);
+  const motive = pickBlocks(blocks, 'motive', haystack, 3);
 
-  const pastPara = joinBlocks(past, 'Earlier:');
-  const projectPara = joinBlocks(
-    projects,
-    'I also built similar things myself.',
-  );
+  const pastPara = joinBlocks(past, '');
+  const projectPara = joinBlocks(projects, '');
   const motivePara = joinBlocks(motive, '');
 
   let letter = core

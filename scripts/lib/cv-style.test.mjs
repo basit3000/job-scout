@@ -70,4 +70,21 @@ describe('cv-style', () => {
   it('counts words ignoring LaTeX macros', () => {
     assert.equal(wordCount('\\item Built the \\textbf{service} in Go.'), 5);
   });
+
+  it('rejects restating the job as "the role at X is for Y"', () => {
+    const issues = findStyleIssues(
+      'The Full-time Backend Developer (f/m/d) role at VAARHAFT is for Python backend work and a live API.',
+      { context: 'letter' },
+    );
+    const hit = issues.filter((i) => i.kind === 'job-restatement');
+    assert.equal(hit.length, 1);
+    assert.equal(hit[0].severity, 'hard');
+    assert.equal(
+      findStyleIssues(
+        'I am applying for the Backend Developer role at VAARHAFT. I want Python backend work.',
+        { context: 'letter' },
+      ).filter((i) => i.kind === 'job-restatement').length,
+      0,
+    );
+  });
 });

@@ -109,6 +109,8 @@ export function findStyleIssues(text, { context = 'cv', personalProject = false,
     }
   }
   if (context === 'letter') {
+    for (const m of src.matchAll(/\brole at\b[^.\n]{0,80}\bis for\b/gi)) {
+    }
   } else {
   }
   return issues;

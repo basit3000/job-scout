@@ -33,6 +33,7 @@ import {
   seedPrepForAgent,
   loadAgentSession,
   normalizeAgentProvider,
+  resolveAgentModel,
 } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
 import { clearReview, loadReviewSummary, runReviewerPass } from './cv-review.mjs';
@@ -128,13 +129,7 @@ export async function loadCvSettings() {
   const agentProvider = normalizeAgentProvider(
     cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
   );
-  const agentModel = String(
-    cv.agentModel
-      || process.env.CURSOR_AGENT_MODEL
-      || process.env.CLAUDE_CODE_MODEL
-      || process.env.CODEX_MODEL
-      || (agentProvider === 'cursor' ? 'composer-2.5' : ''),
-  ).trim();
+  const agentModel = resolveAgentModel(cv.agentModel, agentProvider).id;
   return {
     source,
     overleafPush: cv.overleafPush !== false,

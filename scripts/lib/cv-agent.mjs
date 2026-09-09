@@ -10,6 +10,7 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { spawn } from 'node:child_process';
 import { Agent, Cursor, CursorAgentError } from '@cursor/sdk';
+import { createModelCatalog, normalizeModels, discoverCodexModels, discoverClaudeModels } from './agent-models.mjs';
 import { ROOT, run } from './common.mjs';
 import { overleafConfigured, syncOverleaf } from './overleaf-cv.mjs';
 import { resolvePortfolioRoot } from './portfolio.mjs';
@@ -45,28 +46,6 @@ export const AGENT_PROVIDERS = [
 
 export const DEFAULT_AGENT_PROVIDER = 'cursor';
 export const DEFAULT_AGENT_MODEL = 'composer-2.5';
-
-/** Cursor model fallbacks when catalog fetch fails. */
-export const FALLBACK_CURSOR_MODELS = [
-  { id: 'auto', displayName: 'Auto', description: 'Cursor picks' },
-  { id: 'composer-2.5', displayName: 'Composer 2.5', description: 'Default' },
-  { id: 'claude-4.5-sonnet', displayName: 'Claude 4.5 Sonnet', description: 'If enabled' },
-  { id: 'claude-4.5-opus', displayName: 'Claude 4.5 Opus', description: 'If enabled' },
-  { id: 'gpt-5.4', displayName: 'GPT-5.4', description: 'If enabled' },
-];
-
-export const CLAUDE_CODE_MODELS = [
-  { id: '', displayName: 'CLI default', description: 'Whatever `claude` is configured to use' },
-  { id: 'sonnet', displayName: 'Sonnet', description: 'Pass --model sonnet' },
-  { id: 'opus', displayName: 'Opus', description: 'Pass --model opus' },
-  { id: 'haiku', displayName: 'Haiku', description: 'Pass --model haiku' },
-];
-
-export const CODEX_MODELS = [
-  { id: '', displayName: 'CLI default', description: 'Whatever `codex` is configured to use' },
-  { id: 'gpt-5.4', displayName: 'gpt-5.4', description: 'Pass --model gpt-5.4 if supported' },
-  { id: 'o4-mini', displayName: 'o4-mini', description: 'Pass --model o4-mini if supported' },
-];
 
 export function normalizeAgentProvider(raw) {
   const id = String(raw || process.env.AGENT_PROVIDER || DEFAULT_AGENT_PROVIDER)
@@ -175,43 +154,30 @@ export async function listAgentProvidersStatus() {
   return out;
 }
 
-export async function listAgentModels(provider) {
-  const p = normalizeAgentProvider(provider);
-  if (p === 'claude-code') {
-    return { provider: p, models: CLAUDE_CODE_MODELS, source: 'static' };
-  }
-  if (p === 'codex') {
-    return { provider: p, models: CODEX_MODELS, source: 'static' };
+const loadModelCatalog = createModelCatalog(async (provider) => {
+  if (provider === 'codex' || provider === 'claude-code') {
+    const bin = await resolveProviderBinary(provider);
+    if (!bin) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI not found. Install it or configure its binary path.`);
+    return provider === 'codex'
+      ? discoverCodexModels(bin, { cwd: ROOT })
+      : discoverClaudeModels(bin, { cwd: ROOT });
   }
   const apiKey = process.env.CURSOR_API_KEY?.trim();
-  if (!apiKey) {
-    return { provider: p, models: FALLBACK_CURSOR_MODELS, source: 'fallback', error: 'CURSOR_API_KEY missing' };
-  }
+  if (!apiKey) throw new Error('Set CURSOR_API_KEY to load your Cursor models.');
+  let timer;
   try {
-    const listed = await Cursor.models.list({ apiKey });
-    const models = (listed || [])
-      .map((m) => ({
-        id: m.id || m.model?.id,
-        displayName: m.displayName || m.model?.displayName || m.id,
-        description: m.description || '',
-      }))
-      .filter((m) => m.id);
-    if (!models.length) {
-      return { provider: p, models: FALLBACK_CURSOR_MODELS, source: 'fallback', error: 'empty catalog' };
-    }
-    const ids = new Set(models.map((m) => m.id));
-    for (const fb of FALLBACK_CURSOR_MODELS) {
-      if (!ids.has(fb.id)) models.unshift(fb);
-    }
-    return { provider: p, models, source: 'cursor' };
-  } catch (err) {
-    return {
-      provider: p,
-      models: FALLBACK_CURSOR_MODELS,
-      source: 'fallback',
-      error: err?.message || String(err),
-    };
-  }
+    const listed = await Promise.race([
+      Cursor.models.list({ apiKey }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 20_000); }),
+    ]);
+    return normalizeModels(listed, 'cursor');
+  } catch {
+    throw new Error('Could not load Cursor models. Check the API key and connection.');
+  } finally { clearTimeout(timer); }
+});
+
+export async function listAgentModels(provider, options = {}) {
+  return loadModelCatalog(normalizeAgentProvider(provider), options);
 }
 
 const LOCAL_AGENT_RULES = join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md');

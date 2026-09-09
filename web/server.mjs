@@ -52,6 +52,7 @@ import {
   agentRunnerAvailable,
 } from '../scripts/lib/prep.mjs';
 import { cancelCvTailorAgent } from '../scripts/lib/cv-agent.mjs';
+import { updateAgentSelection } from '../scripts/lib/agent-models.mjs';
 import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
 import { detectAts } from '../scripts/lib/ats.mjs';
 import { buildApplyPack } from '../scripts/lib/apply-pack.mjs';
@@ -1278,11 +1279,12 @@ async function handleApi(req, res, url) {
         || settings.agentProvider
         || 'cursor',
     );
-    const catalog = await listAgentModels(provider);
+    const refresh = new URL(req.url, 'http://localhost').searchParams.get('refresh') === '1';
+    const catalog = await listAgentModels(provider, { refresh });
     const availability = await agentRunnerAvailable(provider);
     return json(res, 200, {
       ...catalog,
-      selected: settings.agentModel,
+      selected: provider === settings.agentProvider ? settings.agentModel : '',
       selectedProvider: settings.agentProvider,
       providers: await listAgentProvidersStatus(),
       availability,
@@ -1719,19 +1721,9 @@ async function handleApi(req, res, url) {
         }
         config.cv.tailorMode = tm;
       }
-      if (body.agentProvider != null) {
-        const ap = String(body.agentProvider).trim().toLowerCase();
-        if (!['cursor', 'claude-code', 'codex'].includes(ap)) {
-          return json(res, 400, { error: 'agentProvider must be cursor, claude-code, or codex' });
-        }
-        config.cv.agentProvider = ap;
-      }
-      if (body.agentModel != null) {
-        const mid = String(body.agentModel).trim().slice(0, 80);
-        if (mid && !/^[a-zA-Z0-9._+-]+$/.test(mid)) {
-          return json(res, 400, { error: 'agentModel must be a model id (letters, digits, ._+-)' });
-        }
-        config.cv.agentModel = mid;
+      if (body.agentProvider != null || body.agentModel != null) {
+        try { config.cv = updateAgentSelection(config.cv, body); }
+        catch (error) { return json(res, 400, { error: error.message }); }
       }
     }
     await writeFile(SEARCH_PROFILE, `${JSON.stringify(config, null, 2)}\n`);

@@ -140,6 +140,9 @@ body {
 
 /* Form controls ----------------------------------------------------------- */
 
+.agent-model-field { max-width: 26rem; }
+.agent-model-field small { white-space: normal; overflow-wrap: anywhere; text-transform: none; letter-spacing: normal; }
+
 .field {
   display: grid;
   gap: 0.25rem;

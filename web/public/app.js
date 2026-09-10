@@ -2227,7 +2227,7 @@ async function refreshStatus() {
     els.maxAgeDays.value = String(s.maxAgeDays ?? 30);
   }
   if (els.cvSource && document.activeElement !== els.cvSource) {
-    els.cvSource.value = s.cv?.source === 'overleaf' ? 'overleaf' : 'local';
+    els.cvSource.value = ['overleaf', 'latex'].includes(s.cv?.source) ? s.cv.source : 'local';
   }
   if (els.agentProvider && document.activeElement !== els.agentProvider) {
     const ap = s.cv?.agentProvider || 'cursor';

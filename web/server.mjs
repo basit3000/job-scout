@@ -1635,8 +1635,8 @@ async function handleApi(req, res, url) {
       config.cv = { ...(config.cv ?? {}) };
       if (body.cvSource != null) {
         const src = String(body.cvSource);
-        if (src !== 'local' && src !== 'overleaf') {
-          return json(res, 400, { error: 'cvSource must be local or overleaf' });
+        if (src !== 'local' && src !== 'latex' && src !== 'overleaf') {
+          return json(res, 400, { error: 'cvSource must be local, latex or overleaf' });
         }
         config.cv.source = src;
       }

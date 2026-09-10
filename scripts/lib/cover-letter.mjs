@@ -8,7 +8,9 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
-import { htmlFileToPdf } from './pdf.mjs';
+import { compileTexToPdf, countPdfPages, htmlFileToPdf } from './pdf.mjs';
+import { buildLetterModel, buildLetterTex, LETTER_FIT_STEPS } from './letter-tex.mjs';
+import { detectPostingLanguage } from './cv-keywords.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
   agentRunnerAvailable,
@@ -383,7 +385,41 @@ function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
   }
 }
 
-async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
+/**
+ * Compile the letter, tightening the layout only as far as one page demands.
+ *
+ * The first step is the reference layout, so a letter that already fits is
+ * rendered exactly as designed and no later step ever runs.
+ */
+export async function renderLetterPdfFitted(model, dir, { onEvent = null } = {}) {
+  const texPath = join(dir, 'cover-letter.tex');
+  const pdfPath = join(dir, 'cover-letter.pdf');
+  let last = null;
+
+  for (const step of LETTER_FIT_STEPS) {
+    await writeFile(texPath, buildLetterTex(model, step));
+    const built = await compileTexToPdf(texPath, dir);
+    if (!built.ok) return { ok: false, error: built.error };
+    last = built;
+    const pages = await countPdfPages(built.path);
+    // An unreadable page count must not spin through every step.
+    if (pages === null || pages <= 1) {
+      if (step.id !== 'reference') {
+        onEvent?.({ stream: 'meta', line: `Cover letter: fitted to one page ("${step.id}")`, t: Date.now() });
+      }
+      return { ok: true, path: pdfPath, pages, fit: step.id };
+    }
+  }
+
+  onEvent?.({
+    stream: 'stderr',
+    line: 'Cover letter still runs past one page after every fit pass — trim the text',
+    t: Date.now(),
+  });
+  return { ok: true, path: pdfPath, pages: null, fit: 'bodysize', overflow: true, last };
+}
+
+async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, profile = null } = {}) {
   let pdfPath = null;
   let docxPath = null;
   let pdfError = null;
@@ -396,6 +432,20 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
     await writeFile(docxPath, docxBuf);
   } catch (err) {
     pdfError = `docx: ${err.message || err}`;
+  }
+
+  // LaTeX is the letter that goes out — same look as the CV. Word and the
+  // browser print stay behind it for machines with no tectonic.
+  if (job && profile) {
+    const model = buildLetterModel({
+      job,
+      profile,
+      body: letter,
+      language: detectPostingLanguage(job) === 'de' ? 'de' : 'en',
+    });
+    const built = await renderLetterPdfFitted(model, dir);
+    if (built.ok) return { pdfPath: built.path, docxPath, pdfError };
+    pdfError = (pdfError ? `${pdfError}; ` : '') + `latex: ${built.error}`;
   }
 
   if (docxPath && existsSync(docxPath)) {
@@ -513,7 +563,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
       }
     }
 
-    const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
+    const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile });
     pdfPath = artifacts.pdfPath;
     docxPath = artifacts.docxPath;
     pdfError = artifacts.pdfError;

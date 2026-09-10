@@ -159,7 +159,18 @@ export function parsePdfPageCount(buf) {
 export async function countPdfPages(pdfPath) {
   try {
     const buf = await readFile(pdfPath);
-    return parsePdfPageCount(buf);
+    const scanned = parsePdfPageCount(buf);
+    if (scanned !== null) return scanned;
+  } catch {
+    return null;
+  }
+  // Tectonic writes a page tree the byte scan cannot follow, which left every
+  // one-page-fit loop running blind. pdfjs reads it properly; import it only
+  // here so the common path does not pay for loading it.
+  try {
+    const { extractPdfText } = await import('./pdf-text.mjs');
+    const { pages } = await extractPdfText(pdfPath);
+    return Number.isFinite(pages) && pages > 0 ? pages : null;
   } catch {
     return null;
   }

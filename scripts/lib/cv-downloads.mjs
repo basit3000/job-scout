@@ -4,7 +4,7 @@
  *   <Name> CV Main.pdf  ← human-facing Main
  */
 
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
@@ -112,6 +112,11 @@ export async function exportCvDownloads({
   if (mainSrc) {
     mainOut = await safeCopyFile(mainSrc, join(dir, `${base} CV Main.pdf`));
     files.push(mainOut);
+  } else {
+    // A second CV in the folder is worse than none: an older run may have left
+    // one behind, and nothing else ever deletes it. Re-running Prep clears it.
+    const stale = join(dir, `${base} CV Main.pdf`);
+    if (existsSync(stale)) await rm(stale, { force: true });
   }
 
   const note = [

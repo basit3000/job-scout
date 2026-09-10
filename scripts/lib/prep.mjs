@@ -9,6 +9,7 @@ import {
 } from './tailor-cv.mjs';
 import { writeMasterResume } from './resume-md.mjs';
 import { htmlFileToPdf } from './pdf.mjs';
+import { buildLatexCv } from './latex-cv.mjs';
 import {
   overleafConfigured,
   overleafStatus,
@@ -120,7 +121,7 @@ export function prepFlagsForJob(index, jobId) {
 export async function loadCvSettings() {
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const cv = config.cv || {};
-  const source = cv.source === 'overleaf' ? 'overleaf' : 'local';
+  const source = ['overleaf', 'latex'].includes(cv.source) ? cv.source : 'local';
   const tailorMode = cv.tailorMode === 'fast' ? 'fast' : 'agent';
   const agentProvider = normalizeAgentProvider(
     cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
@@ -280,19 +281,23 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
 }
 
 async function publishDownloads(job, profile, dir, { hasAts, hasMain, hasPdf }) {
-  const atsPath = hasAts ? join(dir, 'cv-ats.pdf') : null;
-  const mainPath = hasMain
-    ? join(dir, 'cv-main.pdf')
-    : hasPdf
-      ? join(dir, 'cv.pdf')
-      : null;
-  if (!atsPath && !mainPath) return null;
+  // One CV per company folder, never two. The LaTeX/ATS build is the one that
+  // goes out; cv-main.pdf and the browser print are only stand-ins for when
+  // LaTeX did not run. Whichever wins ships under the plain "<Name> CV.pdf".
+  const cvPdf = hasAts
+    ? join(dir, 'cv-ats.pdf')
+    : hasMain
+      ? join(dir, 'cv-main.pdf')
+      : hasPdf
+        ? join(dir, 'cv.pdf')
+        : null;
+  if (!cvPdf) return null;
   try {
     return await exportCvDownloads({
       company: job.company,
       profileName: profile?.name,
-      atsPdfPath: atsPath,
-      mainPdfPath: hasMain ? mainPath : null,
+      atsPdfPath: cvPdf,
+      mainPdfPath: null,
       jobTitle: job.title,
     });
   } catch (err) {
@@ -403,6 +408,25 @@ async function finalizePrepPack({
       pdfNote = `Overleaf content → PDF via browser (LaTeX: ${overleafResult?.pdf?.error || 'n/a'})`;
     } else {
       pdfNote = printed.error || overleafResult?.pdf?.error || 'no PDF';
+    }
+  } else if (settings.source === 'latex') {
+    const built = await buildLatexCv({
+      markdown: cvMd,
+      prepDir: dir,
+      onEvent: settings.onEvent || null,
+    });
+    if (built.ok) {
+      hasPdf = true;
+      hasAts = Boolean(built.ats);
+      hasMain = Boolean(built.main);
+      pdfNote = tailorMode === 'agent' ? `Agent + ${built.note}` : built.note;
+    } else {
+      // Keep the applicant unblocked: fall back to the browser print.
+      const printed = await htmlFileToPdf(join(dir, 'cv.html'), join(dir, 'cv.pdf'));
+      hasPdf = printed.ok;
+      pdfNote = printed.ok
+        ? `LaTeX failed (${built.error}) — HTML→PDF via browser`
+        : built.error;
     }
   } else {
     const pdfPath = join(dir, 'cv.pdf');

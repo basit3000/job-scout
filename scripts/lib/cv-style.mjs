@@ -10,6 +10,9 @@
  *   AI_TELLS     — phrasing recruiters now read as generated. Reported line by line.
  *   WEAK_OPENERS — bullet starts that hide the verb. Reported.
  *   INFLATION    — seniority/scale words that are only allowed on real employment.
+ *                  Audience nouns split off into INFLATION_AMBIGUOUS: they warn
+ *                  rather than revert, because a dataset can honestly be about
+ *                  customers without you having had any.
  */
 
 export const WRITING_RULES_GENERIC = '.agents/skills/cv-tailor/references/writing-rules.md';
@@ -75,8 +78,16 @@ export const INFLATION = [
   'led', 'leading', 'lead', 'mentored', 'mentoring', 'managed', 'managing', 'oversaw',
   'overseeing', 'supervised', 'directed', 'headed', 'architected', 'owned the roadmap',
   'owned', 'for thousands', 'thousands of users', 'at scale', 'production traffic',
-  'enterprise', 'clients', 'customers', 'stakeholders', 'cross-functional', 'team of',
+  'enterprise', 'cross-functional', 'team of',
 ];
+
+/**
+ * Audience nouns. On a personal project these usually mean overclaiming, but
+ * they are also the plain word for the people *inside* a dataset — "at-risk
+ * customers" in a churn model names the rows, it does not claim you served
+ * anyone. Too ambiguous to revert an edit over, so they warn instead.
+ */
+export const INFLATION_AMBIGUOUS = ['clients', 'customers', 'stakeholders'];
 
 /** Verbs that pass. Printed in the brief so the model has a menu, not a ban list only. */
 export const CONCRETE_VERBS = [
@@ -121,6 +132,7 @@ function phraseRe(list) {
 const FILLER_RE = phraseRe(FILLER);
 const AI_RE = phraseRe(AI_TELLS);
 const INFLATION_RE = phraseRe(INFLATION);
+const INFLATION_AMBIGUOUS_RE = phraseRe(INFLATION_AMBIGUOUS);
 const WEAK_OPENER_RE = new RegExp(
   `^\\s*(?:${[...WEAK_OPENERS].sort((a, b) => b.length - a.length).map(escapeRe).join('|')})\\b`,
   'i',
@@ -153,6 +165,7 @@ export function findStyleIssues(text, { context = 'cv', personalProject = false,
   for (const m of src.matchAll(FILLER_RE)) add('filler', 'soft', m[0], m.index);
   if (personalProject) {
     for (const m of src.matchAll(INFLATION_RE)) add('inflation', 'hard', m[0], m.index);
+    for (const m of src.matchAll(INFLATION_AMBIGUOUS_RE)) add('inflation', 'soft', m[0], m.index);
   }
   if (bullet) {
     const w = src.match(WEAK_OPENER_RE);
@@ -219,7 +232,7 @@ export function styleRulesMarkdown({ context = 'cv' } = {}) {
     `- Banned filler (deleted mechanically if you use them): ${FILLER.join(', ')}.`,
     `- Banned generated-sounding phrases (reported line by line): ${AI_TELLS.join('; ')}.`,
     `- Bullets never start with: ${WEAK_OPENERS.join(', ')}.`,
-    `- Personal projects never carry: ${INFLATION.join(', ')}. "Designed and built, sole author" is the ceiling.`,
+    `- Personal projects never carry: ${[...INFLATION, ...INFLATION_AMBIGUOUS].join(', ')}. "Designed and built, sole author" is the ceiling.`,
     `- Good verbs: ${CONCRETE_VERBS.join(', ')}.`,
     '- No exclamation marks. No em dashes. No rhetorical questions.',
     '- A number goes on the page only if it is already in the evidence pack, the current CV, or the candidate profile.',

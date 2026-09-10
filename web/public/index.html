@@ -394,6 +394,13 @@
             Create cover letter
           </label>
         </div>
+        <div id="prepReplaceRow" hidden>
+          <label class="filter-check">
+            <input type="checkbox" id="prepReplaceExisting" aria-describedby="prepReplaceHint" />
+            Replace existing CV and reset role folder
+          </label>
+          <p id="prepReplaceHint" class="meta">Starts fresh. After validation, deletes this role's old download folder, including its cover letter, and saves the new files. Select cover letter above to regenerate it too.</p>
+        </div>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
           <select id="prepInstrPreset" aria-label="Instruction preset">
@@ -442,6 +449,8 @@
             </fieldset>
             <label class="toggle"><input type="checkbox" id="batchIncludeLetter" checked /> Cover letter too</label>
             <label class="toggle"><input type="checkbox" id="batchSkipExisting" checked /> Skip jobs that already have files</label>
+            <label class="toggle"><input type="checkbox" id="batchReplaceExisting" aria-describedby="batchReplaceHint" /> Replace existing CVs and reset role folders</label>
+            <p id="batchReplaceHint" class="meta">Starts fresh for every selected role and turns off Skip existing. After validation, replaces each role's download folder, including its old cover letter. Select Cover letter too to regenerate letters.</p>
             <label class="prep-modal-field">
               <span>Extra instructions (optional)</span>
               <input type="text" id="batchInstructions" maxlength="500" placeholder="Stack emphasis, what to lead with…" />

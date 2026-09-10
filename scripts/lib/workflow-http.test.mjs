@@ -87,8 +87,8 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.ok((await readdir(letter.folder)).includes('Test Candidate Cover Letter.pdf'));
   assert.equal((await request('/api/jobs')).jobs.find((j) => j.id === 'fixture:1').prepFreshness.letter, 'current');
   assert.equal((await request('/api/ready')).total, 2);
-  async function batch(id) {
-    await request('/api/prep/batch', { ids: [id], mode: 'fast', includeCoverLetter: false, skipExisting: true });
+  async function batch(id, options = {}) {
+    await request('/api/prep/batch', { ids: Array.isArray(id) ? id : [id], mode: 'fast', includeCoverLetter: false, skipExisting: true, ...options });
     for (let i = 0; i < 100; i++) {
       const result = await request('/api/prep/batch');
       if (!result.running) return result;
@@ -117,4 +117,51 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.equal(overflow.pack.preservedPrevious, true);
   assert.deepEqual(await readFile(join(regenerated.pack.dir, 'cv.pdf')), bytes);
   assert.ok(overflow.pack.draftDir);
+  const oldExport = join(first.pack.downloadFolderAbs, 'obsolete.txt');
+  await writeFile(oldExport, 'old export');
+  await writeFile(join(regenerated.pack.dir, 'obsolete.txt'), 'old cache');
+  const replace = () => request('/api/prep', { id: 'fixture:1', recreate: true,
+    replaceExisting: true, mode: 'fast', includeCoverLetter: false });
+  const failedReplacement = await replace();
+  assert.equal(failedReplacement.pack.preservedPrevious, true);
+  assert.equal(await readFile(oldExport, 'utf8'), 'old export');
+  await writeFile(join(root, '.workspace', 'overflow'), '');
+  const replacement = await replace();
+  assert.equal(replacement.cached, false);
+  assert.equal(replacement.pack.needsReview, false);
+  assert.equal(replacement.pack.downloadFolderAbs, first.pack.downloadFolderAbs);
+  await assert.rejects(readFile(oldExport), /ENOENT/);
+  await assert.rejects(readFile(join(replacement.pack.dir, 'obsolete.txt')), /ENOENT/);
+  await assert.rejects(readFile(join(replacement.pack.dir, 'cover-letter.md')), /ENOENT/);
+  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
+  assert.ok((await readdir(second.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
+  assert.equal(await readFile(join(root, 'cv', 'resume.md'), 'utf8'), `${resume}\nAdditional project: Python API.\n`);
+  const invalidReplace = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'fixture:1', recreate: false, replaceExisting: true }) });
+  assert.equal(invalidReplace.status, 400);
+
+  const otherExport = join(second.pack.downloadFolderAbs, 'obsolete.txt');
+  await writeFile(oldExport, 'selected role');
+  await writeFile(otherExport, 'unselected role');
+  await writeFile(join(root, '.workspace', 'overflow'), '1');
+  const failedBatchReplacement = await batch('fixture:1', { replaceExisting: true });
+  assert.equal(failedBatchReplacement.replaceExisting, true);
+  assert.equal(failedBatchReplacement.skipExisting, false, 'replacement overrides the skip default');
+  assert.equal(failedBatchReplacement.items[0].status, 'failed');
+  assert.equal(await readFile(oldExport, 'utf8'), 'selected role');
+  await writeFile(join(root, '.workspace', 'overflow'), '');
+  const batchReplacement = await batch('fixture:1', { replaceExisting: true, includeCoverLetter: true });
+  assert.equal(batchReplacement.items[0].status, 'done');
+  await assert.rejects(readFile(oldExport), /ENOENT/);
+  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate Cover Letter.pdf'));
+  assert.equal(await readFile(otherExport, 'utf8'), 'unselected role');
+  const replacedBoth = await batch(['fixture:1', 'fixture:2'], { replaceExisting: true });
+  assert.equal(replacedBoth.counts.done, 2);
+  assert.equal(replacedBoth.counts.skipped, 0);
+  await assert.rejects(readFile(otherExport), /ENOENT/);
+  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
+  const normalBatch = await batch('fixture:1');
+  assert.equal(normalBatch.replaceExisting, false, 'replacement does not leak into later batches');
+  assert.equal(normalBatch.items[0].status, 'skipped');
 });

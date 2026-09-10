@@ -22,6 +22,7 @@ import {
   exportCvDownloads,
   exportCoverLetterDownloads,
   cvFileBaseName,
+  clearJobDownloads,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
 import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
@@ -673,12 +674,13 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   const state = await prepStatus(job, profile, settings, {
     cv: true, letter: includeLetter, instructions: options.extraInstructions || '', mode,
   });
-  if ((options.useCache || options.recreate === false) && Object.values(state).every((s) => s === 'current')
+  if (!options.replaceExisting && (options.useCache || options.recreate === false) && Object.values(state).every((s) => s === 'current')
     && await hasCvPdf(job.id)) {
     return loadCachedPrepPack(job.id, fit, job, profile);
   }
   const pack = await generateDocuments({ job, profile, settings,
-    instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'] },
+    instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'],
+    replaceExisting: options.replaceExisting === true },
   () => writePrepPackUncached(job, profile, fit, savedAnswers, { ...options, recreate: true, useCache: false }));
   if (!pack.needsReview) {
     if (settings.source === 'overleaf' && settings.overleafPush !== false) {
@@ -689,6 +691,10 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
         if (pack.overleaf) Object.assign(pack.overleaf, { pushed: false, pushReason: error.message });
         options.onEvent?.({ stream: 'stderr', line: `Overleaf push skipped: ${error.message}` });
       }
+    }
+    if (options.replaceExisting) {
+      await clearJobDownloads({ jobId: job.id, company: job.company, jobTitle: job.title });
+      options.onEvent?.({ stream: 'meta', line: 'Cleared the previous role folder; exporting fresh documents.' });
     }
     const exported = await exportPrepDownloads(job, profile);
     pack.downloadFolderAbs = exported.absoluteDir || null;

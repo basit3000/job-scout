@@ -4,8 +4,8 @@
  *   <Name> CV Main.pdf  ← human-facing Main
  */
 
-import { copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { copyFile, lstat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
@@ -82,6 +82,27 @@ export function jobDownloadFolder({ company, jobTitle = '', jobId } = {}) {
   if (!jobId) throw new Error('A job ID is required to export application documents');
   const suffix = createHash('sha256').update(String(jobId)).digest('hex').slice(0, 16);
   return join(safeFolderName(company), `${safeFolderName(jobTitle || 'Role')}-${suffix}`);
+}
+
+/** Clear only this role's export directory; refuse links or paths outside downloads. */
+export async function clearJobDownloads({ exportRoot = downloadsRoot(), ...job } = {}) {
+  const root = resolve(exportRoot);
+  const target = resolve(root, jobDownloadFolder(job));
+  const rel = relative(root, target);
+  if (!rel || rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error('Replacement folder must be inside downloads');
+  }
+  // Check ancestors too: a company folder or downloads itself may be a junction.
+  for (let current = target; ; current = dirname(current)) {
+    const stat = await lstat(current).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (stat?.isSymbolicLink()) throw new Error('Cannot replace documents through a linked folder');
+    if (dirname(current) === current) break;
+  }
+  await rm(target, { recursive: true, force: true });
+  return target;
 }
 
 /**

@@ -93,7 +93,7 @@ export async function inspectDocuments(dir, scopes) {
  * Failed/overflow drafts remain inspectable in prep-history, never cropped.
  */
 export async function generateDocuments({ job, profile, settings, instructions = '', mode, scopes,
-  root = workspaceDir(), inspect = inspectDocuments }, generate) {
+  root = workspaceDir(), inspect = inspectDocuments, replaceExisting = false }, generate) {
   if (activeJobs.has(job.id)) throw new Error('Preparation is already running for this job');
   const accepted = root === workspaceDir() ? prepDir(job.id) : join(root, 'prep', createHash('sha256').update(job.id).digest('hex'));
   activeJobs.add(job.id);
@@ -104,7 +104,7 @@ export async function generateDocuments({ job, profile, settings, instructions =
     const inputSnapshot = await loadPrepInputs(settings);
     await mkdir(staged, { recursive: true });
     hadAccepted = await exists(accepted);
-    if (hadAccepted) await cp(accepted, staged, { recursive: true });
+    if (hadAccepted && !replaceExisting) await cp(accepted, staged, { recursive: true });
     const reviews = await loadJson(join(staged, 'review-summary.json'), {});
     for (const scope of scopes) delete reviews[scope];
     await writeFile(join(staged, 'review-summary.json'), JSON.stringify(reviews, null, 2));

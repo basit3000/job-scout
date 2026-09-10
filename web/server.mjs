@@ -141,6 +141,7 @@ const batchState = {
   mode: 'agent',
   includeCoverLetter: true,
   skipExisting: true,
+  replaceExisting: false,
   currentId: null,
   /** @type {Array<{id:string,title:string,company:string,status:string,error?:string|null,tailorMode?:string|null,note?:string|null,startedAt?:string|null,durationMs?:number|null}>} */
   items: [],
@@ -172,6 +173,7 @@ function batchSnapshot({ withItems = true } = {}) {
     mode: batchState.mode,
     includeCoverLetter: batchState.includeCoverLetter,
     skipExisting: batchState.skipExisting,
+    replaceExisting: batchState.replaceExisting,
     total: batchState.items.length,
     finished,
     counts,
@@ -213,7 +215,8 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
   const total = batchState.items.length;
   batchLog(
     `Batch Prep: ${total} job(s) · ${batchState.mode}${batchState.includeCoverLetter ? ' + cover letter' : ''}${
-      batchState.skipExisting ? ' · skipping jobs that already have files' : ''
+      batchState.replaceExisting ? ' · replacing CVs and resetting selected role folders'
+        : batchState.skipExisting ? ' · skipping jobs that already have files' : ''
     }`,
     'meta',
   );
@@ -261,6 +264,7 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
           extraInstructions,
           tailorMode: batchState.mode,
           includeCoverLetter: batchState.includeCoverLetter,
+          replaceExisting: batchState.replaceExisting,
           onEvent: (entry) => batchLog(`  ${entry.line}`, entry.stream),
         });
         try {
@@ -317,6 +321,7 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         mode: batchState.mode,
         includeCoverLetter: batchState.includeCoverLetter,
         skipExisting: batchState.skipExisting,
+        replaceExisting: batchState.replaceExisting,
         total: snap.total,
         done: snap.counts.done,
         skipped: snap.counts.skipped,
@@ -1156,6 +1161,11 @@ async function handleApi(req, res, url) {
     const mode = body.mode === 'fast' ? 'fast' : 'agent';
     const includeCoverLetter = body.includeCoverLetter !== false;
 
+    const replaceExisting = body.replaceExisting === true;
+    if (replaceExisting && body.recreate === false) {
+      return json(res, 400, { error: 'Replace existing CV requires creating a new CV.' });
+    }
+
     // Cached pack: skip rebuild unless recreate (sync)
     if (body.recreate === false) {
       const freshness = await prepStatus(job, profile, await loadCvSettings(), {
@@ -1180,6 +1190,7 @@ async function handleApi(req, res, url) {
           extraInstructions,
           tailorMode: 'fast',
           includeCoverLetter,
+          replaceExisting,
         });
         try {
           await attachPrepPath(job, pack);
@@ -1219,6 +1230,7 @@ async function handleApi(req, res, url) {
           extraInstructions,
           tailorMode: 'agent',
           includeCoverLetter,
+          replaceExisting,
           onEvent: (entry) => {
             prepState.buffer.push(entry);
             if (prepState.buffer.length > 800) prepState.buffer.shift();
@@ -1328,7 +1340,8 @@ async function handleApi(req, res, url) {
     batchState.finishedAt = null;
     batchState.mode = body.mode === 'fast' ? 'fast' : 'agent';
     batchState.includeCoverLetter = body.includeCoverLetter !== false;
-    batchState.skipExisting = body.skipExisting !== false;
+    batchState.replaceExisting = body.replaceExisting === true;
+    batchState.skipExisting = !batchState.replaceExisting && body.skipExisting !== false;
     batchState.currentId = null;
     batchState.buffer = [];
     batchState.items = ids.map((id) => {

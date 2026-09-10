@@ -1,14 +1,16 @@
 /**
- * Export tailored CVs into <project-root>/downloads/<Company>/
+ * Export tailored CVs into <project-root>/downloads/<Company>/<Role>-<JobID>/
  *   <Name> CV.pdf       ← ATS / portals
  *   <Name> CV Main.pdf  ← human-facing Main
  */
 
-import { copyFile, mkdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { copyFile, lstat, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
+import { createHash } from 'node:crypto';
+import { artifactContext } from './artifact-context.mjs';
 
 /** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
 async function safeCopyFile(src, dest) {
@@ -67,17 +69,48 @@ export function safeFolderName(company) {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80);
-  return raw || 'Unknown';
+  const clean = raw.replace(/[. ]+$/g, '');
+  if (!clean || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(clean)) return 'Unknown';
+  return clean;
 }
 
 export function downloadsRoot() {
   return join(ROOT, 'downloads');
 }
 
+export function jobDownloadFolder({ company, jobTitle = '', jobId } = {}) {
+  if (!jobId) throw new Error('A job ID is required to export application documents');
+  const suffix = createHash('sha256').update(String(jobId)).digest('hex').slice(0, 16);
+  return join(safeFolderName(company), `${safeFolderName(jobTitle || 'Role')}-${suffix}`);
+}
+
+/** Clear only this role's export directory; refuse links or paths outside downloads. */
+export async function clearJobDownloads({ exportRoot = downloadsRoot(), ...job } = {}) {
+  const root = resolve(exportRoot);
+  const target = resolve(root, jobDownloadFolder(job));
+  const rel = relative(root, target);
+  if (!rel || rel === '..' || rel.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(rel)) {
+    throw new Error('Replacement folder must be inside downloads');
+  }
+  // Check ancestors too: a company folder or downloads itself may be a junction.
+  for (let current = target; ; current = dirname(current)) {
+    const stat = await lstat(current).catch((error) => {
+      if (error.code !== 'ENOENT') throw error;
+      return null;
+    });
+    if (stat?.isSymbolicLink()) throw new Error('Cannot replace documents through a linked folder');
+    if (dirname(current) === current) break;
+  }
+  await rm(target, { recursive: true, force: true });
+  return target;
+}
+
 /**
- * Copy ATS/Main PDFs into downloads/<Company>/ under the project root.
+ * Copy ATS/Main PDFs into downloads/<Company>/<Role>-<JobID>/ under the project root.
  */
 export async function exportCvDownloads({
+  jobId,
+  exportRoot = downloadsRoot(),
   company,
   profileName,
   atsPdfPath = null,
@@ -85,8 +118,9 @@ export async function exportCvDownloads({
   jobTitle = '',
 } = {}) {
   const base = cvFileBaseName(profileName);
-  const folder = safeFolderName(company);
-  const dir = join(downloadsRoot(), folder);
+  const folder = jobDownloadFolder({ company, jobTitle, jobId });
+  const dir = join(exportRoot, folder);
+  if (artifactContext.getStore()) return { deferred: true, files: [] };
 
   const mainSrc =
     (mainPdfPath && existsSync(mainPdfPath) && mainPdfPath) || null;
@@ -112,11 +146,6 @@ export async function exportCvDownloads({
   if (mainSrc) {
     mainOut = await safeCopyFile(mainSrc, join(dir, `${base} CV Main.pdf`));
     files.push(mainOut);
-  } else {
-    // A second CV in the folder is worse than none: an older run may have left
-    // one behind, and nothing else ever deletes it. Re-running Prep clears it.
-    const stale = join(dir, `${base} CV Main.pdf`);
-    if (existsSync(stale)) await rm(stale, { force: true });
   }
 
   const note = [
@@ -150,9 +179,11 @@ export async function exportCvDownloads({
 }
 
 /**
- * Write cover letter into the same downloads/<Company>/ folder as the CV.
+ * Write cover letter into the same downloads/<Company>/<Role>-<JobID>/ folder as the CV.
  */
 export async function exportCoverLetterDownloads({
+  jobId,
+  exportRoot = downloadsRoot(),
   company,
   profileName,
   jobTitle = '',
@@ -161,8 +192,9 @@ export async function exportCoverLetterDownloads({
   docxPath = null,
 } = {}) {
   const base = cvFileBaseName(profileName);
-  const folder = safeFolderName(company);
-  const dir = join(downloadsRoot(), folder);
+  const folder = jobDownloadFolder({ company, jobTitle, jobId });
+  const dir = join(exportRoot, folder);
+  if (artifactContext.getStore()) return { deferred: true, files: [] };
   await mkdir(dir, { recursive: true });
 
   const files = [];

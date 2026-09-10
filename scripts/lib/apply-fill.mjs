@@ -20,6 +20,17 @@ import {
 
 let sharedContext = null;
 
+export function peekChromeContext() {
+  if (!sharedContext) return null;
+  try {
+    sharedContext.pages();
+    return sharedContext;
+  } catch {
+    sharedContext = null;
+    return null;
+  }
+}
+
 export async function playwrightAvailable() {
   try {
     await import('playwright-core');

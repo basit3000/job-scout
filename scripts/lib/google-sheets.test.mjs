@@ -17,12 +17,12 @@ import {
 } from './google-sheets.mjs';
 
 describe('sheet layout', () => {
-  it('headers start with Date, Company, Title, Applied, Links', () => {
+  it('headers start with Date, Company, Title, Status, Links', () => {
     assert.deepEqual(SHEET_HEADERS.slice(0, 5), [
       'Date',
       'Company',
       'Title',
-      'Applied',
+      'Status',
       'Links',
     ]);
     assert.ok(!SHEET_HEADERS.includes('Job ID'));
@@ -31,8 +31,8 @@ describe('sheet layout', () => {
   it('detects legacy vs current header', () => {
     assert.equal(isLegacySheetHeader(['Job ID', 'Date', 'Company']), true);
     assert.equal(isLegacySheetHeader(['Date', 'Company', 'Title', 'Job ID']), true);
-    assert.equal(isCurrentSheetHeader(['Date', 'Company', 'Title', 'Applied', 'Links']), true);
-    assert.equal(isCurrentSheetHeader(['Date', 'Company', 'Job ID', 'Applied']), false);
+    assert.equal(isCurrentSheetHeader(['Date', 'Company', 'Title', 'Status', 'Links']), true);
+    assert.equal(isCurrentSheetHeader(['Date', 'Company', 'Job ID', 'Status']), false);
     assert.equal(isCurrentSheetHeader(['Job ID', 'Date']), false);
   });
 
@@ -151,7 +151,7 @@ describe('sheet layout', () => {
     assert.ok(!row.includes('germany:linkedin:abc'));
   });
 
-  it('normalizes sheet Applied values to rejected', () => {
+  it('normalizes sheet Status values to rejected', () => {
     assert.equal(normalizeSheetStatus('rejected'), 'rejected');
     assert.equal(normalizeSheetStatus('Rejected'), 'rejected');
     assert.equal(normalizeSheetStatus('abgelehnt'), 'rejected');

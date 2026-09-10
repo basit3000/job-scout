@@ -19,6 +19,10 @@ import {
   seedPrepForAgent,
 } from './cv-agent.mjs';
 import { verifyLetterAfterAgent } from './cv-verify.mjs';
+import { generateDocuments } from './prep-state.mjs';
+import { artifactContext } from './artifact-context.mjs';
+import { loadJson } from './common.mjs';
+import { runReviewerPass, loadReviewSummary } from './cv-review.mjs';
 import {
   Document, Packer, Paragraph, TextRun,
   convertInchesToTwip,
@@ -114,13 +118,10 @@ export function assembleCoverLetter(templateText, job, profile) {
   const haystack = jobHaystack(job);
   const past = pickBlocks(blocks, 'past', haystack, 2);
   const projects = pickBlocks(blocks, 'project', haystack, 2);
-  const motive = pickBlocks(blocks, 'motive', haystack, 2);
+  const motive = pickBlocks(blocks, 'motive', haystack, 3);
 
-  const pastPara = joinBlocks(past, 'Earlier:');
-  const projectPara = joinBlocks(
-    projects,
-    'I also built similar things myself.',
-  );
+  const pastPara = joinBlocks(past, '');
+  const projectPara = joinBlocks(projects, '');
   const motivePara = joinBlocks(motive, '');
 
   let letter = core
@@ -146,13 +147,75 @@ export function polishCoverLetter(text) {
   return letter.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-async function loadSavedInstructions(dir) {
-  try {
-    const raw = await readFile(join(dir, 'instructions.md'), 'utf8');
-    return raw.replace(/^#\s*Extra instructions\s*/i, '').trim();
-  } catch {
-    return '';
+function postingBlob(job) {
+  return `${job?.title || ''} ${job?.description || ''}`.toLowerCase();
+}
+
+function paragraphScore(para, blob) {
+  const words = String(para || '').toLowerCase().match(/[a-z][a-z0-9+#.]{2,}/g) || [];
+  if (!words.length) return 0;
+  let hits = 0;
+  for (const w of words) {
+    if (blob.includes(w)) hits += 1;
   }
+  return hits;
+}
+
+/**
+ * Drop the least posting-relevant body paragraphs until the letter is likely
+ * one A4 page. Keeps the subject, greeting, first body paragraph, and sign-off.
+ */
+export function trimLetterToOnePage(letter, job, opts = {}) {
+  const src = String(letter || '').replace(/\s+$/, '') + '\n';
+  const parts = src.split(/\n{2,}/);
+  if (parts.length <= 4) return { letter: src, dropped: [] };
+
+  const isSignoff = (p) => /kind regards/i.test(p) || /^(sincerely|best regards)/i.test(p);
+  const isSubject = (p) => /^application for/i.test(p.trim());
+  const isGreeting = (p) => /^(dear|hallo|hello)\b/i.test(p.trim());
+
+  const head = [];
+  const body = [];
+  const tail = [];
+  let seenBody = false;
+  for (const p of parts) {
+    if (!seenBody && (isSubject(p) || isGreeting(p) || head.length < 2)) {
+      head.push(p);
+      if (isGreeting(p) || (!isSubject(p) && head.length >= 2)) seenBody = true;
+      continue;
+    }
+    if (isSignoff(p) || tail.length) {
+      tail.push(p);
+      continue;
+    }
+    body.push(p);
+  }
+  if (body.length <= 1) return { letter: src, dropped: [] };
+
+  const blob = postingBlob(job);
+  const ranked = body.map((p, i) => ({ i, p, score: paragraphScore(p, blob) }));
+  // Keep the first body paragraph; drop lowest-scoring extras from the rest.
+  const keepFirst = ranked[0];
+  const rest = ranked.slice(1).sort((a, b) => a.score - b.score);
+  const dropped = [];
+  const dropSet = new Set();
+  const tooLong = () => {
+    const joined = [...head, keepFirst.p, ...ranked.slice(1).filter((r) => !dropSet.has(r.i)).map((r) => r.p), ...tail].join('\n\n');
+    return joined.split(/\s+/).filter(Boolean).length > (opts.force ? 260 : 340);
+  };
+  if (opts.force && rest.length) {
+    const victim = rest.shift();
+    dropSet.add(victim.i);
+    dropped.push(victim.p.slice(0, 80));
+  }
+  while (rest.length > 0 && tooLong()) {
+    const victim = rest.shift();
+    dropSet.add(victim.i);
+    dropped.push(victim.p.slice(0, 80));
+  }
+  const nextBody = ranked.filter((r) => r.i === 0 || !dropSet.has(r.i)).map((r) => r.p);
+  const out = [...head, ...nextBody, ...tail].join('\n\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+  return { letter: out, dropped };
 }
 
 function fallbackCoverLetter(job, profile, fit) {
@@ -359,31 +422,6 @@ export async function coverLetterToDocx(letter) {
  * Convert a .docx file to .pdf using MS Word COM automation.
  * Falls back to HTML-based PDF if Word is unavailable.
  */
-function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
-  // PowerShell script that opens the docx in Word and saves as PDF (formatType 17)
-  const ps = `
-    $word = $null
-    try {
-      $word = New-Object -ComObject Word.Application
-      $word.Visible = $false
-      $doc = $word.Documents.Open('${docxAbsPath.replace(/'/g, "''")}')
-      $doc.SaveAs2([ref]'${pdfAbsPath.replace(/'/g, "''")}', [ref]17)
-      $doc.Close([ref]$false)
-    } finally {
-      if ($word) { $word.Quit() }
-      [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
-    }
-  `.trim();
-  try {
-    execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, {
-      timeout: 30000,
-      stdio: 'pipe',
-    });
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: err.message || String(err) };
-  }
-}
 
 /**
  * Compile the letter, tightening the layout only as far as one page demands.
@@ -419,6 +457,31 @@ export async function renderLetterPdfFitted(model, dir, { onEvent = null } = {})
   return { ok: true, path: pdfPath, pages: null, fit: 'bodysize', overflow: true, last };
 }
 
+function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
+  // PowerShell script that opens the docx in Word and saves as PDF (formatType 17)
+  const ps = `
+    $word = $null
+    try {
+      $word = New-Object -ComObject Word.Application
+      $word.Visible = $false
+      $doc = $word.Documents.Open('${docxAbsPath.replace(/'/g, "''")}')
+      $doc.SaveAs2([ref]'${pdfAbsPath.replace(/'/g, "''")}', [ref]17)
+      $doc.Close([ref]$false)
+    } finally {
+      if ($word) { $word.Quit() }
+      [System.Runtime.InteropServices.Marshal]::ReleaseComObject($word) | Out-Null
+    }
+  `.trim();
+  try {
+    execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, {
+      timeout: 30000,
+      stdio: 'pipe',
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message || String(err) };
+  }
+}
 async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, profile = null } = {}) {
   let pdfPath = null;
   let docxPath = null;
@@ -474,13 +537,28 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, p
   return { pdfPath, docxPath, pdfError };
 }
 
-export async function generateCoverLetterPack(job, profile, fit, {
+export async function generateCoverLetterPack(job, profile, fit, options = {}) {
+  if (artifactContext.getStore()) return generateCoverLetterUncached(job, profile, fit, options);
+  const config = await loadJson(join(ROOT, 'search-profile.json'), {});
+  const settings = { ...config.cv, ...options.settings };
+  const result = await generateDocuments({ job, profile, settings,
+    instructions: options.extraInstructions || '', mode: options.tailorMode || 'fast', scopes: ['letter'] },
+  (dir) => generateCoverLetterUncached(job, profile, fit, { ...options, cvSource: settings.source || 'local', prepDir: dir }));
+  if (!result.needsReview) result.export = await exportCoverLetterDownloads({
+    jobId: job.id, company: job.company, profileName: profile.name, jobTitle: job.title,
+    mdText: result.letter, pdfPath: join(result.dir, 'cover-letter.pdf'), docxPath: join(result.dir, 'cover-letter.docx'),
+  });
+  return result;
+}
+
+async function generateCoverLetterUncached(job, profile, fit, {
   prepDir: dir,
   extraInstructions = '',
   tailorMode = 'fast',
   onEvent = null,
   provider = null,
   model = null,
+  cvSource = 'local',
 } = {}) {
   const assembled = assembleCoverLetter(await loadCoverLetterTemplate(), job, profile);
   let letter = assembled.letter || fallbackCoverLetter(job, profile, fit);
@@ -499,7 +577,6 @@ export async function generateCoverLetterPack(job, profile, fit, {
 
   if (dir) {
     await mkdir(dir, { recursive: true });
-    if (!instr) instr = await loadSavedInstructions(dir);
     await writeFile(join(dir, 'cover-letter.md'), letter);
     await writeFile(join(dir, 'cover-letter.draft.md'), letter);
 
@@ -526,7 +603,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
             prepDir: dir,
             profile,
             extraInstructions: instr,
-            cvSource: 'local',
+            cvSource,
             overleafPush: false,
             provider,
             model,
@@ -542,6 +619,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
               job,
               evidencePath: currentEvidenceRel(),
               extraInstructions: instr,
+              cvSource,
               emit: (line, stream = 'meta') => emit({ stream, line, t: Date.now() }),
             });
             if (gate.ok) {
@@ -563,13 +641,54 @@ export async function generateCoverLetterPack(job, profile, fit, {
       }
     }
 
-    const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile });
-    pdfPath = artifacts.pdfPath;
-    docxPath = artifacts.docxPath;
-    pdfError = artifacts.pdfError;
+    const prepare = async () => {
+      letter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
+      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile });
+      pdfPath = artifacts.pdfPath;
+      docxPath = artifacts.docxPath;
+      pdfError = artifacts.pdfError;
+
+      // The LaTeX renderer tightens spacing until the letter fits, so no
+      // paragraph is dropped to win a page. Only a letter that overflows even
+      // the tightest layout is flagged, with the full text preserved.
+      const pageNotes = [];
+      const pages = pdfPath ? await countPdfPages(pdfPath) : null;
+      if (pdfPath && (pages == null || pages > 1)) {
+        pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
+        pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';
+        emit({ stream: 'stderr', line: pdfError, t: Date.now() });
+      }
+      try {
+        const existing = await readFile(join(dir, 'page-check.md'), 'utf8').catch(() => '');
+        const section = [
+          '## Cover letter',
+          '',
+          `Pages: ${pages ?? '?'}`,
+          ...pageNotes.map((n) => `- ${n}`),
+          '',
+        ].join('\n');
+        await writeFile(join(dir, 'page-check.md'), `${existing.trim()}\n\n${section}`.trim() + '\n');
+      } catch {
+        /* optional */
+      }
+      if (usedMode === 'agent') {
+        const finalGate = await verifyLetterAfterAgent({ prepDir: dir, letter, job,
+          evidencePath: currentEvidenceRel(), extraInstructions: instr, cvSource });
+        if (!finalGate.ok) throw new Error(`Final letter validation failed: ${finalGate.hard.join('; ')}`);
+      }
+    };
+    // Persist the selected draft (the agent may have been rejected) before rendering.
+    await writeFile(join(dir, 'cover-letter.md'), letter);
+    if (usedMode === 'agent') {
+      const review = await runReviewerPass({ scope: 'letter', job, prepDir: dir, profile,
+        extraInstructions: instr, cvSource, provider, model, onEvent,
+        letter, polishLetter: polishCoverLetter, prepare });
+      if (review.letter) letter = review.letter;
+    } else await prepare();
   }
 
   const exported = await exportCoverLetterDownloads({
+    jobId: job.id,
     company: job.company,
     profileName: profile?.name,
     jobTitle: job.title,
@@ -585,6 +704,7 @@ export async function generateCoverLetterPack(job, profile, fit, {
     tailorMode: usedMode,
     fallbackReason,
     agent,
+    review: dir ? await loadReviewSummary(dir) : null,
     pdfError: pdfError || exported?.error || null,
     export: exported,
     baseName: cvFileBaseName(profile?.name),

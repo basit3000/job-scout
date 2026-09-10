@@ -1,88 +1,82 @@
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, rename, rm, readFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { join, dirname } from 'node:path';
 import { ROOT, loadJson, workspaceDir } from './common.mjs';
 
-export const VALID_DECISIONS = [
-  'applied',
-  'skipped',
-  'shortlisted',
-  'interviewing',
-  'rejected',
-  'closed',
-];
-
-export function decisionsPath() {
-  return join(ROOT, 'state', 'decisions.json');
+export const VALID_DECISIONS = ['applied', 'skipped', 'shortlisted', 'interviewing', 'offer', 'accepted', 'rejected', 'closed'];
+const TERMINAL = new Set(['skipped', 'accepted', 'rejected', 'closed']);
+export function decisionsPath(root = ROOT) { return join(root, 'state', 'decisions.json'); }
+export async function loadDecisions(root = ROOT) {
+  try {
+    const log = JSON.parse(await readFile(decisionsPath(root), 'utf8'));
+    if (!Array.isArray(log.decisions)) throw new Error('Invalid application store: decisions must be an array');
+    return log;
+  } catch (err) {
+    if (err.code === 'ENOENT') return { decisions: [] };
+    throw err;
+  }
 }
 
-export async function loadDecisions() {
-  return loadJson(decisionsPath(), { decisions: [] });
+// Serialize this server's updates and atomically replace JSON; never lose parallel edits.
+const pending = new Map();
+async function mutate(root, change) {
+  const path = decisionsPath(root);
+  const task = (pending.get(path) || Promise.resolve()).catch(() => {}).then(async () => {
+    const log = await loadDecisions(root);
+    const result = await change(log);
+    await mkdir(dirname(path), { recursive: true });
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(temporary, `${JSON.stringify(log, null, 2)}\n`, { flag: 'wx' });
+      await rename(temporary, path);
+    } finally { await rm(temporary, { force: true }); }
+    return result;
+  });
+  pending.set(path, task);
+  try { return await task; } finally { if (pending.get(path) === task) pending.delete(path); }
 }
 
-/**
- * Record or update a ruling for a job id.
- * @param {object} [extra] followUpDate, prepPath, clearFollowUp
- */
+function changedEntry(previous, patch) {
+  const now = new Date().toISOString();
+  const entry = { ...previous, ...patch, updatedAt: now };
+  if (!VALID_DECISIONS.includes(entry.decision)) throw new Error(`Unknown decision "${entry.decision}"`);
+  const changed = !previous || entry.decision !== previous.decision;
+  entry.createdAt = previous?.createdAt || now;
+  entry.date = previous?.date || now.slice(0, 10);
+  if (changed) {
+    entry.statusHistory = [...(previous?.statusHistory || []), { from: previous?.decision || null, to: entry.decision, at: now }];
+    if (previous) entry.previousDecision = previous.decision;
+    if (entry.decision === 'applied' && !previous?.appliedDate && patch.appliedDate === undefined) entry.appliedDate = now.slice(0, 10);
+  }
+  if (TERMINAL.has(entry.decision)) entry.followUpDate = null;
+  return entry;
+}
+
 export async function recordDecision(id, decision, note = '', extra = {}) {
   if (!id) throw new Error('id is required');
-  if (!VALID_DECISIONS.includes(decision)) {
-    throw new Error(`Unknown decision "${decision}". Use one of: ${VALID_DECISIONS.join(', ')}`);
-  }
-
-  const log = await loadDecisions();
-  const fetched = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
-  const snapshot = extra.job && typeof extra.job === 'object' ? extra.job : null;
-  const job = (fetched.jobs ?? []).find((j) => j.id === id) || snapshot;
-
-  const existingIndex = log.decisions.findIndex((d) => d.id === id);
-  const prev = existingIndex !== -1 ? log.decisions[existingIndex] : null;
-
-  let followUpDate = prev?.followUpDate ?? null;
-  if (extra.followUpDate !== undefined) followUpDate = extra.followUpDate || null;
-  else if (decision === 'skipped' || decision === 'rejected' || decision === 'closed') {
-    followUpDate = null;
-  }
-
-  const entry = {
-    id,
-    decision,
-    date: new Date().toISOString().slice(0, 10),
-    title: job?.title ?? snapshot?.title ?? prev?.title ?? null,
-    company: job?.company ?? snapshot?.company ?? prev?.company ?? null,
-    url: job?.url ?? snapshot?.url ?? prev?.url ?? null,
-    board: job?.board ?? snapshot?.board ?? prev?.board ?? null,
-    note: note || prev?.note || null,
-    followUpDate,
-    prepPath: extra.prepPath !== undefined ? extra.prepPath : (prev?.prepPath ?? null),
-  };
-
-  let updated = false;
-  let previous;
-  if (existingIndex !== -1) {
-    previous = prev.decision;
-    log.decisions[existingIndex] = { ...entry, previousDecision: previous };
-    updated = true;
-  } else {
-    log.decisions.push(entry);
-  }
-
-  const path = decisionsPath();
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(log, null, 2)}\n`);
-
-  return { entry: updated ? log.decisions[existingIndex] : entry, updated, previous };
+  const root = extra.root || ROOT;
+  const fetched = await loadJson(join(root === ROOT ? workspaceDir() : join(root, '.workspace'), 'jobs.json'), { jobs: [] });
+  const job = (fetched.jobs ?? []).find((j) => j.id === id) || extra.job;
+  return mutate(root, (log) => {
+    const index = log.decisions.findIndex((d) => d.id === id);
+    const previous = index < 0 ? null : log.decisions[index];
+    const patch = { id, decision, note: note || previous?.note || null };
+    for (const key of ['title', 'company', 'url', 'board', 'location', 'salary']) patch[key] = previous?.[key] ?? job?.[key] ?? null;
+    for (const key of ['followUpDate', 'prepPath']) if (extra[key] !== undefined) patch[key] = extra[key] || null;
+    Object.assign(patch, extra.application || {});
+    const entry = changedEntry(previous, patch);
+    if (index < 0) log.decisions.push(entry); else log.decisions[index] = entry;
+    return { entry, updated: index >= 0, previous: previous?.decision };
+  });
 }
 
-export async function patchDecision(id, patch = {}) {
-  const log = await loadDecisions();
-  const i = log.decisions.findIndex((d) => d.id === id);
-  if (i === -1) throw new Error(`No decision for ${id}`);
-  log.decisions[i] = {
-    ...log.decisions[i],
-    ...patch,
-    id,
-  };
-  await mkdir(dirname(decisionsPath()), { recursive: true });
-  await writeFile(decisionsPath(), `${JSON.stringify(log, null, 2)}\n`);
-  return log.decisions[i];
+export async function patchDecision(id, patch = {}, { root = ROOT } = {}) {
+  return mutate(root, (log) => {
+    const index = log.decisions.findIndex((d) => d.id === id);
+    if (index < 0) throw new Error(`No decision for ${id}`);
+    const previous = log.decisions[index];
+    const fields = typeof patch === 'function' ? patch(previous) : patch;
+    log.decisions[index] = changedEntry(previous, { ...fields, id });
+    return log.decisions[index];
+  });
 }

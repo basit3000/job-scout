@@ -19,8 +19,8 @@ Keep `[Company]`, `[Role]`, and `[Date]` — Prep / **Cover letter** fill those 
 
 1. Write the **core** (always included): current job, what you want, education/location, sign-off.
 2. Leave `<!-- include:motive -->`, `<!-- include:past -->`, and `<!-- include:projects -->` where optional paragraphs should go.
-3. After `<!-- optional-blocks`, add earlier jobs, side projects, and optional background. A block is inserted only when the posting mentions at least one of its keywords (up to two `:::motive`, two `:::past`, and two `:::project`).
-4. Put longer background notes in **`cover-letter-notes.md`** (copied from `cover-letter-notes.example.md` on first run). That file is gitignored. The agent may use at most two matching facts from it.
+3. After `<!-- optional-blocks`, add earlier jobs, side projects, and optional background. A block is inserted only when the posting mentions at least one of its keywords (up to three `:::motive`, two `:::past`, and two `:::project`).
+4. Put longer background notes in **`cover-letter-notes.md`** (copied from `cover-letter-notes.example.md` on first run). That file is gitignored. The agent keeps matching facts from it and from the draft; it skips ones whose keywords are not in the posting.
 
 ```md
 :::past employer-id keyword-one "multi word phrase"
@@ -34,7 +34,7 @@ One true sentence about that project.
 
 Quoted phrases match as a whole (`"machine learning"`); unquoted words match on word boundaries. Do not invent metrics.
 
-**Create CV** writes the letter on first run. **Cover letter** on a result, or **Generate cover letter** in the prep pack, regenerates it. Outputs: `downloads/<Company>/<Your Name> Cover Letter.pdf` (+ `.docx`, `.md`).
+**Create CV** writes the letter on first run. **Cover letter** on a result, or **Generate cover letter** in the prep pack, regenerates it. Outputs: `downloads/<Company>/<Role>-<JobID>/<Your Name> Cover Letter.pdf` (+ `.docx`, `.md`). Each role has its own folder containing its CV and cover letter. The ID suffix keeps separate postings with the same title from overwriting one another.
 
 Optional: set `"cv": { "updateMaster": true }` in `search-profile.json` to write the tailored order back into `resume.md` (otherwise only the prep pack is updated).
 

@@ -43,13 +43,50 @@ Pick the backend in the UI **Agent** control (or `cv.agentProvider` / `AGENT_PRO
 
 Optional model: UI **Agent model**, or `cv.agentModel` / `CURSOR_AGENT_MODEL` / `CLAUDE_CODE_MODEL` / `CODEX_MODEL`.
 
+Selecting an agent loads its model catalog: Cursor uses its account API, Codex uses
+the installed CLI's `model/list`, and Claude Code uses its initialization catalog.
+No generation prompt is sent for discovery. **Refresh models** reloads the list;
+successful results are cached for five minutes. If discovery fails, the UI labels
+previously loaded results or offers **Configured default** and **Custom model**.
+Each provider remembers its own selection. Discovery requires a current CLI and its
+normal login (or `CURSOR_API_KEY` for Cursor); a listed model can still have usage
+or billing requirements shown by the provider.
+
 **Create CV** in the modal uses the agent. **Fast (keyword)** skips it: reorder plus
 light re-emphasis of existing Experience bullets (current CV is source of truth;
 portfolio may add one posting-named tag on Projects). After edits, both Overleaf CVs
 (`main.tex` and `ats.tex`) are compiled and squeezed to **one page** (spacing /
 typography / filler wording — Experience bullets are kept). A first create also
 writes the cover letter with the same extra instructions, then opens
-`downloads/<Company>/`. If the chosen agent is unavailable, Prep falls back to Fast.
+`downloads/<Company>/<Role>-<JobID>/`. If the chosen agent is unavailable, Prep falls back to Fast.
+
+A **page checker** first fits the documents, preserving Experience and every PDF page.
+Optional courses, languages and certificates may be removed when irrelevant or needed
+for space. Overflow remains a complete draft marked **Needs review**.
+
+Agent mode reviews the **final rendered PDF text** alongside the source document,
+candidate evidence, notes and the same custom instructions used by the writer.
+CV and letter reviews use separate, relevant scores; the letter reviewer also reads
+the CV to check consistency. Instructions and reviewer suggestions never count as
+new factual evidence. Add new achievements or metrics to your profile/CV sources first.
+
+There is at most **one repair per document**. The repaired document is fitted and
+rendered again, then reviewed against the original must-fix items. A failed repair
+restores the previous draft. Missing/malformed reviews show **Not reviewed**;
+unresolved fixes show **Needs review**. Neither is automatically exported or pushed.
+A passing review is tied to the exact document files, so edits invalidate it.
+Reports are `review.md`, `cover-letter-review.md` and `review-summary.json` in the prep pack.
+Overleaf is pushed only after final document validation, provided its source files
+still match the files used to generate the PDFs.
+
+Each reviewer gets one prepared input packet instead of a list of files to discover.
+Packets exceeding 180,000 characters are rejected before a model call rather than
+silently truncated. Normal CV + letter generation uses four agent sessions; repairing
+and verifying both can use eight. These are sessions, not individual API calls.
+`agent-session.json` preserves every writer/reviewer/repair attempt and aggregates
+available SDK token counters and durations. CLI token usage is explicitly unknown;
+partial totals are labelled incomplete. Cache and reasoning counters are kept separate,
+and no dollar cost is inferred. Fast mode makes no LLM calls.
 
 Overleaf: set `cv.source` to `overleaf` plus `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID` in `.env`.
 
@@ -88,7 +125,7 @@ YOUR_SENTENCE_ABOUT_THAT_PROJECT
 
 **Agent** (default) starts from the keyword draft, then the same cv-tailor agent lightly edits it. **Fast** fills placeholders and matching optional blocks only.
 
-Files in `downloads/<Company>/` (not Windows Downloads):
+Files in `downloads/<Company>/<Role>-<JobID>/` (not Windows Downloads):
 
 - `<Your Name> Cover Letter.pdf`
 - `<Your Name> Cover Letter.docx`
@@ -115,14 +152,32 @@ PDF uses Microsoft Word when it is installed; otherwise Chrome/Edge prints the H
 
 ### Batch Prep (Create CVs…)
 
-In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs that already have files. The run goes job by job in the background:
+In **Digest**, **Create CVs…** lists the new postings grouped by company. Tick jobs or whole companies (shortcuts: All, None, Without CV, Strong fit only, Worth a shot), pick **Agent** or **Fast**, whether to include the cover letter, and whether to skip jobs whose documents are still current. The run goes job by job in the background:
 
 - a progress strip stays visible on every tab (done / total, current company, per-job status in **Details**)
 - **Cancel** stops after the current job; the rest are marked cancelled
-- nothing opens — files land in `downloads/<Company>/` as usual and finished jobs appear under **Ready to apply**
+- nothing opens — files land in `downloads/<Company>/<Role>-<JobID>/` as usual and current, validated documents appear under **Ready to apply**
 - single **Prep** is blocked while a batch runs (and a batch cannot start during a single Prep)
 
 API: `POST /api/prep/batch { ids, mode, includeCoverLetter, skipExisting, extraInstructions }`, `GET /api/prep/batch`, `POST /api/prep/batch/stop`, SSE `GET /api/prep/batch/stream`, and `GET /api/ready`.
+
+### Matching, current results, and document status
+
+**Current search** applies your current title, exclusion, market, and age settings to the saved archive. Choose **All saved jobs** to see history. Posting age and last-seen dates are separate: a job missing from one search is not automatically closed. Tracker history is retained. The ranking CLI follows current settings too; add `--history` to include the archive.
+
+Fit uses skills from your profile, CV, and recorded experience. Explicit mandatory language, experience, sponsorship, and skill requirements can limit the verdict even when many keywords match. Missing evidence is shown as **Requirements need checking**; this remains a heuristic, not confirmation that you qualify. Preferences do not become hard requirements.
+
+Optional profile fields improve these checks: `experienceYears` (total professional years), `languages` (language names mapped to actual levels such as A2 or C1), and `constraints.needsSponsorship` (true, false, or null). Existing clear language notes are also used. An explicit sponsorship answer in **Saved answers** takes precedence; blank/ambiguous information is never invented. Leave unknown profile fields unset.
+
+Exports use a separate role folder with a stable job-ID suffix, so preparing two roles at the same company preserves both sets. Fill selects that job's own preparation files; shared legacy company folders are not used as a fallback.
+
+**Outdated documents** means the source CV, profile, posting, provider/model, or relevant template changed, or the pack predates input tracking. Recreate it before applying. Batch **Skip existing** skips only current documents with the requested instructions and mode. Existing packs without generation metadata need one recreation. Overleaf freshness checks the local checkout; remote changes become visible after synchronization.
+
+In a job's **Prep** dialog, **Replace existing CV and reset role folder** generates from a clean workspace. Once the new documents pass validation, it deletes that role's old downloads folder and exports the new files. This also removes the old cover letter; select **Create cover letter** to regenerate it. Other roles and the base CV are unaffected. Failed validation preserves the previous documents, and the previous prep pack remains in local history.
+
+Batch **Create CVs** offers **Replace existing CVs and reset role folders** for all selected postings. It turns off **Skip existing**, works with Agent or Fast mode, and uses the same validation and folder replacement behavior. Select **Cover letter too** to regenerate letters as well. Replacement starts unchecked each time you open a new batch.
+
+Generation stages replacements separately. PDFs must have readable text and exactly one page before they are marked ready and exported. If generation fails or overflows, previous accepted documents remain available; complete drafts and older versions are retained under `.workspace/prep-history/`. The log identifies drafts needing review. New packs needing review are excluded from **Ready to apply**, and Fill refuses outdated or unverified documents. CV and letter freshness are tracked separately.
 
 ### Google Sheets (optional)
 
@@ -139,7 +194,7 @@ GOOGLE_SHEETS_CREDENTIALS=secrets/google-sheets.json
 GOOGLE_SHEETS_TAB=Applications
 ```
 
-Columns: Date, Company, Title, Applied, Links, Location, Board, Note, Follow-up, Salary, Remote, Updated at.
+Columns: Date, Company, Title, Status, Links, Location, Board, Note, Follow-up, Salary, Remote, Updated at.
 
 ## Shared vs local
 

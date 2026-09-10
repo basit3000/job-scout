@@ -15,6 +15,7 @@ import {
   overleafStatus,
   runOverleafTailor,
   assembleOverleafAfterAgent,
+  pushValidatedOverleaf,
   readOverleafAts,
 } from './overleaf-cv.mjs';
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
@@ -22,6 +23,7 @@ import {
   exportCvDownloads,
   exportCoverLetterDownloads,
   cvFileBaseName,
+  clearJobDownloads,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
 import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
@@ -33,9 +35,12 @@ import {
   seedPrepForAgent,
   loadAgentSession,
   normalizeAgentProvider,
+  resolveAgentModel,
 } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
+import { clearReview, loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
+import { generateDocuments, prepStatus } from './prep-state.mjs';
 
 export { prepDir };
 
@@ -126,13 +131,7 @@ export async function loadCvSettings() {
   const agentProvider = normalizeAgentProvider(
     cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
   );
-  const agentModel = String(
-    cv.agentModel
-      || process.env.CURSOR_AGENT_MODEL
-      || process.env.CLAUDE_CODE_MODEL
-      || process.env.CODEX_MODEL
-      || (agentProvider === 'cursor' ? 'composer-2.5' : ''),
-  ).trim();
+  const agentModel = resolveAgentModel(cv.agentModel, agentProvider).id;
   return {
     source,
     overleafPush: cv.overleafPush !== false,
@@ -251,7 +250,7 @@ ${pdfLines.join('\n')}
 - [Job posting](./job-posting.md)
 - [Cover letter](./cover-letter.md)
 - [Checklist](./checklist.md)
-- Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md) (read before sending)
+- Agent runs only: [keyword gaps](./keyword-gaps.md), [agent report](./agent-report.md), [quality report](./quality-report.md), [reviewer](./review.md), [page check](./page-check.md) (read before sending)
 
 Format: \`${WRITING_RULES_GENERIC}\`. Local mode edits from \`cv/resume.md\`.
 ${olLines.join('\n')}
@@ -294,6 +293,7 @@ async function publishDownloads(job, profile, dir, { hasAts, hasMain, hasPdf }) 
   if (!cvPdf) return null;
   try {
     return await exportCvDownloads({
+      jobId: job.id,
       company: job.company,
       profileName: profile?.name,
       atsPdfPath: cvPdf,
@@ -330,7 +330,7 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
   const settings = await loadCvSettings();
   let downloadExport = null;
   if (job && profile) {
-    downloadExport = await publishDownloads(job, profile, prepDir(jobId), flags);
+    downloadExport = await exportPrepDownloads(job, profile);
   }
   return {
     dir: prepDir(jobId),
@@ -348,6 +348,7 @@ export async function loadCachedPrepPack(jobId, fit = null, job = null, profile 
     applyUrl: job?.url || null,
     jobId,
     agent: await loadAgentSession(prepDir(jobId)),
+    review: await loadReviewSummary(prepDir(jobId)),
     downloadFolder: downloadExport?.relativeDir || null,
     downloadFolderAbs: downloadExport?.absoluteDir || null,
     downloadError: downloadExport?.error || null,
@@ -374,7 +375,6 @@ async function finalizePrepPack({
 }) {
   const files = {
     'job-posting.md': buildJobPostingMd(job),
-    'cover-letter.md': await buildCoverLetter(job, profile, fit),
     'cv.md': cvMd,
     'cv.html': cvHtml,
     'requirements.md': requirementsMd,
@@ -486,6 +486,7 @@ async function finalizePrepPack({
     tailorMode,
     fallbackReason,
     agent: agent || null,
+    review: await loadReviewSummary(dir),
     extraInstructions: extraInstructions || null,
     cached: false,
     jobId: job.id,
@@ -510,6 +511,7 @@ async function finalizePrepPack({
 async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, options = {}) {
   const dir = prepDir(job.id);
   await mkdir(dir, { recursive: true });
+  await clearReview(dir, 'cv');
 
   const model = await buildTailoredCvAsync(job, profile, fit);
   if (extraInstructions) {
@@ -536,7 +538,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
       );
     }
     overleafResult = await runOverleafTailor({
-      push: settings.overleafPush !== false,
+      push: false,
       keywords: model.keywords || [],
       job,
       prepDir: dir,
@@ -587,7 +589,7 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
       );
     }
     overleafResult = await assembleOverleafAfterAgent({
-      push: settings.overleafPush !== false,
+      push: false,
       job,
       prepDir: dir,
       onEvent: onEvent || settings.onEvent || null,
@@ -656,26 +658,29 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     throw new Error(`quality gate: ${gate.hard[0]}${more}`);
   }
 
-  onEvent?.({
-    stream: 'meta',
-    line: 'Quality gate passed — compiling PDFs and writing the prep pack…',
-    t: Date.now(),
-  });
-  const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
-
-  return finalizePrepPack({
-    job,
-    profile,
-    fit,
-    savedAnswers,
-    dir,
-    settings,
-    extraInstructions,
-    ...assembled,
-    overleafResult: assembled.overleafResult,
-    tailorMode: 'agent',
-    agentMeta,
-  });
+  let pack;
+  const prepare = async () => {
+    // Fit, render, then check any changes made by fitting. A scrub needs a new render.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const assembled = await assembleCvFromDisk(job, profile, fit, settings, dir, onEvent);
+      const finalGate = await verifyCvAfterAgent({ prepDir: dir, cvSource: settings.source,
+        job, profile, evidencePath: currentEvidenceRel(), extraInstructions });
+      if (!finalGate.ok) throw new Error(`Final CV validation failed: ${finalGate.hard.join('; ')}`);
+      if (finalGate.fixes.length) continue;
+      pack = await finalizePrepPack({ job, profile, fit, savedAnswers, dir, settings,
+        extraInstructions, ...assembled, overleafResult: assembled.overleafResult,
+        tailorMode: 'agent', agentMeta });
+      return;
+    }
+    throw new Error('CV content kept changing during final validation');
+  };
+  await runReviewerPass({ scope: 'cv', job, prepDir: dir, profile, extraInstructions,
+    cvSource: settings.source, provider: settings.agentProvider || 'cursor',
+    model: settings.agentModel || null, onEvent, prepare });
+  if (!pack) throw new Error('CV could not be rendered for review');
+  pack.review = await loadReviewSummary(dir);
+  pack.agent = await loadAgentSession(dir);
+  return pack;
 }
 
 function escapeForPre(s) {
@@ -687,6 +692,43 @@ function escapeForPre(s) {
 
 /** Write prep files + tailored CV under .workspace/prep/<id>/ */
 export async function writePrepPack(job, profile, fit, savedAnswers = {}, options = {}) {
+  const settings = { ...(await loadCvSettings()), ...options };
+  const mode = settings.tailorMode || 'agent';
+  const includeLetter = options.includeCoverLetter !== false;
+  const state = await prepStatus(job, profile, settings, {
+    cv: true, letter: includeLetter, instructions: options.extraInstructions || '', mode,
+  });
+  if (!options.replaceExisting && (options.useCache || options.recreate === false) && Object.values(state).every((s) => s === 'current')
+    && await hasCvPdf(job.id)) {
+    return loadCachedPrepPack(job.id, fit, job, profile);
+  }
+  const pack = await generateDocuments({ job, profile, settings,
+    instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'],
+    replaceExisting: options.replaceExisting === true },
+  () => writePrepPackUncached(job, profile, fit, savedAnswers, { ...options, recreate: true, useCache: false }));
+  if (!pack.needsReview) {
+    if (settings.source === 'overleaf' && settings.overleafPush !== false) {
+      try {
+        const pushed = await pushValidatedOverleaf({ job, prepDir: pack.dir });
+        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: pushed.pushed, pushReason: pushed.reason });
+      } catch (error) {
+        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: false, pushReason: error.message });
+        options.onEvent?.({ stream: 'stderr', line: `Overleaf push skipped: ${error.message}` });
+      }
+    }
+    if (options.replaceExisting) {
+      await clearJobDownloads({ jobId: job.id, company: job.company, jobTitle: job.title });
+      options.onEvent?.({ stream: 'meta', line: 'Cleared the previous role folder; exporting fresh documents.' });
+    }
+    const exported = await exportPrepDownloads(job, profile);
+    pack.downloadFolderAbs = exported.absoluteDir || null;
+    pack.downloadFolder = exported.relativeDir || null;
+    pack.downloadError = exported.error || null;
+  }
+  return pack;
+}
+
+async function writePrepPackUncached(job, profile, fit, savedAnswers = {}, options = {}) {
   const dir = prepDir(job.id);
   await mkdir(dir, { recursive: true });
 
@@ -694,12 +736,6 @@ export async function writePrepPack(job, profile, fit, savedAnswers = {}, option
   const extraInstructions = String(options.extraInstructions || '').trim();
   const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
   settings.onEvent = onEvent;
-
-  // Cache short-circuit (explicit)
-  if (options.useCache === true || (options.recreate === false && (await hasCvPdf(job.id)))) {
-    const cached = await loadCachedPrepPack(job.id, fit, job, profile);
-    if (cached) return cached;
-  }
 
   const requestedMode = options.tailorMode === 'fast' || settings.tailorMode === 'fast'
     ? 'fast'
@@ -775,17 +811,20 @@ async function attachCoverLetterAfterPrep(pack, {
   try {
     const letter = await generateCoverLetterPack(job, profile, fit, {
       prepDir: dir,
+      cvSource: settings.source,
       extraInstructions,
       tailorMode,
       provider: settings.agentProvider,
       model: settings.agentModel,
       onEvent,
     });
+    pack.agent = await loadAgentSession(dir);
     pack.coverLetter = letter.letter;
     pack.coverLetterIncluded = letter.included;
     pack.coverLetterMode = letter.tailorMode;
     pack.coverLetterFallback = letter.fallbackReason || null;
     pack.coverLetterPdfError = letter.pdfError || null;
+    pack.review = letter.review || (await loadReviewSummary(dir));
     if (letter.export?.absoluteDir) {
       pack.downloadFolderAbs = letter.export.absoluteDir;
       pack.downloadFolder = letter.export.relativeDir;
@@ -844,6 +883,7 @@ export async function readPrepPack(jobId) {
       hasCv,
       ...flags,
       cvMd,
+      review: await loadReviewSummary(dir),
       ...packDownloads(jobId, flags),
     };
   } catch {
@@ -871,6 +911,10 @@ export async function readPrepFile(jobId, filename) {
     'quality-report.md',
     'keyword-gaps.md',
     'cover-letter-report.md',
+    'review.md',
+    'cover-letter-review.md',
+    'review-summary.json',
+    'page-check.md',
     'cv-ats.txt',
   ]);
   if (!allowed.has(filename)) return null;
@@ -887,12 +931,13 @@ export async function readPrepFile(jobId, filename) {
   }
 }
 
-/** Re-export PDFs + cover letter into <project-root>/downloads/<Company>/. */
+/** Re-export PDFs + cover letter into <project-root>/downloads/<Company>/<Role>-<JobID>/. */
 export async function exportPrepDownloads(job, profile) {
   if (!job?.id) return { error: 'job required' };
   const flags = await pdfFlags(job.id);
   const dir = prepDir(job.id);
-  const cvExport = await publishDownloads(job, profile, dir, flags);
+  const freshness = await prepStatus(job, profile, await loadCvSettings());
+  const cvExport = freshness.cv === 'current' ? await publishDownloads(job, profile, dir, flags) : null;
 
   let letterMd = '';
   try {
@@ -903,8 +948,9 @@ export async function exportPrepDownloads(job, profile) {
   const letterPdf = join(dir, 'cover-letter.pdf');
   const letterDocx = join(dir, 'cover-letter.docx');
   let letterExport = null;
-  if (letterMd) {
+  if (letterMd && freshness.letter === 'current') {
     letterExport = await exportCoverLetterDownloads({
+      jobId: job.id,
       company: job.company,
       profileName: profile?.name,
       jobTitle: job.title,
@@ -922,7 +968,7 @@ export async function exportPrepDownloads(job, profile) {
     files,
     absoluteDir: letterExport?.absoluteDir || cvExport?.absoluteDir,
     relativeDir: letterExport?.relativeDir || cvExport?.relativeDir,
-    error: !files.length ? (cvExport?.error || 'Nothing to export') : null,
+    error: !files.length ? (cvExport?.error || 'Documents are outdated or need review; recreate Prep before exporting.') : null,
   };
 }
 

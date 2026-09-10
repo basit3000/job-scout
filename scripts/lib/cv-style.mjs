@@ -104,10 +104,10 @@ export const CONCRETE_VERBS = [
 export const SUSPECT_CLAIM_RE = /\b\d+(?:[.,]\d+)?\s*\+?\s*(?:%|percent|prozent|years?|yrs|jahren?|months?|engineers?|developers?|people|members?|users?|customers?|clients?|teams?|services?|microservices|requests?|rps|qps|ms|tps|countries|markets|stores?|projects?|repositories|repos|commits?|stars?|downloads?|installs?|million|billion|thousand|k|m|x)(?![a-z0-9])|\bteam of \d+|\b\d+[.,]\d{3}\b/gi;
 
 export const LETTER_LIMITS = {
-  minWords: 170,
-  maxWords: 340,
+  minWords: 200,
+  maxWords: 400,
   minParagraphs: 3,
-  maxParagraphs: 5,
+  maxParagraphs: 7,
   maxSentenceWords: 38,
 };
 
@@ -178,6 +178,9 @@ export function findStyleIssues(text, { context = 'cv', personalProject = false,
   if (context === 'letter') {
     for (const m of src.matchAll(/—|–|\s-\s/g)) add('dash', 'soft', m[0].trim() || '-', m.index);
     for (const m of src.matchAll(/\?/g)) add('rhetorical-question', 'soft', '?', m.index);
+    for (const m of src.matchAll(/\brole at\b[^.\n]{0,80}\bis for\b/gi)) {
+      add('job-restatement', 'hard', m[0].trim(), m.index);
+    }
   } else {
     for (const m of src.matchAll(/—/g)) add('dash', 'soft', '—', m.index);
   }
@@ -242,6 +245,7 @@ export function styleRulesMarkdown({ context = 'cv' } = {}) {
       `- Body ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords} words, ${LETTER_LIMITS.minParagraphs}–${LETTER_LIMITS.maxParagraphs} paragraphs, no sentence over ${LETTER_LIMITS.maxSentenceWords} words.`,
       '- Do not open with "I am writing to apply". Do not close with "I look forward to hearing from you".',
       '- Do not praise the company. Do not state a company fact that is not in the posting.',
+      '- Do not write "The [role] at [company] is for [work]". The subject line already names the role.',
       '- Do not restate the CV; pick the two or three facts this posting asks for and say them in simple sentences.',
       '- Sound like the candidate: clear, basic, correct. Not a native-speaker cover letter and not an LLM.',
     );

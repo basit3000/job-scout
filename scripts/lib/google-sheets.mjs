@@ -21,13 +21,13 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 
 /** Statuses written/updated in the sheet (application pipeline). */
-export const SHEET_SYNC_DECISIONS = ['applied', 'interviewing', 'rejected', 'closed'];
+export const SHEET_SYNC_DECISIONS = ['applied', 'interviewing', 'offer', 'accepted', 'rejected', 'closed'];
 
 export const SHEET_HEADERS = [
   'Date',
   'Company',
   'Title',
-  'Applied',
+  'Status',
   'Links',
   'Location',
   'Board',
@@ -71,7 +71,7 @@ export function isCurrentSheetHeader(row) {
   return cells[0] === 'Date'
     && cells[1] === 'Company'
     && cells[2] === 'Title'
-    && cells[3] === 'Applied'
+    && cells[3] === 'Status'
     && cells[4] === 'Links';
 }
 
@@ -120,7 +120,7 @@ export function remapShiftedSheetRow(row = [], dateHint = '') {
 export function rowFromEntry(entry, job = null) {
   const remote = job?.remote === true ? 'yes' : job?.remote === false ? 'no' : '';
   return [
-    entry.date || '',
+    entry.appliedDate || entry.date || '',
     entry.company || job?.company || '',
     entry.title || job?.title || '',
     entry.decision || '',
@@ -198,7 +198,7 @@ export function parseSheetDataRow(header, cells) {
     date: obj.Date || cells?.[0] || '',
     company: obj.Company || cells?.[1] || '',
     title: obj.Title || cells?.[2] || '',
-    applied: obj.Applied || cells?.[3] || '',
+    applied: obj.Status || cells?.[3] || '',
     links: obj.Links || cells?.[4] || '',
   };
 }

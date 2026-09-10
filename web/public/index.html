@@ -11,6 +11,7 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#layout">Skip to jobs</a>
     <div class="app">
       <header class="top">
         <div class="brand">
@@ -24,12 +25,34 @@
         </div>
       </header>
 
-      <section class="toolbar" aria-label="Search settings">
+      <div class="tabs" role="tablist" aria-label="Job search workspace">
+        <button type="button" class="tab active" data-view="results" role="tab">Find jobs</button>
+        <button type="button" class="tab" data-view="digest" role="tab">
+          New matches <span class="tab-badge" id="digestBadge" hidden>0</span>
+        </button>
+        <button type="button" class="tab" data-view="ready" role="tab">
+          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
+        </button>
+        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
+        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
+        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
+      </div>
+
+      <section class="toolbar" id="searchToolbar" aria-label="Search settings">
         <div class="toolbar-row">
           <label class="field">
             <span>Market</span>
             <select id="marketSelect" aria-label="Market"></select>
           </label>
+          <label class="field field-num" title="Drop postings older than this many days">
+            <span>Max age (days)</span>
+            <input type="number" id="maxAgeDays" min="1" max="365" step="1" />
+          </label>
+          <p class="search-reassurance">Find new opportunities. Your saved applications stay in Tracker.</p>
+        </div>
+        <details class="toolbar-more">
+          <summary>Advanced search options</summary>
+          <div class="toolbar-row">
           <label class="field field-num" title="Jobs pulled per title×city query on each portal">
             <span>Per query</span>
             <input type="number" id="limitPerQuery" min="1" max="100" step="1" />
@@ -37,10 +60,6 @@
           <label class="field field-num" title="Max paid Apify actor runs per fetch (0 = unlimited)">
             <span>Max paid</span>
             <input type="number" id="maxApifyRuns" min="0" max="200" step="1" />
-          </label>
-          <label class="field field-num" title="Drop postings older than this many days">
-            <span>Max age (days)</span>
-            <input type="number" id="maxAgeDays" min="1" max="365" step="1" />
           </label>
           <div class="toolbar-toggles">
             <label class="toggle" title="Off = free JobSpy. On = may call Apify (costs money).">
@@ -52,7 +71,10 @@
               <span>Replace results</span>
             </label>
           </div>
-        </div>
+          </div>
+          <p class="meta">Paid sources are optional. Replacing results keeps your tracker.</p>
+        <p class="plan-hint" id="planHint" hidden></p>
+        </details>
         <details class="toolbar-more">
           <summary>Prep &amp; CV settings</summary>
           <div class="toolbar-row">
@@ -72,10 +94,13 @@
                 <option value="codex">OpenAI Codex</option>
               </select>
             </label>
-            <label class="field" title="Model for the selected agent. Empty = CLI default (Claude Code / Codex).">
+            <label class="field agent-model-field" title="Models reported by the selected provider. Configured default uses your existing configuration.">
               <span>Agent model</span>
-              <select id="agentModel" aria-label="Prep agent model"></select>
+              <select id="agentModel" aria-label="Prep agent model" aria-describedby="agentModelsHint"></select>
+              <input id="agentModelCustom" aria-label="Custom agent model ID" placeholder="Exact model ID, then Enter" hidden />
+              <small id="agentModelsHint" role="status"></small>
             </label>
+            <button id="refreshAgentModels" type="button" class="btn" title="Reload models from the selected provider">Refresh models</button>
             <div class="toolbar-toggles">
               <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
                 <input type="checkbox" id="overleafPush" checked />
@@ -84,21 +109,7 @@
             </div>
           </div>
         </details>
-        <p class="plan-hint" id="planHint" hidden></p>
       </section>
-
-      <div class="tabs" role="tablist">
-        <button type="button" class="tab active" data-view="results" role="tab">Results</button>
-        <button type="button" class="tab" data-view="digest" role="tab">
-          Digest <span class="tab-badge" id="digestBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="ready" role="tab">
-          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
-        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
-        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
-      </div>
 
       <div id="alerts" class="alerts"></div>
 
@@ -117,15 +128,16 @@
         </div>
       </div>
 
-      <main class="layout" id="layout">
+      <main class="layout" id="layout" tabindex="-1">
         <section class="jobs-panel" id="viewResults" aria-label="Job results">
           <div class="panel-head">
             <div>
-              <h2>Results</h2>
+              <p class="eyebrow">DISCOVER · PREPARE · APPLY</p>
+              <h2>Find your next role</h2>
               <p class="meta" id="jobsMeta">No fetch yet.</p>
             </div>
             <div class="filters">
-              <input type="search" id="searchInput" placeholder="Filter title, company…" />
+              <input type="search" id="searchInput" aria-label="Search job title or company" placeholder="Search title or company…" />
               <div class="filter-menu" id="decisionFilterMenu">
                 <button type="button" class="filter-trigger" id="decisionFilterBtn" aria-expanded="false" aria-haspopup="true" aria-controls="decisionFilterPanel">
                   <span class="filter-trigger-label">Decision</span>
@@ -158,6 +170,10 @@
                 <option value="newest">Newest posted</option>
                 <option value="oldest">Oldest posted</option>
               </select>
+              <select id="resultScope" aria-label="Results or history">
+                <option value="current">Current search</option>
+                <option value="history">All saved jobs</option>
+              </select>
               <select id="pageSize" aria-label="Page size">
                 <option value="10">10 / page</option>
                 <option value="20">20 / page</option>
@@ -165,12 +181,18 @@
               </select>
             </div>
           </div>
+          <div class="result-shortcuts" aria-label="Quick result filters">
+            <button type="button" class="btn small" id="focusResultsBtn">Jobs to review</button>
+            <button type="button" class="btn ghost small" id="resetResultsBtn">Reset filters</button>
+            <span class="meta">Shortlist promising roles, then prepare your documents.</span>
+          </div>
           <div class="active-filters" id="activeDecisionFilters" hidden></div>
-          <div id="boardStatus" class="board-status" hidden></div>
+          <details id="boardDetails" class="board-details" hidden><summary id="boardSummary">Search sources</summary><div id="boardStatus" class="board-status" hidden></div></details>
           <div id="jobList" class="job-list"></div>
           <div id="emptyState" class="empty" hidden>
-            <h3>No postings yet</h3>
-            <p>Pick a market and run a search. Results accumulate across runs (duplicates collapsed). Check Replace results to start fresh.</p>
+            <h3 id="emptyTitle">No postings yet</h3>
+            <p id="emptyHint">Choose a market and run your first search. Save promising jobs to track them here.</p>
+            <button type="button" class="btn" id="emptyResetBtn" hidden>Reset filters</button>
             <button type="button" class="btn primary" id="emptyRunBtn">Run search</button>
           </div>
           <div class="pager" id="pager" hidden>
@@ -183,27 +205,53 @@
         <section class="jobs-panel" id="viewTracker" hidden aria-label="Application tracker">
           <div class="panel-head">
             <div>
-              <h2>Tracker</h2>
+              <p class="eyebrow">YOUR APPLICATION WORKSPACE</p>
+              <h2>Application tracker</h2>
               <p class="meta" id="trackerMeta">Applications you've marked — not the search archive.</p>
             </div>
             <div class="filters">
-              <input type="search" id="trackerSearch" placeholder="Filter company or title…" />
+              <button type="button" class="btn primary" id="addApplicationBtn">+ Add application</button>
+              <input type="search" id="trackerSearch" aria-label="Search applications and notes" placeholder="Search company, role, contact or notes…" />
+              <select id="trackerSort" aria-label="Sort by date">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
+              <select id="trackerPageSize" aria-label="Page size">
+                <option value="10">10 / page</option>
+                <option value="20" selected>20 / page</option>
+                <option value="50">50 / page</option>
+              </select>
+              <details class="tracker-sheet-tools"><summary>Google Sheets</summary>
               <div class="sheets-bar" id="sheetsBar">
                 <a class="btn ghost small" id="sheetsOpenLink" href="#" target="_blank" rel="noopener" hidden>Open Sheet</a>
                 <button type="button" class="btn ghost small" id="sheetsSyncBtn" hidden>Sync to Sheets</button>
               </div>
+              <p class="meta sheets-hint" id="sheetsHint" hidden></p>
+              </details>
             </div>
           </div>
-          <p class="meta sheets-hint" id="sheetsHint" hidden></p>
+          <div class="tracker-summary" id="trackerSummary" aria-label="Application overview"></div>
+          <p class="workspace-feedback" id="trackerFeedback" role="status" aria-live="polite" hidden></p>
+          <div class="tracker-presets" aria-label="Application views">
+            <button type="button" class="btn small" data-tracker-preset="active">Active applications</button>
+            <button type="button" class="btn small" data-tracker-preset="all">All statuses</button>
+            <button type="button" class="btn small" data-tracker-preset="due">Follow-ups due</button>
+
+          </div>
           <div class="tracker-tabs" id="trackerTabs" role="group" aria-label="Filter by status"></div>
           <div id="trackerList" class="tracker-list"></div>
+          <div class="pager" id="trackerPager" hidden>
+            <button type="button" class="btn ghost" id="trackerPrevPage">Previous</button>
+            <span id="trackerPageLabel">Page 1</span>
+            <button type="button" class="btn ghost" id="trackerNextPage">Next</button>
+          </div>
         </section>
 
         <section class="jobs-panel" id="viewAnswers" hidden aria-label="Saved answers">
           <div class="panel-head">
             <div>
               <h2>Saved answers</h2>
-              <p class="meta">Reuse on application forms. Stored in state/saved-answers.json. LinkedIn Easy Apply uses these when you click Fill.</p>
+              <p class="meta">Reuse on application forms. Saved locally on your computer. LinkedIn Easy Apply uses these when you click Fill.</p>
             </div>
             <div class="filters">
               <button type="button" class="btn ghost" id="copyAnswersBtn">Copy pack</button>
@@ -217,7 +265,7 @@
           <div class="panel-head">
             <div>
               <h2>Portals</h2>
-              <p class="meta">Enable boards for the next search. Saved to your local search-profile.json.</p>
+              <p class="meta">Enable boards for the next search. Your selection is saved for future searches.</p>
             </div>
             <button type="button" class="btn primary" id="savePortalsBtn">Save portals</button>
           </div>
@@ -347,6 +395,13 @@
             Create cover letter
           </label>
         </div>
+        <div id="prepReplaceRow" hidden>
+          <label class="filter-check">
+            <input type="checkbox" id="prepReplaceExisting" aria-describedby="prepReplaceHint" />
+            Replace existing CV and reset role folder
+          </label>
+          <p id="prepReplaceHint" class="meta">Starts fresh. After validation, deletes this role's old download folder, including its cover letter, and saves the new files. Select cover letter above to regenerate it too.</p>
+        </div>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
           <select id="prepInstrPreset" aria-label="Instruction preset">
@@ -383,6 +438,7 @@
             <button type="button" class="btn ghost small" id="batchSelectNone">None</button>
             <button type="button" class="btn ghost small" id="batchSelectMissing">Without CV</button>
             <button type="button" class="btn ghost small" id="batchSelectStrong">Strong fit only</button>
+            <button type="button" class="btn ghost small" id="batchSelectWorth">Worth a shot</button>
             <span class="meta" id="batchSelectCount"></span>
           </div>
           <div class="batch-list" id="batchSelectList" role="group" aria-label="Postings to prepare"></div>
@@ -394,6 +450,8 @@
             </fieldset>
             <label class="toggle"><input type="checkbox" id="batchIncludeLetter" checked /> Cover letter too</label>
             <label class="toggle"><input type="checkbox" id="batchSkipExisting" checked /> Skip jobs that already have files</label>
+            <label class="toggle"><input type="checkbox" id="batchReplaceExisting" aria-describedby="batchReplaceHint" /> Replace existing CVs and reset role folders</label>
+            <p id="batchReplaceHint" class="meta">Starts fresh for every selected role and turns off Skip existing. After validation, replaces each role's download folder, including its old cover letter. Select Cover letter too to regenerate letters.</p>
             <label class="prep-modal-field">
               <span>Extra instructions (optional)</span>
               <input type="text" id="batchInstructions" maxlength="500" placeholder="Stack emphasis, what to lead with…" />
@@ -455,6 +513,45 @@
           <button type="button" class="btn" id="applyAssistCopy">Copy pack</button>
           <button type="button" class="btn" id="applyAssistOpenFolder" hidden>Open files folder</button>
           <button type="button" class="btn primary" id="applyAssistOpen">Open job</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="recruiterModal" class="prep-modal" hidden>
+      <div class="prep-modal-card recruiter-card" role="dialog" aria-labelledby="recruiterModalTitle" aria-modal="true">
+        <h3 id="recruiterModalTitle">Recruiter</h3>
+        <p id="recruiterModalHint" class="meta">Looks up name, email, and LinkedIn from the posting and company pages. Saved as it finds them.</p>
+        <label class="prep-modal-field">
+          <span>Name</span>
+          <input id="recruiterName" type="text" autocomplete="off" />
+        </label>
+        <label class="prep-modal-field">
+          <span>Role</span>
+          <input id="recruiterRole" type="text" autocomplete="off" placeholder="Talent partner, hiring manager…" />
+        </label>
+        <label class="prep-modal-field">
+          <span>Email</span>
+          <div class="recruiter-row">
+            <input id="recruiterEmail" type="email" autocomplete="off" />
+            <a class="btn small" id="recruiterEmailOpen" href="#" hidden>Mail</a>
+          </div>
+        </label>
+        <label class="prep-modal-field">
+          <span>LinkedIn</span>
+          <div class="recruiter-row">
+            <input id="recruiterLinkedin" type="url" autocomplete="off" placeholder="https://linkedin.com/in/…" />
+            <a class="btn small" id="recruiterLinkedinOpen" href="#" target="_blank" rel="noopener" hidden>Open</a>
+          </div>
+        </label>
+        <p id="recruiterStatus" class="meta"></p>
+        <p id="recruiterSources" class="meta recruiter-sources"></p>
+        <pre id="recruiterLog" class="apply-assist-pre recruiter-log" hidden></pre>
+        <div class="prep-modal-actions">
+          <button type="button" class="btn ghost" id="recruiterClose">Close</button>
+          <button type="button" class="btn" id="recruiterSave">Save</button>
+          <button type="button" class="btn" id="recruiterLookup">Lookup again</button>
+          <button type="button" class="btn" id="recruiterStop" hidden>Stop</button>
+          <button type="button" class="btn primary" id="recruiterAgent" hidden>Search with agent</button>
         </div>
       </div>
     </div>

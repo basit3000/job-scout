@@ -1,3 +1,8 @@
+import { createModelPicker } from './agent-model-picker.js';
+import { mountPager } from './pagination.js';
+import { openApplicationEditor } from './application-editor.js';
+import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
+
 const $ = (id) => document.getElementById(id);
 
 const els = {
@@ -33,6 +38,7 @@ const els = {
   fitFilter: $('fitFilter'),
   langFilter: $('langFilter'),
   sortSelect: $('sortSelect'),
+  resultScope: $('resultScope'),
   pageSize: $('pageSize'),
   pager: $('pager'),
   pageLabel: $('pageLabel'),
@@ -53,8 +59,14 @@ const els = {
   viewDigest: $('viewDigest'),
   trackerMeta: $('trackerMeta'),
   trackerSearch: $('trackerSearch'),
+  trackerSort: $('trackerSort'),
+  trackerPageSize: $('trackerPageSize'),
   trackerTabs: $('trackerTabs'),
   trackerList: $('trackerList'),
+  trackerPager: $('trackerPager'),
+  trackerPageLabel: $('trackerPageLabel'),
+  trackerPrevPage: $('trackerPrevPage'),
+  trackerNextPage: $('trackerNextPage'),
   sheetsBar: $('sheetsBar'),
   sheetsOpenLink: $('sheetsOpenLink'),
   sheetsSyncBtn: $('sheetsSyncBtn'),
@@ -91,10 +103,12 @@ const els = {
   batchSelectNone: $('batchSelectNone'),
   batchSelectMissing: $('batchSelectMissing'),
   batchSelectStrong: $('batchSelectStrong'),
+  batchSelectWorth: $('batchSelectWorth'),
   batchSelectCount: $('batchSelectCount'),
   batchSelectList: $('batchSelectList'),
   batchIncludeLetter: $('batchIncludeLetter'),
   batchSkipExisting: $('batchSkipExisting'),
+  batchReplaceExisting: $('batchReplaceExisting'),
   batchInstructions: $('batchInstructions'),
   batchError: $('batchError'),
   batchCancelSetup: $('batchCancelSetup'),
@@ -127,6 +141,8 @@ const els = {
   prepModalRecreate: $('prepModalRecreate'),
   prepCreateCv: $('prepCreateCv'),
   prepCreateCoverLetter: $('prepCreateCoverLetter'),
+  prepReplaceRow: $('prepReplaceRow'),
+  prepReplaceExisting: $('prepReplaceExisting'),
   statusModal: $('statusModal'),
   statusModalTitle: $('statusModalTitle'),
   statusModalHint: $('statusModalHint'),
@@ -142,14 +158,33 @@ const els = {
   applyAssistCopy: $('applyAssistCopy'),
   applyAssistOpenFolder: $('applyAssistOpenFolder'),
   applyAssistOpen: $('applyAssistOpen'),
+  recruiterModal: $('recruiterModal'),
+  recruiterModalTitle: $('recruiterModalTitle'),
+  recruiterModalHint: $('recruiterModalHint'),
+  recruiterName: $('recruiterName'),
+  recruiterRole: $('recruiterRole'),
+  recruiterEmail: $('recruiterEmail'),
+  recruiterEmailOpen: $('recruiterEmailOpen'),
+  recruiterLinkedin: $('recruiterLinkedin'),
+  recruiterLinkedinOpen: $('recruiterLinkedinOpen'),
+  recruiterStatus: $('recruiterStatus'),
+  recruiterSources: $('recruiterSources'),
+  recruiterLog: $('recruiterLog'),
+  recruiterClose: $('recruiterClose'),
+  recruiterSave: $('recruiterSave'),
+  recruiterLookup: $('recruiterLookup'),
+  recruiterStop: $('recruiterStop'),
+  recruiterAgent: $('recruiterAgent'),
 };
 
-const DECISIONS = ['shortlisted', 'applied', 'skipped', 'interviewing', 'rejected', 'closed'];
+const DECISIONS = ['shortlisted', 'applied', 'interviewing', 'offer', 'accepted', 'rejected', 'closed', 'skipped'];
 const DECISION_LABELS = {
   shortlisted: 'Shortlisted',
   applied: 'Applied',
   skipped: 'Skipped',
   interviewing: 'Interviewing',
+  offer: 'Offer',
+  accepted: 'Accepted',
   rejected: 'Rejected',
   closed: 'Closed',
 };
@@ -161,6 +196,8 @@ const DECISION_FILTER_OPTIONS = [
   { id: 'applied', label: 'Applied' },
   { id: 'skipped', label: 'Skipped' },
   { id: 'interviewing', label: 'Interviewing' },
+  { id: 'offer', label: 'Offer' },
+  { id: 'accepted', label: 'Accepted' },
   { id: 'rejected', label: 'Rejected' },
   { id: 'closed', label: 'Closed' },
 ];
@@ -169,15 +206,19 @@ const TRACKER_STATUS_OPTIONS = DECISIONS.map((id) => ({
   label: DECISION_LABELS[id],
 }));
 /** Tracker default: the live pile, not skipped / rejected / closed. */
-const TRACKER_DEFAULT_VISIBLE = ['shortlisted', 'applied', 'interviewing'];
+const TRACKER_DEFAULT_VISIBLE = [...ACTIVE_STATUSES];
 /** Preset: hide terminal / done statuses — keep hunting in the active pile. */
-const ACTIVE_ONLY_HIDDEN = ['applied', 'skipped', 'rejected', 'closed'];
+const ACTIVE_ONLY_HIDDEN = ['applied', 'interviewing', 'offer', 'accepted', 'skipped', 'rejected', 'closed'];
 const LS_VISIBLE_DECISIONS = 'jobScout.visibleDecisions';
-const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns';
+const LS_TRACKER_COLUMNS = 'jobScout.trackerVisibleColumns.v2';
 const LS_SORT = 'jobScout.sort';
+const LS_TRACKER_SORT = 'jobScout.trackerSort';
+const LS_TRACKER_PAGE_SIZE = 'jobScout.trackerPageSize';
 const LS_LANG = 'jobScout.langFilter';
 const LS_LOG_MINIMIZED = 'jobScout.logMinimized';
 const SORT_VALUES = ['fit', 'newest', 'oldest'];
+const TRACKER_SORT_VALUES = ['newest', 'oldest'];
+const TRACKER_PAGE_SIZES = [10, 20, 50];
 const LANG_VALUES = ['all', 'en', 'de'];
 const LANG_LABEL = { en: 'English', de: 'German' };
 
@@ -213,6 +254,10 @@ let state = {
   trackerVisibleColumns: new Set(TRACKER_DEFAULT_VISIBLE),
   trackerItems: [],
   trackerCounts: {},
+  trackerPage: 1,
+  trackerPageSize: 20,
+  trackerSort: 'newest',
+  trackerDueOnly: false,
   /** Digest jobs currently shown — the pool for Create CVs… */
   digestJobs: [],
   /** Last batch snapshot from the server */
@@ -268,6 +313,49 @@ function toggleFilterMenu(menu, btn, panel) {
   panel.hidden = !open;
   btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   menu.classList.toggle('open', open);
+}
+
+const listPages = { digest: { page: 1, pageSize: 10 }, ready: { page: 1, pageSize: 10 } };
+const listRequests = {};
+const listPagers = {};
+for (const [name, list] of [['digest', els.digestList], ['ready', els.readyList]]) {
+  listPagers[name] = mountPager(list, name === 'digest' ? 'New matches' : 'Ready to apply', (page, pageSize) => {
+    listPages[name] = { page, pageSize };
+    (name === 'digest' ? refreshDigest : refreshReady)();
+    list.previousElementSibling?.scrollIntoView({ block: 'start' });
+  });
+}
+const resultsPager = mountPager(els.jobList, 'Find jobs', (page, pageSize) => {
+  state.page = page; els.pageSize.value = String(pageSize); refreshJobs();
+}, { bottom: false });
+let batchJobs = [], batchSelection = new Set();
+let batchPage = { page: 1, pageSize: 20 }, progressPage = { page: 1, pageSize: 20 };
+function localPage(items, requested) {
+  const pages = Math.max(1, Math.ceil(items.length / requested.pageSize));
+  const page = Math.min(requested.page, pages);
+  return { page, pages, pageSize: requested.pageSize, total: items.length, items: items.slice((page - 1) * requested.pageSize, page * requested.pageSize) };
+}
+const batchPager = mountPager(els.batchSelectList, 'Batch selection', (page, pageSize) => { batchPage = { page, pageSize }; renderBatchSelectList(batchJobs); }, { size: 20 });
+const progressPager = mountPager(els.batchProgressList, 'Batch progress', (page, pageSize) => { progressPage = { page, pageSize }; renderBatchProgress(state.batch); }, { size: 20 });
+function listFeedback(list, message, retry) {
+  let box = list.parentElement.querySelector(`[data-feedback="${list.id}"]`);
+  if (!box) {
+    box = document.createElement('div'); box.className = 'list-feedback';
+    box.dataset.feedback = list.id; box.setAttribute('role', 'status');
+    list.insertAdjacentElement('beforebegin', box);
+  }
+  box.replaceChildren(); box.hidden = !message;
+  if (message) box.append(document.createTextNode(message));
+  if (retry) {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'btn small'; button.textContent = 'Retry'; button.onclick = retry; box.append(button);
+  }
+}
+async function loadPagedView(name, list, load, retry) {
+  listRequests[name]?.abort(); const controller = new AbortController(); listRequests[name] = controller;
+  list.setAttribute('aria-busy', 'true'); listFeedback(list, 'Loading…');
+  try { await load(controller.signal); if (!controller.signal.aborted) listFeedback(list, ''); }
+  catch (err) { if (!controller.signal.aborted) listFeedback(list, `Could not load this list: ${err.message}. `, retry); }
+  finally { if (listRequests[name] === controller) list.removeAttribute('aria-busy'); }
 }
 
 function renderFilterChecks(container, options, visibleSet, onChange) {
@@ -350,11 +438,12 @@ function onDecisionFilterChange({ rerender = false } = {}) {
   updateDecisionFilterUi();
   state.page = 1;
   refreshJobs();
-  if (state.view === 'digest') refreshDigest();
+  if (state.view === 'digest') { listPages.digest.page = 1; refreshDigest(); }
 }
 
 function onTrackerStatusChange() {
   saveSetToStorage(LS_TRACKER_COLUMNS, state.trackerVisibleColumns);
+  state.trackerPage = 1;
   renderTracker();
 }
 
@@ -380,6 +469,10 @@ function initFilterMenus() {
   updateDecisionFilterUi();
   if (els.sortSelect) els.sortSelect.value = loadSort();
   if (els.langFilter) els.langFilter.value = loadLang();
+  state.trackerSort = loadTrackerSort();
+  state.trackerPageSize = loadTrackerPageSize();
+  if (els.trackerSort) els.trackerSort.value = state.trackerSort;
+  if (els.trackerPageSize) els.trackerPageSize.value = String(state.trackerPageSize);
 
   els.decisionFilterBtn?.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -576,7 +669,7 @@ function setChip(stateName, label) {
 
 function loadLogMinimized() {
   try {
-    return localStorage.getItem(LS_LOG_MINIMIZED) === '1';
+    return localStorage.getItem(LS_LOG_MINIMIZED) !== '0';
   } catch {
     return false;
   }
@@ -594,7 +687,7 @@ function applyLogMinimized(minimized) {
   els.layout?.classList.toggle('log-minimized', minimized);
   els.logPanel?.classList.toggle('is-minimized', minimized);
   if (els.toggleLogBtn) {
-    els.toggleLogBtn.textContent = minimized ? 'Expand' : 'Minimize';
+    els.toggleLogBtn.textContent = minimized ? 'Show activity' : 'Hide activity';
     els.toggleLogBtn.setAttribute('aria-expanded', minimized ? 'false' : 'true');
   }
 }
@@ -793,6 +886,20 @@ function formatShortDate(iso) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
+function formatTrackerWhen(item) {
+  const stamp = item?.updatedAt || '';
+  if (stamp && /T/.test(stamp)) {
+    const d = new Date(stamp);
+    if (!Number.isNaN(d.getTime())) {
+      return {
+        date: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+      };
+    }
+  }
+  return { date: formatShortDate(item?.date) || '—', time: '' };
+}
+
 function formatBoard(board) {
   if (!board) return '';
   const known = {
@@ -863,6 +970,45 @@ function saveSort(value) {
   }
 }
 
+function loadTrackerSort() {
+  try {
+    const raw = localStorage.getItem(LS_TRACKER_SORT);
+    return TRACKER_SORT_VALUES.includes(raw) ? raw : 'newest';
+  } catch {
+    return 'newest';
+  }
+}
+
+function saveTrackerSort(value) {
+  const next = TRACKER_SORT_VALUES.includes(value) ? value : 'newest';
+  state.trackerSort = next;
+  try {
+    localStorage.setItem(LS_TRACKER_SORT, next);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadTrackerPageSize() {
+  try {
+    const n = Number(localStorage.getItem(LS_TRACKER_PAGE_SIZE));
+    return TRACKER_PAGE_SIZES.includes(n) ? n : 20;
+  } catch {
+    return 20;
+  }
+}
+
+function saveTrackerPageSize(value) {
+  const n = Number(value);
+  const next = TRACKER_PAGE_SIZES.includes(n) ? n : 20;
+  state.trackerPageSize = next;
+  try {
+    localStorage.setItem(LS_TRACKER_PAGE_SIZE, String(next));
+  } catch {
+    /* ignore */
+  }
+}
+
 function loadLang() {
   try {
     const raw = localStorage.getItem(LS_LANG);
@@ -888,6 +1034,7 @@ function queryString() {
     fit: els.fitFilter.value,
     lang: els.langFilter?.value || 'all',
     sort: els.sortSelect?.value || 'fit',
+    scope: els.resultScope?.value || 'current',
   });
   const hide = hiddenFromVisible(
     DECISION_FILTER_OPTIONS.map((o) => o.id),
@@ -905,7 +1052,8 @@ function renderJob(job, { compact = false } = {}) {
   const facts = [
     job.location,
     job.remote === true ? 'Remote' : null,
-    job.ageDays != null ? `${job.ageDays}d ago` : null,
+    job.ageDays != null ? `Posted ${job.ageDays}d ago` : 'Posting date unknown',
+    job.currentSearch?.lastSeenAt ? `Last seen ${new Date(job.currentSearch.lastSeenAt).toLocaleDateString()}` : null,
     job.board ? `${formatBoard(job.board)}${job.via ? ` via ${job.via}` : ''}` : null,
     job.salary,
   ].filter(Boolean);
@@ -925,7 +1073,7 @@ function renderJob(job, { compact = false } = {}) {
         }</h3>
         <p class="job-company">${escapeHtml(job.company || 'unknown')}</p>
       </div>
-      ${compact ? '' : '<button type="button" class="btn ghost toggle-desc">Details</button>'}
+      ${compact ? '' : '<button type="button" class="btn ghost toggle-desc" aria-expanded="false">View details</button>'}
     </div>
     <div class="job-facts">
       ${
@@ -937,8 +1085,14 @@ function renderJob(job, { compact = false } = {}) {
       ${langLabel ? `<span class="pill lang-${escapeAttr(written)}">${escapeHtml(langLabel)}</span>` : ''}
       ${job.germanRequired && written === 'en' ? '<span class="pill lang-de">German required</span>' : ''}
       ${atsPill(job.ats)}
-      ${job.tailoredCv ? '<span class="pill ok">CV ready</span>' : ''}
-      ${job.coverLetter ? '<span class="pill ok">Letter ready</span>' : ''}
+      ${job.prepOutdated ? '<span class="pill flag">Outdated documents</span>' : ''}
+      ${job.prepNeedsReview ? '<span class="pill flag">Documents need review</span>' : ''}
+      ${job.currentSearch && !job.currentSearch.current ? `<span class="pill flag" title="${escapeAttr(job.currentSearch.reasons.join('; '))}">Outside current search</span>` : ''}
+      ${fit?.eligibility?.status === 'needs-checking' ? '<span class="pill flag">Requirements need checking</span>' : ''}
+      ${job.tailoredCv && job.prepFreshness?.cv === 'current' ? '<span class="pill ok">CV ready</span>' : ''}
+      ${job.coverLetter && job.prepFreshness?.letter === 'current' ? '<span class="pill ok">Letter ready</span>' : ''}
+      ${job.recruiter?.foundEmail ? '<span class="pill ok">Recruiter</span>' : ''}
+      ${job.recruiter?.name && !job.recruiter?.foundEmail ? '<span class="pill">Recruiter name</span>' : ''}
       ${facts.map((f) => `<span>${escapeHtml(f)}</span>`).join('')}
       ${also.map((s) => `<span class="pill" title="Also seen on">also ${escapeHtml(s)}</span>`).join('')}
       ${flags}
@@ -948,11 +1102,11 @@ function renderJob(job, { compact = false } = {}) {
         ? ''
         : `
     <div class="job-actions">
-      <button type="button" class="btn small ok" data-prep>Prep</button>
+      <button type="button" class="btn small ok" data-prep>Prepare documents</button>
       <button type="button" class="btn small ${
         decision ? `active${NEGATIVE_DECISIONS.has(decision) ? ' danger' : ''}` : ''
       }" data-status title="Change status" aria-haspopup="dialog">${
-        decision ? escapeHtml(DECISION_LABELS[decision] || decision) : 'Status'
+        decision ? escapeHtml(DECISION_LABELS[decision] || decision) : 'Save / change status'
       }</button>
       ${
         job.tailoredCv
@@ -967,8 +1121,9 @@ function renderJob(job, { compact = false } = {}) {
       ${
         job.url
           ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
-             <button type="button" class="btn small" data-fill>Fill</button>
-             <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Apply</a>`
+             <button type="button" class="btn small" data-fill>${/linkedin\.com/i.test(job.url || '') ? 'Fill / submit Easy Apply' : 'Fill form'}</button>
+             <button type="button" class="btn small" data-recruiter>Recruiter</button>
+             <a class="btn small primary-link" data-apply href="${escapeAttr(job.url)}" target="_blank" rel="noopener">Open application ↗</a>`
           : ''
       }
     </div>
@@ -1001,6 +1156,8 @@ function renderJob(job, { compact = false } = {}) {
         }
         desc.dataset.loaded = '1';
       }
+      el.querySelector('.toggle-desc').setAttribute('aria-expanded', String(open));
+      el.querySelector('.toggle-desc').textContent = open ? 'Hide details' : 'View details';
       desc.hidden = !open;
       fitBox.hidden = !open;
       el.classList.toggle('open', open);
@@ -1054,6 +1211,14 @@ function renderJob(job, { compact = false } = {}) {
       }
     });
 
+    el.querySelector('[data-recruiter]')?.addEventListener('click', async () => {
+      try {
+        await openRecruiterModal(job);
+      } catch (err) {
+        appendLog(`Recruiter lookup failed: ${err.message}`, 'stderr');
+      }
+    });
+
     el.querySelector('[data-apply]')?.addEventListener('click', async () => {
       // Open posting in a new tab (browser default via href). Offer to mark applied.
       appendLog(`Opened apply link for ${job.title} (${job.ats?.label || 'unknown'}) — submit the form yourself.`);
@@ -1076,6 +1241,216 @@ function renderJob(job, { compact = false } = {}) {
   }
 
   return el;
+}
+
+const RECRUITER_SIDECAR = 'http://127.0.0.1:4051';
+let recruiterOrigin = null;
+let recruiterJob = null;
+let recruiterPoll = null;
+let recruiterLookedUp = false;
+
+async function resolveRecruiterOrigin() {
+  if (recruiterOrigin !== null) return recruiterOrigin;
+  try {
+    const res = await fetch('/api/recruiter-contact/status');
+    if (res.ok) {
+      recruiterOrigin = '';
+      return recruiterOrigin;
+    }
+  } catch { /* running server may predate this API */ }
+  try {
+    const res = await fetch(`${RECRUITER_SIDECAR}/api/recruiter-contact/status`);
+    if (res.ok) {
+      recruiterOrigin = RECRUITER_SIDECAR;
+      return recruiterOrigin;
+    }
+  } catch { /* sidecar not up */ }
+  recruiterOrigin = '';
+  return recruiterOrigin;
+}
+
+async function recruiterApi(path, options = {}, retried = false) {
+  const origin = await resolveRecruiterOrigin();
+  const res = await fetch(`${origin}${path}`, {
+    headers: { 'content-type': 'application/json', ...(options.headers || {}) },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (!retried && origin === '' && res.status === 404) {
+      recruiterOrigin = RECRUITER_SIDECAR;
+      return recruiterApi(path, options, true);
+    }
+    throw new Error(data.error || res.statusText || 'Recruiter API failed');
+  }
+  return data;
+}
+
+function paintRecruiterContact(contact) {
+  const c = contact || {};
+  if (els.recruiterName) els.recruiterName.value = c.name || '';
+  if (els.recruiterRole) els.recruiterRole.value = c.role || '';
+  if (els.recruiterEmail) els.recruiterEmail.value = c.email || '';
+  if (els.recruiterLinkedin) els.recruiterLinkedin.value = c.linkedinUrl || '';
+  if (els.recruiterEmailOpen) {
+    els.recruiterEmailOpen.hidden = !c.email;
+    els.recruiterEmailOpen.href = c.email ? `mailto:${c.email}` : '#';
+  }
+  if (els.recruiterLinkedinOpen) {
+    els.recruiterLinkedinOpen.hidden = !c.linkedinUrl;
+    els.recruiterLinkedinOpen.href = c.linkedinUrl || '#';
+  }
+  if (els.recruiterSources) {
+    const bits = (c.sources || [])
+      .map((s) => s.kind || s.note)
+      .filter(Boolean)
+      .slice(-6);
+    els.recruiterSources.textContent = bits.length ? `Sources: ${bits.join(' · ')}` : '';
+  }
+}
+
+function paintRecruiterRun(run, { finishedWithoutEmail = false } = {}) {
+  const running = Boolean(run?.running && run.jobId === recruiterJob?.id);
+  const logs = (run?.logs || []).map((l) => l.line).filter(Boolean);
+  if (els.recruiterLog) {
+    els.recruiterLog.hidden = logs.length === 0;
+    els.recruiterLog.textContent = logs.slice(-12).join('\n');
+    els.recruiterLog.scrollTop = els.recruiterLog.scrollHeight;
+  }
+  if (els.recruiterStop) els.recruiterStop.hidden = !running;
+  if (els.recruiterLookup) els.recruiterLookup.disabled = running;
+  if (els.recruiterAgent) {
+    const showAgent = !running && finishedWithoutEmail;
+    els.recruiterAgent.hidden = !showAgent;
+    els.recruiterAgent.disabled = running;
+  }
+  if (els.recruiterStatus) {
+    if (running) {
+      els.recruiterStatus.textContent = run.mode === 'agent'
+        ? 'Agent is searching the public web…'
+        : 'Looking up the posting and company pages…';
+    } else if (run?.error) {
+      els.recruiterStatus.textContent = run.error;
+    }
+  }
+}
+
+function stopRecruiterPoll() {
+  if (recruiterPoll) {
+    clearInterval(recruiterPoll);
+    recruiterPoll = null;
+  }
+}
+
+async function refreshRecruiterModal() {
+  if (!recruiterJob) return;
+  const data = await recruiterApi(`/api/recruiter-contact?id=${encodeURIComponent(recruiterJob.id)}`);
+  const contact = data.contact;
+  const run = data.run || {};
+  paintRecruiterContact(contact);
+  const running = Boolean(run.running && run.jobId === recruiterJob.id);
+  const noEmail = !contact?.email;
+  if (contact?.lookedUpAt) recruiterLookedUp = true;
+  paintRecruiterRun(run, { finishedWithoutEmail: recruiterLookedUp && noEmail && !running });
+  if (!running && els.recruiterStatus && !run.error) {
+    if (contact?.email) {
+      els.recruiterStatus.textContent = contact.genericEmail
+        ? `Saved a generic inbox (${contact.email}). Agent search can try for a named recruiter.`
+        : 'Saved.';
+      if (contact.genericEmail && recruiterLookedUp) {
+        if (els.recruiterAgent) els.recruiterAgent.hidden = false;
+      }
+    } else if (recruiterLookedUp) {
+      els.recruiterStatus.textContent = 'No email on the posting or company pages. Use Search with agent to try the public web.';
+    } else {
+      els.recruiterStatus.textContent = 'Not looked up yet.';
+    }
+  }
+  if (!running) stopRecruiterPoll();
+  return { contact, run, running };
+}
+
+function startRecruiterPoll() {
+  stopRecruiterPoll();
+  recruiterPoll = setInterval(() => {
+    refreshRecruiterModal().catch((err) => {
+      stopRecruiterPoll();
+      if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    });
+  }, 600);
+}
+
+async function startRecruiterLookup(mode) {
+  if (!recruiterJob) return;
+  if (mode === 'agent') recruiterLookedUp = true;
+  paintRecruiterRun({ running: true, jobId: recruiterJob.id, mode, logs: [] });
+  await recruiterApi('/api/recruiter-contact', {
+    method: 'POST',
+    body: JSON.stringify({ id: recruiterJob.id, mode }),
+  });
+  startRecruiterPoll();
+  await refreshRecruiterModal();
+}
+
+async function openRecruiterModal(job) {
+  recruiterJob = job;
+  recruiterLookedUp = Boolean(job.recruiter?.email || job.recruiter?.name);
+  if (els.recruiterModalTitle) {
+    els.recruiterModalTitle.textContent = job.company
+      ? `Recruiter — ${job.company}`
+      : 'Recruiter';
+  }
+  if (els.recruiterModalHint) {
+    els.recruiterModalHint.textContent = [job.title, job.company].filter(Boolean).join(' · ');
+  }
+  paintRecruiterContact(job.recruiter || {});
+  if (els.recruiterStatus) els.recruiterStatus.textContent = 'Loading…';
+  if (els.recruiterLog) {
+    els.recruiterLog.hidden = true;
+    els.recruiterLog.textContent = '';
+  }
+  if (els.recruiterAgent) els.recruiterAgent.hidden = true;
+  if (els.recruiterModal) els.recruiterModal.hidden = false;
+  try {
+    await resolveRecruiterOrigin();
+    const { contact, running } = await refreshRecruiterModal();
+    if (running) {
+      startRecruiterPoll();
+      return;
+    }
+    if (!contact?.lookedUpAt && !contact?.email) {
+      recruiterLookedUp = true;
+      await startRecruiterLookup('lookup');
+    }
+  } catch (err) {
+    if (els.recruiterStatus) {
+      els.recruiterStatus.textContent = `${err.message} Start the recruiter sidecar (node web/recruiter-sidecar.mjs) if the main UI server was already running.`;
+    }
+    throw err;
+  }
+}
+
+function hideRecruiterModal() {
+  stopRecruiterPoll();
+  recruiterJob = null;
+  if (els.recruiterModal) els.recruiterModal.hidden = true;
+}
+
+async function saveRecruiterEdits() {
+  if (!recruiterJob) return;
+  const res = await recruiterApi('/api/recruiter-contact', {
+    method: 'PATCH',
+    body: JSON.stringify({
+      id: recruiterJob.id,
+      name: els.recruiterName?.value || '',
+      role: els.recruiterRole?.value || '',
+      email: els.recruiterEmail?.value || '',
+      linkedinUrl: els.recruiterLinkedin?.value || '',
+    }),
+  });
+  paintRecruiterContact(res.contact);
+  if (els.recruiterStatus) els.recruiterStatus.textContent = 'Saved.';
+  appendLog(`Recruiter saved for ${recruiterJob.title}`);
 }
 
 function readPrepInstructions() {
@@ -1102,6 +1477,11 @@ function readPrepTargets() {
 
 function syncPrepModalActions(hasCache) {
   const { createCv, createCoverLetter } = readPrepTargets();
+  if (els.prepReplaceRow) els.prepReplaceRow.hidden = !hasCache;
+  if (els.prepReplaceExisting) {
+    els.prepReplaceExisting.disabled = !createCv;
+    if (!createCv || !hasCache) els.prepReplaceExisting.checked = false;
+  }
   const canCreate = createCv || createCoverLetter;
   if (els.prepModalFast) els.prepModalFast.disabled = !canCreate;
   if (els.prepModalRecreate) {
@@ -1112,7 +1492,10 @@ function syncPrepModalActions(hasCache) {
     else els.prepModalRecreate.textContent = 'Create letter (agent)';
   }
   if (els.prepModalUseExisting) {
-    els.prepModalUseExisting.hidden = !hasCache || !createCv;
+    els.prepModalUseExisting.hidden = !hasCache || !createCv
+      || els.prepModal.dataset.currentCv !== 'true'
+      || (createCoverLetter && els.prepModal.dataset.currentLetter !== 'true')
+      || Boolean(readPrepInstructions()) || Boolean(els.prepReplaceExisting?.checked);
   }
 }
 
@@ -1124,6 +1507,7 @@ function choicePayload(recreate, mode) {
     extraInstructions: readPrepInstructions(),
     createCv,
     createCoverLetter,
+    replaceExisting: Boolean(recreate && createCv && els.prepReplaceExisting?.checked),
   };
 }
 
@@ -1145,6 +1529,8 @@ function openPrepModal(job, opts = {}) {
       return;
     }
     const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
+    els.prepModal.dataset.currentCv = String(Boolean(job.tailoredPdf && job.prepFreshness?.cv === 'current'));
+    els.prepModal.dataset.currentLetter = String(job.prepFreshness?.letter === 'current');
     const keyOk = Boolean(state.status?.cursorApiKeyPresent);
     const letterFirst = Boolean(opts.preferCoverLetter);
     els.prepModalTitle.textContent = 'Prep';
@@ -1153,12 +1539,13 @@ function openPrepModal(job, opts = {}) {
       : `Check what to generate. Create runs the agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
     if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
     if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
-    syncPrepModalActions(hasCache);
+    if (els.prepReplaceExisting) els.prepReplaceExisting.checked = false;
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
       els.prepInstrCustom.hidden = true;
     }
+    syncPrepModalActions(hasCache);
     els.prepModal.hidden = false;
 
     const finish = (value) => {
@@ -1167,8 +1554,10 @@ function openPrepModal(job, opts = {}) {
       els.prepModalRecreate?.removeEventListener('click', onRecreate);
       els.prepModalFast?.removeEventListener('click', onFast);
       els.prepInstrPreset?.removeEventListener('change', onPreset);
+      els.prepInstrCustom?.removeEventListener('input', onChecks);
       els.prepCreateCv?.removeEventListener('change', onChecks);
       els.prepCreateCoverLetter?.removeEventListener('change', onChecks);
+      els.prepReplaceExisting?.removeEventListener('change', onChecks);
       els.prepModal.removeEventListener('click', onBackdrop);
       document.removeEventListener('keydown', onKey);
       closePrepModal();
@@ -1196,6 +1585,7 @@ function openPrepModal(job, opts = {}) {
       if (els.prepInstrCustom) {
         els.prepInstrCustom.hidden = els.prepInstrPreset.value !== 'custom';
       }
+      syncPrepModalActions(hasCache);
     };
     const onChecks = () => syncPrepModalActions(hasCache);
     els.prepModalCancel?.addEventListener('click', onCancel);
@@ -1203,8 +1593,10 @@ function openPrepModal(job, opts = {}) {
     els.prepModalRecreate?.addEventListener('click', onRecreate);
     els.prepModalFast?.addEventListener('click', onFast);
     els.prepInstrPreset?.addEventListener('change', onPreset);
+    els.prepInstrCustom?.addEventListener('input', onChecks);
     els.prepCreateCv?.addEventListener('change', onChecks);
     els.prepCreateCoverLetter?.addEventListener('change', onChecks);
+    els.prepReplaceExisting?.addEventListener('change', onChecks);
     els.prepModal.addEventListener('click', onBackdrop);
     document.addEventListener('keydown', onKey);
   });
@@ -1314,7 +1706,7 @@ function updateSheetsUi(sheets = state.status?.sheets) {
   if (els.sheetsHint) {
     if (configured) {
       els.sheetsHint.hidden = false;
-      els.sheetsHint.textContent = `Google Sheet tab “${sheets.tab || 'Applications'}” — applied / interviewing / rejected / closed sync here.`;
+      els.sheetsHint.textContent = `Google Sheet tab “${sheets.tab || 'Applications'}” — Application statuses, including offers and acceptances, sync here.`;
     } else if (sheets?.hint) {
       els.sheetsHint.hidden = false;
       els.sheetsHint.textContent = `Google Sheets: ${sheets.hint}`;
@@ -1367,6 +1759,32 @@ function showLogView() {
 }
 
 async function finishPrepUi(job, data) {
+  const agent = data.pack?.agent;
+  if (agent?.usageSummary) {
+    const summary = agent.usageSummary;
+    const usage = summary.counters || {};
+    appendLog(`Agent usage: ${summary.attempts} attempts · ${formatDuration(summary.durationMs)} · ${usage.inputTokens == null ? 'unknown' : Number(usage.inputTokens).toLocaleString()} input / ${usage.outputTokens == null ? 'unknown' : Number(usage.outputTokens).toLocaleString()} output tokens${summary.complete ? '' : ' · incomplete provider usage'}`);
+  } else if (agent?.usage || agent?.tools || agent?.durationMs) {
+    const bits = [];
+    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
+    if (agent.tools) bits.push(`${agent.tools} tools`);
+    if (agent.usage?.inputTokens != null) {
+      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
+    }
+    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
+  }
+  if (data.pack?.needsReview) {
+    for (const [scope, report] of Object.entries(data.pack.documentReports || {})) {
+      for (const reason of report.reasons || []) appendLog(`${scope}: ${reason}`, 'stderr');
+    }
+    for (const [scope, review] of Object.entries(data.pack.review || {})) {
+      if (!review || typeof review !== 'object') continue;
+      for (const item of review.mustFix || []) appendLog(`${scope} must fix: ${item}`, 'stderr');
+    }
+    appendLog(`Needs review: complete draft at ${data.pack.draftDir || data.pack.dir}. ${data.pack.preservedPrevious ? 'Previous documents were preserved.' : 'Adjust the document and recreate it before applying.'}`, 'stderr');
+    await refreshJobs();
+    return;
+  }
   state.lastPrepJobId = job.id;
   if (data.cached) appendLog('Skipped compile — cached PDFs.');
   if (data.pack?.tailorMode) {
@@ -1375,16 +1793,6 @@ async function finishPrepUi(job, data) {
         data.pack.fallbackReason ? ` (fallback: ${data.pack.fallbackReason})` : ''
       }`,
     );
-  }
-  const agent = data.pack?.agent;
-  if (agent?.usage || agent?.tools || agent?.durationMs) {
-    const bits = [];
-    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
-    if (agent.tools) bits.push(`${agent.tools} tools`);
-    if (agent.usage?.inputTokens != null) {
-      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
-    }
-    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
   }
   if (data.pack?.coverLetterMode) {
     appendLog(
@@ -1426,6 +1834,10 @@ async function finishPrepUi(job, data) {
 }
 
 function applyCoverLetterResult(job, res) {
+  if (res.needsReview) {
+    appendLog(`Cover letter needs review: complete draft at ${res.draftDir}. Previous documents were preserved when available.`, 'stderr');
+    return;
+  }
   const included = (res.included || []).map((b) => b.id).filter(Boolean);
   if (res.tailorMode) {
     appendLog(
@@ -1524,6 +1936,7 @@ async function runPrepFlow(job, opts = {}) {
       body: JSON.stringify({
         id: job.id,
         recreate: choice.recreate,
+        replaceExisting: choice.replaceExisting,
         extraInstructions: choice.extraInstructions || '',
         mode,
         includeCoverLetter: Boolean(choice.createCoverLetter),
@@ -1547,6 +1960,45 @@ async function runPrepFlow(job, opts = {}) {
     setChip('idle', 'Idle');
     appendLog(`Prep failed: ${err.message}`, 'stderr');
   }
+}
+
+function reviewScoreBits(scores) {
+  if (!scores) return '';
+  const parts = [
+    scores.ats != null ? `ATS ${scores.ats}/10` : '',
+    scores.postingFit != null ? `fit ${scores.postingFit}/10` : '',
+    scores.recruiterScan != null ? `scan ${scores.recruiterScan}/10` : '',
+    scores.coverLetter != null ? `letter ${scores.coverLetter}/10` : '',
+  ].filter(Boolean);
+  return parts.length ? ` (${parts.join(' · ')})` : '';
+}
+
+function reviewSectionHtml(label, block, href) {
+  if (!block) return '';
+  const verdict = block.verdict === 'not_reviewed' || !block.verdict ? 'Not reviewed' : String(block.verdict);
+  const loop = block.ranFixLoop
+    ? block.restored
+      ? ' · fix loop reverted'
+      : ' · fix loop applied'
+    : '';
+  const must = (block.mustFix || []).slice(0, 4);
+  const mustHtml = must.length
+    ? `<ul>${must.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+    : '';
+  return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(reviewScoreBits(block.scores))}${escapeHtml(loop)}${
+    href ? ` · <a href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ''
+  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}`;
+}
+
+function reviewPanel(review, jobId) {
+  if (!review || (!review.cv && !review.letter)) return '';
+  const revise = [review.cv, review.letter].some((r) => r && r.verdict !== 'pass');
+  const base = jobId ? `/api/prep/${encodeURIComponent(jobId)}` : '';
+  return `<div class="prep-review${revise ? ' revise' : ''}">
+    <h4>Reviewer</h4>
+    ${reviewSectionHtml('CV', review.cv, base ? `${base}/review.md` : '')}
+    ${reviewSectionHtml('Cover letter', review.letter, base ? `${base}/cover-letter-review.md` : '')}
+  </div>`;
 }
 
 function showPrep(data, { reveal = true } = {}) {
@@ -1580,6 +2032,7 @@ function showPrep(data, { reveal = true } = {}) {
       ${escapeHtml(cachedNote)}${escapeHtml(modeNote)}</p>
     ${pack.extraInstructions ? `<p class="meta">Instructions: ${escapeHtml(pack.extraInstructions)}</p>` : ''}
     ${olLine ? `<p class="meta">${escapeHtml(olLine)}</p>` : ''}
+    ${reviewPanel(pack.review, pack.jobId || data.jobId)}
     <div class="prep-actions">
       <button type="button" class="btn small primary-link" id="saveCompanyFolder">Save PDFs to company folder</button>
       <button type="button" class="btn small" id="generateCoverLetter">Generate cover letter</button>
@@ -1685,17 +2138,20 @@ function setReadyBadge(count) {
   els.readyBadge.textContent = String(n);
 }
 
-async function refreshReady() {
+function refreshReady() { return loadPagedView('ready', els.readyList, loadReady, refreshReady); }
+async function loadReady(signal) {
   if (!els.readyList) return;
   const q = (els.readySearch?.value || '').trim();
-  const data = await api(`/api/ready${q ? `?q=${encodeURIComponent(q)}` : ''}`);
+  const params = new URLSearchParams({ ...listPages.ready, q });
+  const data = await api(`/api/ready?${params}`, { signal });
+  listPages.ready = data.pagination; listPagers.ready.update(data.pagination);
   const jobs = data.jobs || [];
   els.readyList.innerHTML = '';
   if (!q) setReadyBadge(data.total);
   if (els.readyMeta) {
     const c = data.counts || {};
     els.readyMeta.textContent = jobs.length
-      ? `${jobs.length} ready${q ? ` matching “${q}”` : ''} · ${c.both || 0} with CV + letter · ${c.cvOnly || 0} CV only · ${c.letterOnly || 0} letter only. Mark Applied when done and they drop off this list.`
+      ? `${data.total} ready${q ? ` matching “${q}”` : ''} · ${c.both || 0} with CV + letter · ${c.cvOnly || 0} CV only · ${c.letterOnly || 0} letter only. Mark Applied when done and they drop off this list.`
       : q
         ? `No ready postings match “${q}”.`
         : 'Postings with a tailored CV or cover letter that you have not applied to yet.';
@@ -1798,7 +2254,8 @@ function renderBatchProgress(snap) {
   if (els.batchProgressFill) els.batchProgressFill.style.width = `${batchPercent(snap)}%`;
   if (els.batchProgressLine) els.batchProgressLine.textContent = batchSummaryText(snap);
   if (els.batchProgressList) {
-    els.batchProgressList.innerHTML = (snap.items || [])
+    const window = localPage(snap.items || [], progressPage); progressPage = window; progressPager.update(window);
+    els.batchProgressList.innerHTML = window.items
       .map((it) => {
         const time = it.durationMs != null ? formatDuration(it.durationMs) : '';
         const detail = [it.error || it.note || (it.status === 'done' && it.tailorMode ? it.tailorMode : ''), time]
@@ -1900,7 +2357,7 @@ async function stopBatch() {
 }
 
 function batchSelectedIds() {
-  return [...(els.batchSelectList?.querySelectorAll('input[data-job]:checked') || [])].map((i) => i.dataset.job);
+  return [...batchSelection];
 }
 
 function updateBatchSelectCount() {
@@ -1920,8 +2377,9 @@ function updateBatchSelectCount() {
 
 function renderBatchSelectList(jobs) {
   if (!els.batchSelectList) return;
+  const window = localPage(jobs, batchPage); batchPage = window; batchPager.update(window);
   const groups = new Map();
-  for (const job of jobs) {
+  for (const job of window.items) {
     const key = (job.company || '—').trim() || '—';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(job);
@@ -1931,7 +2389,7 @@ function renderBatchSelectList(jobs) {
     .map(([company, list]) => `
       <div class="batch-group">
         <label class="batch-group-head">
-          <input type="checkbox" data-company="${escapeAttr(company)}" checked />
+          <input type="checkbox" data-company="${escapeAttr(company)}" />
           <span>${escapeHtml(company)}</span>
           <span class="meta">${list.length}</span>
         </label>
@@ -1940,7 +2398,7 @@ function renderBatchSelectList(jobs) {
             const has = job.tailoredCv || job.tailoredPdf;
             const letter = job.coverLetter;
             return `<label class="batch-row">
-              <input type="checkbox" data-job="${escapeAttr(job.id)}" data-has-cv="${has ? '1' : '0'}" data-fit="${escapeAttr(job.fit?.verdict || '')}" checked />
+              <input type="checkbox" data-job="${escapeAttr(job.id)}" data-has-cv="${has ? '1' : '0'}" data-fit="${escapeAttr(job.fit?.verdict || '')}" ${batchSelection.has(job.id) ? 'checked' : ''} />
               <span class="batch-row-title">${escapeHtml(job.title)}</span>
               ${job.fit ? `<span class="pill ${FIT_CLASS[job.fit.verdict] || ''}">${escapeHtml(job.fit.verdict)}</span>` : ''}
               ${has ? '<span class="pill ok">CV</span>' : ''}
@@ -1954,21 +2412,20 @@ function renderBatchSelectList(jobs) {
     box.addEventListener('change', () => {
       box.closest('.batch-group')?.querySelectorAll('input[data-job]').forEach((j) => {
         j.checked = box.checked;
+        if (j.checked) batchSelection.add(j.dataset.job); else batchSelection.delete(j.dataset.job);
       });
       updateBatchSelectCount();
     });
   });
   els.batchSelectList.querySelectorAll('input[data-job]').forEach((j) => {
-    j.addEventListener('change', updateBatchSelectCount);
+    j.addEventListener('change', () => { if (j.checked) batchSelection.add(j.dataset.job); else batchSelection.delete(j.dataset.job); updateBatchSelectCount(); });
   });
   updateBatchSelectCount();
 }
 
 function setBatchChecked(predicate) {
-  els.batchSelectList?.querySelectorAll('input[data-job]').forEach((j) => {
-    j.checked = predicate(j);
-  });
-  updateBatchSelectCount();
+  batchSelection = new Set(batchJobs.filter(job => predicate({ dataset: { hasCv: job.tailoredCv || job.tailoredPdf ? '1' : '0', fit: job.fit?.verdict || '' } })).map(job => job.id));
+  renderBatchSelectList(batchJobs);
 }
 
 function showBatchModal(view) {
@@ -1999,8 +2456,10 @@ function hideBatchModal() {
   if (els.batchModal) els.batchModal.hidden = true;
 }
 
-function openBatchSetup() {
-  const jobs = state.digestJobs || [];
+async function openBatchSetup() {
+  let jobs;
+  try { const data = await api(`/api/digest?${queryString()}&selection=1`); jobs = data.candidates || []; }
+  catch (err) { listFeedback(els.digestList, `Could not load batch selection: ${err.message}. `, openBatchSetup); return; }
   if (els.batchError) {
     els.batchError.hidden = true;
     els.batchError.textContent = '';
@@ -2019,9 +2478,20 @@ function openBatchSetup() {
       keyOk ? '' : ' Agent needs a working provider — otherwise each job falls back to Fast.'
     }`;
   }
+  batchJobs = jobs; batchSelection = new Set(jobs.map(job => job.id)); batchPage.page = 1;
   renderBatchSelectList(jobs);
   if (els.batchInstructions) els.batchInstructions.value = '';
+  if (els.batchReplaceExisting) els.batchReplaceExisting.checked = false;
+  if (els.batchSkipExisting) els.batchSkipExisting.checked = true;
+  syncBatchReplacement();
   showBatchModal('setup');
+}
+
+function syncBatchReplacement() {
+  if (!els.batchSkipExisting) return;
+  const replace = Boolean(els.batchReplaceExisting?.checked);
+  els.batchSkipExisting.disabled = replace;
+  if (replace) els.batchSkipExisting.checked = false;
 }
 
 async function startBatch() {
@@ -2029,14 +2499,15 @@ async function startBatch() {
   if (!ids.length) return;
   const mode = document.querySelector('input[name="batchMode"]:checked')?.value === 'fast' ? 'fast' : 'agent';
   const includeCoverLetter = Boolean(els.batchIncludeLetter?.checked);
-  const skipExisting = Boolean(els.batchSkipExisting?.checked);
+  const replaceExisting = Boolean(els.batchReplaceExisting?.checked);
+  const skipExisting = !replaceExisting && Boolean(els.batchSkipExisting?.checked);
   const extraInstructions = (els.batchInstructions?.value || '').trim().slice(0, 500);
   if (els.batchStart) els.batchStart.disabled = true;
   if (els.batchError) els.batchError.hidden = true;
   try {
     const res = await api('/api/prep/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
+      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, replaceExisting, extraInstructions }),
     });
     state.batchDismissed = false;
     applyBatchSnapshot(res.batch);
@@ -2058,6 +2529,7 @@ els.batchOpenBtn?.addEventListener('click', openBatchSetup);
 els.batchCancelSetup?.addEventListener('click', hideBatchModal);
 els.batchClose?.addEventListener('click', hideBatchModal);
 els.batchStart?.addEventListener('click', startBatch);
+els.batchReplaceExisting?.addEventListener('change', syncBatchReplacement);
 els.batchStop?.addEventListener('click', stopBatch);
 els.batchBarCancel?.addEventListener('click', stopBatch);
 els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));
@@ -2073,6 +2545,7 @@ els.batchSelectAll?.addEventListener('click', () => setBatchChecked(() => true))
 els.batchSelectNone?.addEventListener('click', () => setBatchChecked(() => false));
 els.batchSelectMissing?.addEventListener('click', () => setBatchChecked((j) => j.dataset.hasCv !== '1'));
 els.batchSelectStrong?.addEventListener('click', () => setBatchChecked((j) => j.dataset.fit === 'Strong'));
+els.batchSelectWorth?.addEventListener('click', () => setBatchChecked((j) => j.dataset.fit === 'Worth a shot'));
 els.batchModal?.addEventListener('click', (ev) => {
   if (ev.target === els.batchModal) hideBatchModal();
 });
@@ -2080,6 +2553,7 @@ document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && els.batchModal && !els.batchModal.hidden) hideBatchModal();
 });
 els.readySearch?.addEventListener('input', () => {
+  listPages.ready.page = 1;
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => refreshReady(), 200);
 });
@@ -2088,11 +2562,17 @@ async function refreshJobs() {
   jobsAbort?.abort();
   jobsAbort = new AbortController();
   const { signal } = jobsAbort;
+  listFeedback(els.jobList, 'Loading…');
+  els.jobList.setAttribute('aria-busy', 'true');
   try {
     const data = await api(`/api/jobs?${queryString()}`, { signal });
     if (signal.aborted) return;
     state.pagination = data.pagination;
+    state.page = data.pagination.page;
+    resultsPager.update(data.pagination);
+    listFeedback(els.jobList, '');
     state.jobs = data.jobs || [];
+    updateResultsEmptyState(data);
     els.jobList.innerHTML = '';
 
     if (!data.pagination.total && !data.meta) {
@@ -2113,7 +2593,7 @@ async function refreshJobs() {
     const dup = (data.meta?.duplicatesRemoved ?? 0) + (data.meta?.duplicatesRemovedExtra ?? 0);
     const newN = data.meta?.newSinceLastFetch;
     const parts = [
-      `${data.pagination.total} in archive`,
+      `${data.pagination.total} matching jobs`,
       data.meta?.marketName || '—',
       when,
     ];
@@ -2126,6 +2606,12 @@ async function refreshJobs() {
     if (data.meta?.replaced) parts.push('replaced');
     els.jobsMeta.textContent = parts.join(' · ');
 
+    if ($('boardDetails')) $('boardDetails').hidden = !data.meta?.sourceStatus?.length;
+    if ($('boardSummary') && data.meta?.sourceStatus?.length) {
+      const sources = data.meta.sourceStatus;
+      const failed = sources.filter((source) => !source.ok).length;
+      $('boardSummary').textContent = `${sources.length - failed} sources returned results${failed ? ` · ${failed} need attention` : ''}`;
+    }
     if (data.meta?.sourceStatus?.length) {
       els.boardStatus.hidden = false;
       els.boardStatus.innerHTML = data.meta.sourceStatus
@@ -2151,7 +2637,8 @@ async function refreshJobs() {
   } catch (err) {
     if (err?.name === 'AbortError') return;
     appendLog(`Results failed: ${err.message}`, 'stderr');
-  }
+    listFeedback(els.jobList, `Could not load jobs: ${err.message}. `, refreshJobs);
+  } finally { if (!signal.aborted) els.jobList.removeAttribute('aria-busy'); }
 }
 
 function updatePlanHint(s = state.status) {
@@ -2175,45 +2662,24 @@ async function saveSettings(partial) {
   return state.status;
 }
 
-async function refreshAgentModels(provider, selected) {
-  if (!els.agentModel) return;
-  const prov = provider || els.agentProvider?.value || 'cursor';
-  try {
-    const data = await api(`/api/prep/models?provider=${encodeURIComponent(prov)}`);
-    const models = data.models || [];
-    const sel = selected != null ? selected : (data.selected ?? '');
-    const opts = models.map((m) => {
-      const id = m.id ?? '';
-      const label = m.displayName || id || 'CLI default';
-      return `<option value="${escapeAttr(id)}">${escapeHtml(label)}</option>`;
-    });
-    if (!models.some((m) => (m.id ?? '') === '')) {
-      opts.unshift('<option value="">CLI / account default</option>');
-    }
-    els.agentModel.innerHTML = opts.join('');
-    if ([...els.agentModel.options].some((o) => o.value === sel)) {
-      els.agentModel.value = sel;
-    } else if (sel) {
-      const opt = document.createElement('option');
-      opt.value = sel;
-      opt.textContent = sel;
-      els.agentModel.appendChild(opt);
-      els.agentModel.value = sel;
-    }
-    const avail = data.availability;
-    if (avail && !avail.ok) {
-      els.agentProvider.title = avail.detail || 'Provider not ready';
-    } else if (avail?.detail) {
-      els.agentProvider.title = avail.detail;
-    }
-  } catch (err) {
-    els.agentModel.innerHTML = '<option value="">(could not load models)</option>';
-    appendLog(`Agent models: ${err.message}`, 'stderr');
-  }
-}
+const modelPicker = createModelPicker({
+  select: els.agentModel,
+  provider: els.agentProvider,
+  customInput: $('agentModelCustom'),
+  hint: $('agentModelsHint'),
+  refreshButton: $('refreshAgentModels'),
+  fetchCatalog: (provider, refresh) => api(`/api/prep/models?provider=${encodeURIComponent(provider)}${refresh ? '&refresh=1' : ''}`),
+  saveModel: async (agentProvider, agentModel) => {
+    await saveSettings({ agentProvider, agentModel });
+    appendLog(`Agent model → ${agentModel || '(configured default)'}`);
+  },
+  onError: (error) => appendLog(`Agent models: ${error.message}`, 'stderr'),
+});
+
+const refreshAgentModels = (...args) => modelPicker.load(...args);
 
 async function refreshStatus() {
-  state.status = await api('/api/status');
+  state.status = await api('/api/status?light=1');
   const s = state.status;
   els.candidateLine.textContent = [s.candidate, s.targetRole].filter(Boolean).join(' · ') || 'Local shortlist';
   if (s.marketId) els.marketSelect.value = s.marketId;
@@ -2236,7 +2702,9 @@ async function refreshStatus() {
   if (els.overleafPush && document.activeElement !== els.overleafPush) {
     els.overleafPush.checked = s.cv?.overleafPush !== false;
   }
-  void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
+  if (!els.agentProvider.disabled && document.activeElement !== els.agentModel && document.activeElement !== $('agentModelCustom')) {
+    void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
+  }
   updatePlanHint(s);
   updateSheetsUi(s.sheets);
   showSetup(Boolean(s.setup?.needsSetup) && !s.setup?.profileParseError);
@@ -2247,13 +2715,13 @@ async function refreshStatus() {
     alerts.push(`profile.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
   }
   if (s.digestNewCount > 0) {
-    alerts.push(`${s.digestNewCount} new posting(s) since last fetch`);
+    // The New matches badge already communicates this without a duplicate alert.
     els.digestBadge.hidden = false;
     els.digestBadge.textContent = String(s.digestNewCount);
   } else {
     els.digestBadge.hidden = true;
   }
-  setReadyBadge(s.readyCount);
+  if (s.readyCount != null) setReadyBadge(s.readyCount);
   if (s.batch) {
     // Items come over the stream; keep the ones we already have.
     applyBatchSnapshot({ ...s.batch, items: state.batch?.items || [] });
@@ -2280,6 +2748,7 @@ async function refreshMarkets() {
     .map((m) => `<option value="${escapeAttr(m.id)}">${escapeHtml(m.name)} (${escapeHtml(m.id)})</option>`)
     .join('');
   els.marketSelect.innerHTML = options;
+  if (state.status?.marketId) els.marketSelect.value = state.status.marketId;
   if (els.setupMarket) {
     els.setupMarket.innerHTML = options;
     if (![...els.setupMarket.options].some((o) => o.value === 'DE')) {
@@ -2310,13 +2779,43 @@ function showSetup(needs) {
 }
 
 function filteredTrackerItems() {
-  const q = (els.trackerSearch?.value || '').trim().toLowerCase();
-  return (state.trackerItems || []).filter((item) => {
-    if (!state.trackerVisibleColumns.has(item.decision)) return false;
-    if (!q) return true;
-    const hay = `${item.title || ''} ${item.company || ''} ${item.board || ''}`.toLowerCase();
-    return hay.includes(q);
+  return filterTracker(state.trackerItems, {
+    query: els.trackerSearch?.value || '', statuses: state.trackerVisibleColumns,
+    dueOnly: state.trackerDueOnly, sort: state.trackerSort,
   });
+}
+
+function showTrackerFeedback(message, isError = false) {
+  const el = $('trackerFeedback');
+  el.hidden = false;
+  el.textContent = message;
+  el.classList.toggle('is-error', isError);
+}
+
+function selectTrackerPreset(preset) {
+  state.trackerDueOnly = preset === 'due';
+  state.trackerVisibleColumns = new Set(preset === 'all' ? DECISIONS : ['interviewing', 'offer', 'accepted'].includes(preset) ? [preset] : ACTIVE_STATUSES);
+  els.trackerSearch.value = '';
+  onTrackerStatusChange();
+}
+
+function renderTrackerSummary() {
+  const summary = trackerSummary(state.trackerItems);
+  const cards = [
+    ['all', summary.total, 'Saved jobs', 'Every stage, including closed'],
+    ['active', summary.active, 'In progress', 'Your active applications'],
+    ['interviewing', summary.interviewing, 'Interviewing', 'Keep the conversation moving'],
+    ['offer', state.trackerCounts.offer || 0, 'Offers', 'Review your opportunities'],
+    ['accepted', state.trackerCounts.accepted || 0, 'Accepted', 'Your next chapter'],
+    ['due', summary.due, 'Follow-ups due', 'Scheduled for today or earlier'],
+  ];
+  const matchesPreset = (preset) => {
+    const ids = preset === 'all' ? DECISIONS : ['interviewing', 'offer', 'accepted'].includes(preset) ? [preset] : ACTIVE_STATUSES;
+    return (preset === 'due') === state.trackerDueOnly && ids.length === state.trackerVisibleColumns.size && ids.every((id) => state.trackerVisibleColumns.has(id));
+  };
+  $('trackerSummary').innerHTML = cards.map(([id, count, label, hint]) => `<button type="button" class="summary-card${id === 'due' && count ? ' needs-attention' : ''}" data-summary="${id}" aria-pressed="${matchesPreset(id)}"><span>${label}</span><strong>${count}</strong><small>${hint}</small></button>`).join('');
+  $('trackerSummary').querySelectorAll('[data-summary]').forEach((button) => button.addEventListener('click', () => selectTrackerPreset(button.dataset.summary)));
+  document.querySelectorAll('[data-tracker-preset]').forEach((button) => button.setAttribute('aria-pressed', String(matchesPreset(button.dataset.trackerPreset))));
 }
 
 function renderTrackerTabs() {
@@ -2342,12 +2841,8 @@ function renderTrackerTabs() {
   els.trackerTabs.querySelectorAll('[data-status]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.status;
-      if (state.trackerVisibleColumns.has(id)) {
-        if (state.trackerVisibleColumns.size === 1) return;
-        state.trackerVisibleColumns.delete(id);
-      } else {
-        state.trackerVisibleColumns.add(id);
-      }
+      state.trackerDueOnly = false;
+      state.trackerVisibleColumns = new Set([id]);
       onTrackerStatusChange();
     });
   });
@@ -2355,46 +2850,85 @@ function renderTrackerTabs() {
 
 function renderTracker() {
   if (!els.trackerList) return;
+  renderTrackerSummary();
   renderTrackerTabs();
   const items = filteredTrackerItems();
   const visibleCount = (state.trackerItems || []).filter((item) =>
     state.trackerVisibleColumns.has(item.decision),
   ).length;
   const q = (els.trackerSearch?.value || '').trim();
+  const newestFirst = state.trackerSort !== 'oldest';
+  const sortLabel = state.trackerDueOnly ? 'earliest follow-up first' : newestFirst ? 'newest first' : 'oldest first';
+  els.trackerSort.disabled = state.trackerDueOnly;
+  const pageSize = state.trackerPageSize || 20;
+  const pages = Math.max(1, Math.ceil(items.length / pageSize));
+  if (state.trackerPage > pages) state.trackerPage = pages;
+  if (state.trackerPage < 1) state.trackerPage = 1;
+  const start = (state.trackerPage - 1) * pageSize;
+  const pageItems = items.slice(start, start + pageSize);
+
   if (els.trackerMeta) {
     if (!visibleCount) {
-      els.trackerMeta.textContent = 'Applications you mark from Results land here — newest first.';
-    } else if (q) {
-      els.trackerMeta.textContent = `${items.length} of ${visibleCount} match “${q}” · newest first`;
+      els.trackerMeta.textContent = 'Applications you mark from Results land here.';
+    } else if (!items.length) {
+      els.trackerMeta.textContent = q
+        ? `0 of ${visibleCount} match “${q}” · ${sortLabel}`
+        : `${visibleCount} in view · ${sortLabel}.`;
     } else {
-      els.trackerMeta.textContent = `${visibleCount} in view · newest first. Not the search archive.`;
+      const from = start + 1;
+      const to = start + pageItems.length;
+      const range = `${from}–${to} of ${items.length}`;
+      els.trackerMeta.textContent = q
+        ? `${range} match “${q}” · ${sortLabel}`
+        : `${range} · ${sortLabel}.`;
     }
   }
 
+  if (els.trackerPager) {
+    els.trackerPager.hidden = items.length === 0;
+    if (els.trackerPageLabel) {
+      els.trackerPageLabel.textContent = `Page ${state.trackerPage} of ${pages}`;
+    }
+    if (els.trackerPrevPage) els.trackerPrevPage.disabled = state.trackerPage <= 1;
+    if (els.trackerNextPage) els.trackerNextPage.disabled = state.trackerPage >= pages;
+  }
+
   if (!items.length) {
-    const emptyTitle = q ? 'No matches' : 'Nothing in these statuses';
-    const emptyBody = q
-      ? 'Try a different company or title, or turn on another status above.'
-      : 'Shortlist a posting or mark it Applied from Results.';
-    els.trackerList.innerHTML = `<div class="empty tracker-empty"><h3>${escapeHtml(emptyTitle)}</h3><p>${escapeHtml(emptyBody)}</p></div>`;
+    const emptyTitle = q ? 'No matching applications' : state.trackerDueOnly ? 'You’re all caught up' : 'No applications in this view';
+    const emptyBody = state.trackerDueOnly
+      ? 'No follow-ups match this view. Add a follow-up date from any active application’s Notes & follow-up.'
+      : q ? 'Try another search or reset the view to see all saved applications.'
+      : 'Save a job from Find jobs, or choose All statuses to see previous applications.';
+    els.trackerList.innerHTML = `<div class="empty tracker-empty"><h3>${escapeHtml(emptyTitle)}</h3><p>${escapeHtml(emptyBody)}</p><button type="button" class="btn" data-empty-all>Show all applications</button> <button type="button" class="btn primary" data-empty-find>Find jobs</button></div>`;
+    els.trackerList.querySelector('[data-empty-all]').addEventListener('click', () => selectTrackerPreset('all'));
+    els.trackerList.querySelector('[data-empty-find]').addEventListener('click', () => setView('results'));
     return;
   }
 
-  const head = `<div class="tracker-row tracker-head" aria-hidden="true">
-    <span>Company</span>
-    <span>Role</span>
-    <span>Date</span>
-    <span>Board</span>
-    <span>Status</span>
-    <span></span>
+  const head = `<div class="tracker-row tracker-head">
+    <span>Applications</span>
+    <button type="button" class="tracker-sort" data-tracker-sort aria-pressed="${newestFirst ? 'true' : 'false'}" aria-label="Sort by date, ${newestFirst ? 'newest first' : 'oldest first'}">
+      ${state.trackerDueOnly ? 'Follow-up ↑' : `Updated ${newestFirst ? '↓' : '↑'}`}
+    </button>
   </div>`;
   els.trackerList.innerHTML = head;
+  els.trackerList.querySelector('[data-tracker-sort]').disabled = state.trackerDueOnly;
+  els.trackerList.querySelector('[data-tracker-sort]')?.addEventListener('click', () => {
+    saveTrackerSort(newestFirst ? 'oldest' : 'newest');
+    if (els.trackerSort) els.trackerSort.value = state.trackerSort;
+    state.trackerPage = 1;
+    renderTracker();
+  });
   const frag = document.createDocumentFragment();
-  for (const item of items) {
+  for (const item of pageItems) {
     const title = item.title || item.id;
-    const boardLabel = formatBoard(item.board);
+    const boardLabel = item.board === 'manual' ? 'Added manually' : formatBoard(item.board);
+    const when = formatTrackerWhen(item);
     const row = document.createElement('article');
     row.className = `tracker-row is-${item.decision}`;
+    row.dataset.jobId = item.id;
+    const due = followUpState(item);
+    const dueLabel = due === 'overdue' ? `Overdue · ${item.followUpDate}` : due === 'today' ? 'Follow up today' : due === 'upcoming' ? `Follow up · ${item.followUpDate}` : '';
     const statusOpts = DECISIONS.map(
       (d) =>
         `<option value="${escapeAttr(d)}"${item.decision === d ? ' selected' : ''}>${escapeHtml(
@@ -2402,6 +2936,7 @@ function renderTracker() {
         )}</option>`,
     ).join('');
     row.innerHTML = `
+      <div class="tracker-identity">
       <div class="tracker-company">${escapeHtml(item.company || '—')}</div>
       <div class="tracker-role">
         ${
@@ -2410,7 +2945,13 @@ function renderTracker() {
             : `<span>${escapeHtml(title)}</span>`
         }
       </div>
-      <div class="tracker-date">${escapeHtml(formatShortDate(item.date) || '—')}</div>
+      </div>
+      <div class="tracker-metadata">
+      <div class="tracker-date" title="${escapeAttr(item.updatedAt || item.date || '')}">
+        <span>Updated ${escapeHtml(when.date)}</span>
+        <small class="application-date">Applied: ${validDateKey(item.appliedDate) ? escapeHtml(item.appliedDate) : 'not recorded'}</small>
+        ${dueLabel ? `<span class="follow-up-badge ${due}">${escapeHtml(dueLabel)}</span>` : ''}
+      </div>
       <div class="tracker-board">${escapeHtml(boardLabel || '—')}${
         item.ats?.label
         && item.ats.id !== 'unknown'
@@ -2418,25 +2959,60 @@ function renderTracker() {
           ? ` · ${escapeHtml(item.ats.label)}`
           : ''
       }</div>
+      </div>
+      <div class="tracker-controls">
       <label class="tracker-status">
         <span class="visually-hidden">Status</span>
         <select data-status>${statusOpts}</select>
       </label>
       <div class="tracker-actions">
+        <button type="button" class="btn small primary" data-edit-application>Details${item.attachments?.length ? ` · ${item.attachments.length} ${item.attachments.length === 1 ? 'file' : 'files'}` : ''}</button>
         ${
           item.url
-            ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button>
-               <button type="button" class="btn small" data-fill>Fill</button>
+            ? `${item.decision === 'shortlisted' ? `<button type="button" class="btn small" data-copy-pack>Copy pack</button><button type="button" class="btn small" data-fill>${/linkedin\.com/i.test(item.url || '') ? 'Fill / submit Easy Apply' : 'Fill form'}</button>` : ''}
                <a class="btn small" href="${escapeAttr(item.url)}" target="_blank" rel="noopener noreferrer">Open</a>`
             : ''
         }
         ${
           item.prepPath
-            ? `<a class="btn small" href="/api/prep/${encodeURIComponent(item.id)}/cv.html" target="_blank" rel="noopener">CV</a>`
+            ? `<a class="btn small" href="/api/prep/${encodeURIComponent(item.id)}/cv.html" target="_blank" rel="noopener">Prepared CV</a>`
             : ''
         }
       </div>
+      </div>
     `;
+    row.querySelector('[data-edit-application]').addEventListener('click', () => editApplication(item));
+    const details = document.createElement('details');
+    details.className = 'tracker-notes';
+    details.innerHTML = `<summary>${item.note || item.followUpDate ? 'Edit notes & follow-up' : 'Add notes & follow-up'}</summary>
+      ${item.note ? `<p class="note-preview">${escapeHtml(item.note)}</p>` : ''}
+      <form class="tracker-note-form">
+        <label>Notes<textarea name="note" rows="3" maxlength="10000" placeholder="Contact, interview details, or your next step…">${escapeHtml(item.note || '')}</textarea></label>
+        <label>Follow-up date<input type="date" name="followUpDate" value="${escapeAttr(validDateKey(item.followUpDate) ? item.followUpDate : '')}" /></label>
+        <div class="note-form-actions"><button type="submit" class="btn primary small">Save notes</button><button type="button" class="btn ghost small" data-clear-date>Clear date</button><span class="meta">Reminders appear in Follow-ups due.</span></div>
+        <p class="note-feedback" role="status" hidden></p>
+      </form>`;
+    row.appendChild(details);
+    const noteForm = details.querySelector('form');
+    details.querySelector('[data-clear-date]').addEventListener('click', () => { noteForm.elements.followUpDate.value = ''; });
+    noteForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const button = noteForm.querySelector('[type="submit"]');
+      const feedback = details.querySelector('.note-feedback');
+      const followUpDate = noteForm.elements.followUpDate.value;
+      if (followUpDate && !validDateKey(followUpDate)) { feedback.hidden = false; feedback.textContent = 'Enter a valid follow-up date.'; return; }
+      button.disabled = true;
+      button.textContent = 'Saving…';
+      try {
+        await api('/api/decisions', { method: 'PATCH', body: JSON.stringify({ id: item.id, note: noteForm.elements.note.value.trim(), followUpDate: followUpDate || null }) });
+        await refreshTracker();
+        showTrackerFeedback(`Saved notes for ${item.company || title}.`);
+        [...els.trackerList.querySelectorAll('article')].find((entry) => entry.dataset.jobId === item.id)?.querySelector('summary')?.focus();
+      } catch (err) {
+        feedback.hidden = false;
+        feedback.textContent = `Could not save: ${err.message}. Your edits are still here.`;
+      } finally { button.disabled = false; button.textContent = 'Save notes'; }
+    });
     row.querySelector('[data-copy-pack]')?.addEventListener('click', async () => {
       try {
         await copyApplyPack(item);
@@ -2462,6 +3038,7 @@ function renderTracker() {
       } catch (err) {
         ev.target.value = item.decision;
         appendLog(err.message, 'stderr');
+        showTrackerFeedback(`Could not update ${title}: ${err.message}`, true);
       }
     });
     frag.appendChild(row);
@@ -2469,9 +3046,10 @@ function renderTracker() {
   els.trackerList.appendChild(frag);
 }
 
-async function refreshTracker() {
+function refreshTracker() { return loadPagedView('tracker', els.trackerList, loadTracker, refreshTracker); }
+async function loadTracker(signal) {
   updateSheetsUi(state.status?.sheets);
-  const data = await api('/api/tracker');
+  const data = await api('/api/tracker', { signal });
   state.trackerItems = data.items || [];
   state.trackerCounts = data.counts || {};
   renderTracker();
@@ -2495,7 +3073,7 @@ function decisionKey(job) {
 /** Digest is an inbox of new postings — hide applied (and any Results-filter hides). */
 function digestJobVisible(job) {
   const key = decisionKey(job);
-  if (key === 'applied') return false;
+  if (['applied', 'interviewing', 'offer', 'accepted'].includes(key)) return false;
   const hide = hiddenFromVisible(
     DECISION_FILTER_OPTIONS.map((o) => o.id),
     state.visibleDecisions,
@@ -2509,13 +3087,17 @@ function digestLangVisible(job) {
   return job?.language === lang;
 }
 
-async function refreshDigest() {
-  const data = await api('/api/digest');
-  const jobs = (data.newJobs || []).filter((j) => digestJobVisible(j) && digestLangVisible(j));
+function refreshDigest() { return loadPagedView('digest', els.digestList, loadDigest, refreshDigest); }
+async function loadDigest(signal) {
+  const params = new URLSearchParams(queryString());
+  params.set('page', listPages.digest.page); params.set('pageSize', listPages.digest.pageSize);
+  const data = await api(`/api/digest?${params}`, { signal });
+  listPages.digest = data.pagination; listPagers.digest.update(data.pagination);
+  const jobs = data.newJobs || [];
   state.digestJobs = jobs;
   if (els.batchOpenBtn) els.batchOpenBtn.disabled = !jobs.length && !state.batch?.running;
   els.digestMeta.textContent = data.digest?.generatedAt
-    ? `${jobs.length} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
+    ? `${data.count} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`
     : 'Run a search to build a digest.';
   if (els.digestTiming) {
     const d = data.digest || {};
@@ -2576,7 +3158,15 @@ async function refreshPortals() {
 
 function setView(view) {
   state.view = view;
-  document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.view === view));
+  document.querySelectorAll('.tab').forEach((t) => {
+    const active = t.dataset.view === view;
+    t.classList.toggle('active', active);
+    t.setAttribute('aria-selected', String(active));
+    t.tabIndex = active ? 0 : -1;
+  });
+  $('searchToolbar').hidden = !['results', 'digest'].includes(view);
+  els.runBtn.textContent = ['results', 'digest'].includes(view) ? 'Run search' : 'Find new jobs';
+  history.replaceState(null, '', `#${view}`);
   els.viewResults.hidden = view !== 'results';
   els.viewTracker.hidden = view !== 'tracker';
   els.viewAnswers.hidden = view !== 'answers';
@@ -2584,11 +3174,12 @@ function setView(view) {
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
   els.layout?.classList.toggle('tracker-wide', view === 'tracker');
-  if (view === 'tracker') refreshTracker();
-  if (view === 'answers') refreshAnswers();
-  if (view === 'portals') refreshPortals();
-  if (view === 'digest') refreshDigest();
-  if (view === 'ready') refreshReady();
+  if (view === 'results') refreshJobs();
+  if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
+  if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'portals') refreshPortals().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'digest') refreshDigest().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'ready') refreshReady().catch((err) => { appendLog(err.message, 'stderr');  });
 }
 
 async function runSearch() {
@@ -2683,15 +3274,15 @@ async function stopSearch() {
 }
 
 async function refreshAll() {
-  await refreshStatus();
-  await refreshJobs();
-  if (state.view === 'tracker') await refreshTracker();
-  if (state.view === 'portals') await refreshPortals();
-  if (state.view === 'digest') await refreshDigest();
-  if (state.view === 'ready') await refreshReady();
+  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers }[state.view];
+  const results = await Promise.allSettled([refreshStatus(), refresh?.()]);
+  for (const result of results) if (result.status === 'rejected') appendLog(result.reason.message, 'stderr');
 }
 
-els.runBtn.addEventListener('click', runSearch);
+els.runBtn.addEventListener('click', () => {
+  if (!['results', 'digest'].includes(state.view)) { setView('results'); return; }
+  runSearch();
+});
 els.emptyRunBtn.addEventListener('click', runSearch);
 els.stopBtn?.addEventListener('click', stopSearch);
 els.searchInput.addEventListener('input', () => {
@@ -2700,8 +3291,29 @@ els.searchInput.addEventListener('input', () => {
   searchDebounce = setTimeout(() => refreshJobs(), 200);
 });
 els.trackerSearch?.addEventListener('input', () => {
+  state.trackerPage = 1;
   clearTimeout(searchDebounce);
   searchDebounce = setTimeout(() => renderTracker(), 150);
+});
+els.trackerSort?.addEventListener('change', () => {
+  saveTrackerSort(els.trackerSort.value);
+  state.trackerPage = 1;
+  renderTracker();
+});
+els.trackerPageSize?.addEventListener('change', () => {
+  saveTrackerPageSize(els.trackerPageSize.value);
+  state.trackerPage = 1;
+  renderTracker();
+});
+els.trackerPrevPage?.addEventListener('click', () => {
+  if (state.trackerPage > 1) {
+    state.trackerPage -= 1;
+    renderTracker();
+  }
+});
+els.trackerNextPage?.addEventListener('click', () => {
+  state.trackerPage += 1;
+  renderTracker();
 });
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;
@@ -2711,13 +3323,14 @@ els.langFilter?.addEventListener('change', () => {
   saveLang(els.langFilter.value);
   state.page = 1;
   refreshJobs();
-  if (state.view === 'digest') refreshDigest();
+  if (state.view === 'digest') { listPages.digest.page = 1; refreshDigest(); }
 });
 els.sortSelect?.addEventListener('change', () => {
   saveSort(els.sortSelect.value);
   state.page = 1;
   refreshJobs();
 });
+els.resultScope?.addEventListener('change', () => { state.page = 1; refreshJobs(); });
 els.pageSize.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
@@ -2802,6 +3415,46 @@ els.applyAssistModal?.addEventListener('click', (ev) => {
 });
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && els.applyAssistModal && !els.applyAssistModal.hidden) hideApplyAssistModal();
+  if (ev.key === 'Escape' && els.recruiterModal && !els.recruiterModal.hidden) hideRecruiterModal();
+});
+els.recruiterClose?.addEventListener('click', () => hideRecruiterModal());
+els.recruiterModal?.addEventListener('click', (ev) => {
+  if (ev.target === els.recruiterModal) hideRecruiterModal();
+});
+els.recruiterSave?.addEventListener('click', async () => {
+  try {
+    await saveRecruiterEdits();
+  } catch (err) {
+    appendLog(`Recruiter save failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+  }
+});
+els.recruiterLookup?.addEventListener('click', async () => {
+  try {
+    recruiterLookedUp = true;
+    await startRecruiterLookup('lookup');
+  } catch (err) {
+    appendLog(`Recruiter lookup failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    paintRecruiterRun({ running: false, error: err.message });
+  }
+});
+els.recruiterAgent?.addEventListener('click', async () => {
+  try {
+    await startRecruiterLookup('agent');
+  } catch (err) {
+    appendLog(`Recruiter agent failed: ${err.message}`, 'stderr');
+    if (els.recruiterStatus) els.recruiterStatus.textContent = err.message;
+    paintRecruiterRun({ running: false, error: err.message });
+  }
+});
+els.recruiterStop?.addEventListener('click', async () => {
+  try {
+    await recruiterApi('/api/recruiter-contact/stop', { method: 'POST', body: '{}' });
+    if (els.recruiterStatus) els.recruiterStatus.textContent = 'Stopping…';
+  } catch (err) {
+    appendLog(err.message, 'stderr');
+  }
 });
 els.applyAssistCopy?.addEventListener('click', async () => {
   const text = applyAssistContext.text || els.applyAssistPack?.textContent || '';
@@ -2870,23 +3523,20 @@ els.cvSource?.addEventListener('change', async () => {
   }
 });
 els.agentProvider?.addEventListener('change', async () => {
+  const agentProvider = els.agentProvider.value;
+  modelPicker.invalidate();
+  els.agentProvider.disabled = true;
   try {
-    const agentProvider = els.agentProvider.value;
-    await saveSettings({ agentProvider });
+    const saved = await saveSettings({ agentProvider });
     appendLog(`Prep agent → ${agentProvider}`);
-    await refreshAgentModels(agentProvider, '');
-    const st = state.status?.agentProviders?.find((p) => p.id === agentProvider);
+    els.agentProvider.disabled = false;
+    await refreshAgentModels(agentProvider, saved.cv?.agentModel || '');
+    const st = saved.agentProviders?.find((p) => p.id === agentProvider);
     if (st && !st.ok) appendLog(st.detail || 'Provider not ready', 'stderr');
   } catch (err) {
     appendLog(err.message, 'stderr');
-  }
-});
-els.agentModel?.addEventListener('change', async () => {
-  try {
-    await saveSettings({ agentModel: els.agentModel.value });
-    appendLog(`Agent model → ${els.agentModel.value || '(default)'}`);
-  } catch (err) {
-    appendLog(err.message, 'stderr');
+    els.agentProvider.disabled = false;
+    await refreshStatus();
   }
 });
 els.overleafPush?.addEventListener('change', async () => {
@@ -2900,6 +3550,20 @@ els.overleafPush?.addEventListener('change', async () => {
 
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => setView(tab.dataset.view));
+  const panel = $('view' + tab.dataset.view[0].toUpperCase() + tab.dataset.view.slice(1));
+  tab.id = `tab-${tab.dataset.view}`;
+  tab.setAttribute('aria-controls', panel.id);
+  panel.setAttribute('role', 'tabpanel');
+  panel.setAttribute('aria-labelledby', tab.id);
+  tab.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const tabs = [...document.querySelectorAll('.tabs .tab')];
+    const index = tabs.indexOf(tab);
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].focus();
+    setView(tabs[next].dataset.view);
+  });
 });
 
 els.setupForm?.addEventListener('submit', async (ev) => {
@@ -2947,23 +3611,64 @@ els.setupForm?.addEventListener('submit', async (ev) => {
 connectStream();
 
 (async function init() {
-  try {
-    initFilterMenus();
-    await refreshMarkets();
-    await refreshStatus();
-    if (!state.status?.setup?.needsSetup) await refreshJobs();
-    if (state.status?.sheets?.configured) {
-      try {
-        const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
-        logSheetsPull(pull);
-        if (pull.pulled > 0 && !state.status?.setup?.needsSetup) await refreshJobs();
-      } catch (err) {
-        appendLog(`Sheets pull: ${err.message}`, 'stderr');
-      }
-    }
-    // Keep Allow paid OFF by default — JobSpy is free. Token presence is not consent to spend.
-  } catch (err) {
-    appendLog(`Init failed: ${err.message}`, 'stderr');
-    setChip('error', 'Error');
+  initFilterMenus();
+  const initialView = location.hash.slice(1);
+  setView(['results', 'tracker', 'answers', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
+  els.runBtn.disabled = true; els.emptyRunBtn.disabled = true;
+  const startup = await Promise.allSettled([refreshMarkets(), refreshStatus()]);
+  const startupReady = startup.every(result => result.status === 'fulfilled');
+  els.runBtn.disabled = !startupReady || Boolean(state.status?.fetchRunning);
+  els.emptyRunBtn.disabled = els.runBtn.disabled;
+  for (const result of startup) if (result.status === 'rejected') {
+    const box = document.createElement('div'); box.className = 'alert'; box.setAttribute('role', 'alert');
+    box.textContent = `Some settings could not load: ${result.reason.message}. `;
+    const retry = document.createElement('button'); retry.className = 'btn small'; retry.textContent = 'Retry';
+    retry.onclick = () => location.reload(); box.append(retry); els.alerts.append(box);
+  }
+  // Optional sync never blocks navigation or the first list.
+  if (state.status?.sheets?.configured) {
+    try {
+      const pull = await api('/api/sheets/pull', { method: 'POST', body: '{}' });
+      logSheetsPull(pull);
+      if (pull.pulled > 0) await refreshAll();
+    } catch (err) { appendLog(`Sheets pull: ${err.message}`, 'stderr'); }
   }
 })();
+
+function updateResultsEmptyState(data) {
+  const filtered = Boolean(els.searchInput.value.trim() || els.fitFilter.value !== 'all' || els.langFilter.value !== 'all' || state.visibleDecisions.size !== DECISION_FILTER_OPTIONS.length);
+  $('emptyTitle').textContent = filtered ? 'No jobs match these filters' : data.meta ? 'No jobs in this search' : 'Your next opportunity starts here';
+  $('emptyHint').textContent = filtered ? 'Try a broader search or reset your filters to see more jobs.' : 'Choose a market and run a search. Shortlist promising roles to keep them in your tracker.';
+  $('emptyResetBtn').hidden = !filtered;
+  els.emptyRunBtn.hidden = filtered;
+}
+
+function resetResultFilters(focus = false) {
+  els.searchInput.value = '';
+  els.fitFilter.value = 'all';
+  els.langFilter.value = 'all';
+  try { localStorage.setItem(LS_LANG, 'all'); } catch { /* optional preference */ }
+  state.visibleDecisions = new Set(focus ? ['none', 'shortlisted'] : DECISION_FILTER_OPTIONS.map((option) => option.id));
+  state.page = 1;
+  onDecisionFilterChange({ rerender: true });
+}
+
+$('resetResultsBtn').addEventListener('click', () => resetResultFilters());
+$('emptyResetBtn').addEventListener('click', () => resetResultFilters());
+$('focusResultsBtn').addEventListener('click', () => resetResultFilters(true));
+document.querySelectorAll('[data-tracker-preset]').forEach((button) => button.addEventListener('click', () => selectTrackerPreset(button.dataset.trackerPreset)));
+
+function editApplication(item = null) {
+  openApplicationEditor(item, { api, onSaved: async (message, savedEntry) => {
+    if (savedEntry) {
+      state.trackerVisibleColumns.add(savedEntry.decision);
+      state.trackerDueOnly = false;
+      els.trackerSearch.value = '';
+      state.trackerPage = 1;
+    }
+    try { await refreshTracker(); showTrackerFeedback(message); }
+    catch (err) { showTrackerFeedback(`${message} Could not refresh the list: ${err.message}`, true); }
+    $('addApplicationBtn').focus();
+  } });
+}
+$('addApplicationBtn').addEventListener('click', () => editApplication());

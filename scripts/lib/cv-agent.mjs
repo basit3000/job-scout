@@ -832,6 +832,19 @@ async function persistAgentMeta(prepDir, meta, sessionKey) {
   await saveAgentSession(prepDir, meta, sessionKey || 'cvWriter');
 }
 
+export function codexExecArgs(prompt, modelId = '') {
+  // Approval is a root option: exec rejects it after the subcommand.
+  const args = ['--ask-for-approval', 'never', 'exec', '--sandbox', 'workspace-write'];
+  if (modelId) args.push('--model', modelId);
+  return [...args, '--', prompt];
+}
+
+export function cliExitMessage(provider, code, stderr = '') {
+  const detail = stderr.replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/)
+    .map((line) => line.trim()).find((line) => /^error\s*:/i.test(line));
+  return `${provider} exited with code ${code ?? 1}${detail ? `: ${detail.slice(0, 350)}` : ''}`;
+}
+
 async function runCliAgent({
   bin,
   args,
@@ -857,9 +870,11 @@ async function runCliAgent({
     });
     activeChild = child;
     let stdout = '';
+    let stderr = '';
     const onChunk = (stream) => (buf) => {
       const text = buf.toString('utf8');
       if (stream === 'stdout') stdout += text;
+      if (stream === 'stderr') stderr = (stderr + text).slice(-8192);
       for (const line of text.split(/\r?\n/)) {
         if (line.trim()) emit(line, stream);
       }
@@ -873,7 +888,7 @@ async function runCliAgent({
     child.on('close', (code) => {
       activeChild = null;
       if (code === 0) resolve(stdout);
-      else reject(new Error(`${provider} exited with code ${code ?? 1}`));
+      else reject(new Error(cliExitMessage(provider, code, stderr)));
     });
   });
 
@@ -1258,15 +1273,7 @@ export async function runCvTailorAgent({
           'Codex CLI not found. Install it and ensure `codex` is on PATH, or set CODEX_BIN.',
         );
       }
-      const args = [
-        'exec',
-        '--sandbox',
-        'workspace-write',
-        '--ask-for-approval',
-        'never',
-      ];
-      if (modelSel.id) args.push('--model', modelSel.id);
-      args.push(prompt);
+      const args = codexExecArgs(prompt, modelSel.id);
       return await runCliAgent({
         bin,
         args,

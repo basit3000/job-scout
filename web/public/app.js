@@ -108,6 +108,7 @@ const els = {
   batchSelectList: $('batchSelectList'),
   batchIncludeLetter: $('batchIncludeLetter'),
   batchSkipExisting: $('batchSkipExisting'),
+  batchReplaceExisting: $('batchReplaceExisting'),
   batchInstructions: $('batchInstructions'),
   batchError: $('batchError'),
   batchCancelSetup: $('batchCancelSetup'),
@@ -140,6 +141,8 @@ const els = {
   prepModalRecreate: $('prepModalRecreate'),
   prepCreateCv: $('prepCreateCv'),
   prepCreateCoverLetter: $('prepCreateCoverLetter'),
+  prepReplaceRow: $('prepReplaceRow'),
+  prepReplaceExisting: $('prepReplaceExisting'),
   statusModal: $('statusModal'),
   statusModalTitle: $('statusModalTitle'),
   statusModalHint: $('statusModalHint'),
@@ -1474,6 +1477,11 @@ function readPrepTargets() {
 
 function syncPrepModalActions(hasCache) {
   const { createCv, createCoverLetter } = readPrepTargets();
+  if (els.prepReplaceRow) els.prepReplaceRow.hidden = !hasCache;
+  if (els.prepReplaceExisting) {
+    els.prepReplaceExisting.disabled = !createCv;
+    if (!createCv || !hasCache) els.prepReplaceExisting.checked = false;
+  }
   const canCreate = createCv || createCoverLetter;
   if (els.prepModalFast) els.prepModalFast.disabled = !canCreate;
   if (els.prepModalRecreate) {
@@ -1487,7 +1495,7 @@ function syncPrepModalActions(hasCache) {
     els.prepModalUseExisting.hidden = !hasCache || !createCv
       || els.prepModal.dataset.currentCv !== 'true'
       || (createCoverLetter && els.prepModal.dataset.currentLetter !== 'true')
-      || Boolean(readPrepInstructions());
+      || Boolean(readPrepInstructions()) || Boolean(els.prepReplaceExisting?.checked);
   }
 }
 
@@ -1499,6 +1507,7 @@ function choicePayload(recreate, mode) {
     extraInstructions: readPrepInstructions(),
     createCv,
     createCoverLetter,
+    replaceExisting: Boolean(recreate && createCv && els.prepReplaceExisting?.checked),
   };
 }
 
@@ -1530,6 +1539,7 @@ function openPrepModal(job, opts = {}) {
       : `Check what to generate. Create runs the agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
     if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
     if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
+    if (els.prepReplaceExisting) els.prepReplaceExisting.checked = false;
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
@@ -1547,6 +1557,7 @@ function openPrepModal(job, opts = {}) {
       els.prepInstrCustom?.removeEventListener('input', onChecks);
       els.prepCreateCv?.removeEventListener('change', onChecks);
       els.prepCreateCoverLetter?.removeEventListener('change', onChecks);
+      els.prepReplaceExisting?.removeEventListener('change', onChecks);
       els.prepModal.removeEventListener('click', onBackdrop);
       document.removeEventListener('keydown', onKey);
       closePrepModal();
@@ -1585,6 +1596,7 @@ function openPrepModal(job, opts = {}) {
     els.prepInstrCustom?.addEventListener('input', onChecks);
     els.prepCreateCv?.addEventListener('change', onChecks);
     els.prepCreateCoverLetter?.addEventListener('change', onChecks);
+    els.prepReplaceExisting?.addEventListener('change', onChecks);
     els.prepModal.addEventListener('click', onBackdrop);
     document.addEventListener('keydown', onKey);
   });
@@ -1924,6 +1936,7 @@ async function runPrepFlow(job, opts = {}) {
       body: JSON.stringify({
         id: job.id,
         recreate: choice.recreate,
+        replaceExisting: choice.replaceExisting,
         extraInstructions: choice.extraInstructions || '',
         mode,
         includeCoverLetter: Boolean(choice.createCoverLetter),
@@ -2468,7 +2481,17 @@ async function openBatchSetup() {
   batchJobs = jobs; batchSelection = new Set(jobs.map(job => job.id)); batchPage.page = 1;
   renderBatchSelectList(jobs);
   if (els.batchInstructions) els.batchInstructions.value = '';
+  if (els.batchReplaceExisting) els.batchReplaceExisting.checked = false;
+  if (els.batchSkipExisting) els.batchSkipExisting.checked = true;
+  syncBatchReplacement();
   showBatchModal('setup');
+}
+
+function syncBatchReplacement() {
+  if (!els.batchSkipExisting) return;
+  const replace = Boolean(els.batchReplaceExisting?.checked);
+  els.batchSkipExisting.disabled = replace;
+  if (replace) els.batchSkipExisting.checked = false;
 }
 
 async function startBatch() {
@@ -2476,14 +2499,15 @@ async function startBatch() {
   if (!ids.length) return;
   const mode = document.querySelector('input[name="batchMode"]:checked')?.value === 'fast' ? 'fast' : 'agent';
   const includeCoverLetter = Boolean(els.batchIncludeLetter?.checked);
-  const skipExisting = Boolean(els.batchSkipExisting?.checked);
+  const replaceExisting = Boolean(els.batchReplaceExisting?.checked);
+  const skipExisting = !replaceExisting && Boolean(els.batchSkipExisting?.checked);
   const extraInstructions = (els.batchInstructions?.value || '').trim().slice(0, 500);
   if (els.batchStart) els.batchStart.disabled = true;
   if (els.batchError) els.batchError.hidden = true;
   try {
     const res = await api('/api/prep/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
+      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, replaceExisting, extraInstructions }),
     });
     state.batchDismissed = false;
     applyBatchSnapshot(res.batch);
@@ -2505,6 +2529,7 @@ els.batchOpenBtn?.addEventListener('click', openBatchSetup);
 els.batchCancelSetup?.addEventListener('click', hideBatchModal);
 els.batchClose?.addEventListener('click', hideBatchModal);
 els.batchStart?.addEventListener('click', startBatch);
+els.batchReplaceExisting?.addEventListener('change', syncBatchReplacement);
 els.batchStop?.addEventListener('click', stopBatch);
 els.batchBarCancel?.addEventListener('click', stopBatch);
 els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));

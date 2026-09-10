@@ -173,6 +173,10 @@ Exports use a separate role folder with a stable job-ID suffix, so preparing two
 
 **Outdated documents** means the source CV, profile, posting, provider/model, or relevant template changed, or the pack predates input tracking. Recreate it before applying. Batch **Skip existing** skips only current documents with the requested instructions and mode. Existing packs without generation metadata need one recreation. Overleaf freshness checks the local checkout; remote changes become visible after synchronization.
 
+In a job's **Prep** dialog, **Replace existing CV and reset role folder** generates from a clean workspace. Once the new documents pass validation, it deletes that role's old downloads folder and exports the new files. This also removes the old cover letter; select **Create cover letter** to regenerate it. Other roles and the base CV are unaffected. Failed validation preserves the previous documents, and the previous prep pack remains in local history.
+
+Batch **Create CVs** offers **Replace existing CVs and reset role folders** for all selected postings. It turns off **Skip existing**, works with Agent or Fast mode, and uses the same validation and folder replacement behavior. Select **Cover letter too** to regenerate letters as well. Replacement starts unchecked each time you open a new batch.
+
 Generation stages replacements separately. PDFs must have readable text and exactly one page before they are marked ready and exported. If generation fails or overflows, previous accepted documents remain available; complete drafts and older versions are retained under `.workspace/prep-history/`. The log identifies drafts needing review. New packs needing review are excluded from **Ready to apply**, and Fill refuses outdated or unverified documents. CV and letter freshness are tracked separately.
 
 ### Google Sheets (optional)

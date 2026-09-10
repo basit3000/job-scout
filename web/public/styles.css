@@ -488,8 +488,10 @@ a.btn.primary-link:hover {
 
 /* Batch modal ------------------------------------------------------------- */
 
-.batch-card {
+.prep-modal-card.batch-card {
   width: min(640px, 100%);
+  max-height: calc(100dvh - 2.5rem);
+  overflow-y: auto;
 }
 
 .batch-card > * {

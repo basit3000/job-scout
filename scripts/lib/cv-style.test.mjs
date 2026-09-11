@@ -32,6 +32,15 @@ describe('cv-style', () => {
     assert.ok(proj.every((i) => i.severity === 'hard'));
   });
 
+  it('warns instead of reverting when a project bullet names the people in a dataset', () => {
+    const text = 'Predictive models in Python identifying at-risk customers, feeding retention strategy';
+    const proj = findStyleIssues(text, { personalProject: true }).filter((i) => i.kind === 'inflation');
+    assert.equal(proj.length, 1);
+    assert.equal(proj[0].phrase.toLowerCase(), 'customers');
+    // Soft keeps it in the quality report without throwing the whole edit away.
+    assert.equal(proj[0].severity, 'soft');
+  });
+
   it('reports weak openers and over-long bullets only in bullet mode', () => {
     const weak = findStyleIssues('Responsible for the API.', { bullet: true });
     assert.ok(weak.some((i) => i.kind === 'weak-opener'));

@@ -7,8 +7,8 @@ import { paginate, digestItems } from '../scripts/lib/list-pagination.mjs';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { createServer } from 'node:http';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
-import { createReadStream } from 'node:fs';
-import { join, extname } from 'node:path';
+import { createReadStream, existsSync } from 'node:fs';
+import { join, extname, resolve, relative, isAbsolute } from 'node:path';
 import { spawn, exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
@@ -589,6 +589,27 @@ async function getStatus({ light = false } = {}) {
   };
 }
 
+/**
+ * Turn an explicit language choice into an instruction the agent acts on.
+ *
+ * The letter frame is set structurally, but the prose in the CV and the letter
+ * body is written by the agent, so it has to be told. 'auto' adds nothing and
+ * leaves the existing posting-based behaviour untouched.
+ */
+function withLanguageInstruction(extraInstructions, language) {
+  if (language !== 'de') return extraInstructions;
+  // Only German needs saying: the CV and the templates are English by default,
+  // so without this the agent leaves the body in English and only the frame moves.
+  const rule = [
+    'Write every word of the CV and the cover letter in German, including section',
+    'headings, role descriptions and bullet points. Do not leave English sentences',
+    'in place. Keep proper nouns, employer names, job titles and technology names',
+    'as they are (Python, FastAPI, PostgreSQL, Next.js, Docker, GitHub Actions).',
+    'Use natural German business language, not a word-for-word translation.',
+  ].join(' ');
+  return extraInstructions ? `${rule} ${extraInstructions}` : rule;
+}
+
 function jobIsReady(job) {
   if (job.prepOutdated || job.prepNeedsReview || !job.currentSearch?.current) return false;
   if (!(job.tailoredCv || job.tailoredPdf || job.coverLetter)) return false;
@@ -1159,6 +1180,12 @@ async function handleApi(req, res, url) {
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
     const mode = body.mode === 'fast' ? 'fast' : 'agent';
+    // 'auto' resolves here rather than downstream: the agent writes the prose,
+    // so it has to be told the language, not just handed a matching frame.
+    const language = ['en', 'de'].includes(body.language)
+      ? body.language
+      : (job.language === 'de' ? 'de' : 'en');
+    const instructions = withLanguageInstruction(extraInstructions, language);
     const includeCoverLetter = body.includeCoverLetter !== false;
 
     const replaceExisting = body.replaceExisting === true;
@@ -1187,7 +1214,8 @@ async function handleApi(req, res, url) {
         const pack = await writePrepPack(job, profile, fit, saved, {
           recreate: true,
           useCache: false,
-          extraInstructions,
+          extraInstructions: instructions,
+          language,
           tailorMode: 'fast',
           includeCoverLetter,
           replaceExisting,
@@ -1227,7 +1255,8 @@ async function handleApi(req, res, url) {
         const pack = await writePrepPack(job, profile, fit, saved, {
           recreate: true,
           useCache: false,
-          extraInstructions,
+          extraInstructions: instructions,
+          language,
           tailorMode: 'agent',
           includeCoverLetter,
           replaceExisting,
@@ -1459,6 +1488,10 @@ async function handleApi(req, res, url) {
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
     const mode = body.mode === 'fast' ? 'fast' : 'agent';
+    const language = ['en', 'de'].includes(body.language)
+      ? body.language
+      : (job.language === 'de' ? 'de' : 'en');
+    const instructions = withLanguageInstruction(extraInstructions, language);
     const settings = await loadCvSettings();
     const dir = prepDir(job.id);
 
@@ -1484,7 +1517,8 @@ async function handleApi(req, res, url) {
       try {
         const result = await generateCoverLetterPack(job, profile, fit, {
           prepDir: dir,
-          extraInstructions,
+          extraInstructions: instructions,
+          language,
           tailorMode: 'fast',
           settings,
         });
@@ -1517,7 +1551,8 @@ async function handleApi(req, res, url) {
         prepLog(`Cover letter agent starting for ${job.title} @ ${job.company}`, 'meta');
         const result = await generateCoverLetterPack(job, profile, fit, {
           prepDir: dir,
-          extraInstructions,
+          extraInstructions: instructions,
+          language,
           tailorMode: 'agent',
           provider: settings.agentProvider,
           model: settings.agentModel,
@@ -1587,6 +1622,23 @@ async function handleApi(req, res, url) {
       files: exported.files || [],
       error: revealed.error || null,
     });
+  }
+
+  // POST /api/prep/open-draft { dir } — reveal a held-back draft so it can be
+  // read before deciding what to fix. Nothing is exported: these documents did
+  // not pass review, so they must not land in downloads/ as if they had.
+  if (req.method === 'POST' && path === '/api/prep/open-draft') {
+    const body = await readBody(req);
+    const wanted = resolve(String(body.dir || ''));
+    const root = resolve(workspaceDir());
+    const rel = relative(root, wanted);
+    // A path from the browser is untrusted: it has to resolve inside .workspace.
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+      return json(res, 400, { error: 'Draft folder must be inside .workspace' });
+    }
+    if (!existsSync(wanted)) return json(res, 404, { error: `Not found: ${wanted}` });
+    const revealed = revealDownloadsFolder(wanted);
+    return json(res, 200, { ok: revealed.ok, folder: wanted, error: revealed.error || null });
   }
 
   // GET /api/prep/:id/cv.html|cv.md|…  or  GET /api/prep/:id
@@ -1720,8 +1772,8 @@ async function handleApi(req, res, url) {
       config.cv = { ...(config.cv ?? {}) };
       if (body.cvSource != null) {
         const src = String(body.cvSource);
-        if (src !== 'local' && src !== 'overleaf') {
-          return json(res, 400, { error: 'cvSource must be local or overleaf' });
+        if (src !== 'local' && src !== 'latex' && src !== 'overleaf') {
+          return json(res, 400, { error: 'cvSource must be local, latex or overleaf' });
         }
         config.cv.source = src;
       }

@@ -63,6 +63,25 @@ export function cvFileBaseName(profileName) {
   return parts[0] || 'Candidate';
 }
 
+/**
+ * Document file names, as a German employer expects to receive them:
+ * "Lebenslauf_Ada_Lovelace.pdf" and "Anschreiben_Ada_Lovelace.pdf".
+ *
+ * Underscores rather than spaces, because these travel through upload forms and
+ * ATS parsers that still mangle spaces in filenames.
+ */
+function fileNameSlug(profileName) {
+  return cvFileBaseName(profileName).replace(/\s+/g, '_');
+}
+
+export function cvDocumentName(profileName) {
+  return `Lebenslauf_${fileNameSlug(profileName)}`;
+}
+
+export function letterDocumentName(profileName) {
+  return `Anschreiben_${fileNameSlug(profileName)}`;
+}
+
 export function safeFolderName(company) {
   const raw = String(company || 'Unknown')
     .replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ')
@@ -118,6 +137,7 @@ export async function exportCvDownloads({
   jobTitle = '',
 } = {}) {
   const base = cvFileBaseName(profileName);
+  const cvName = cvDocumentName(profileName);
   const folder = jobDownloadFolder({ company, jobTitle, jobId });
   const dir = join(exportRoot, folder);
   if (artifactContext.getStore()) return { deferred: true, files: [] };
@@ -138,13 +158,13 @@ export async function exportCvDownloads({
 
   // ATS / portal file → "<Name> CV.pdf" (no "ATS" in the filename)
   if (atsSrc) {
-    atsOut = await safeCopyFile(atsSrc, join(dir, `${base} CV.pdf`));
+    atsOut = await safeCopyFile(atsSrc, join(dir, `${cvName}.pdf`));
     files.push(atsOut);
   }
 
   // Human-facing Main → "<Name> CV Main.pdf"
   if (mainSrc) {
-    mainOut = await safeCopyFile(mainSrc, join(dir, `${base} CV Main.pdf`));
+    mainOut = await safeCopyFile(mainSrc, join(dir, `${cvName}_Main.pdf`));
     files.push(mainOut);
   }
 
@@ -154,8 +174,8 @@ export async function exportCvDownloads({
     jobTitle ? `Role: ${jobTitle}` : '',
     `Exported: ${new Date().toISOString()}`,
     '',
-    atsOut ? `- \`${base} CV.pdf\` — ATS / portals` : '',
-    mainOut ? `- \`${base} CV Main.pdf\` — main / human-facing` : '',
+    atsOut ? `- \`${cvName}.pdf\` — ATS / portals` : '',
+    mainOut ? `- \`${cvName}_Main.pdf\` — main / human-facing` : '',
     '',
     `Path: \`${dir}\``,
     '',
@@ -192,6 +212,8 @@ export async function exportCoverLetterDownloads({
   docxPath = null,
 } = {}) {
   const base = cvFileBaseName(profileName);
+  const cvName = cvDocumentName(profileName);
+  const letterName = letterDocumentName(profileName);
   const folder = jobDownloadFolder({ company, jobTitle, jobId });
   const dir = join(exportRoot, folder);
   if (artifactContext.getStore()) return { deferred: true, files: [] };
@@ -200,17 +222,17 @@ export async function exportCoverLetterDownloads({
   const files = [];
   let mdOut = null;
   if (mdText) {
-    mdOut = await safeWriteFile(join(dir, `${base} Cover Letter.md`), mdText.endsWith('\n') ? mdText : `${mdText}\n`);
+    mdOut = await safeWriteFile(join(dir, `${letterName}.md`), mdText.endsWith('\n') ? mdText : `${mdText}\n`);
     files.push(mdOut);
   }
   let pdfOut = null;
   if (pdfPath && existsSync(pdfPath)) {
-    pdfOut = await safeCopyFile(pdfPath, join(dir, `${base} Cover Letter.pdf`));
+    pdfOut = await safeCopyFile(pdfPath, join(dir, `${letterName}.pdf`));
     files.push(pdfOut);
   }
   let docxOut = null;
   if (docxPath && existsSync(docxPath)) {
-    docxOut = await safeCopyFile(docxPath, join(dir, `${base} Cover Letter.docx`));
+    docxOut = await safeCopyFile(docxPath, join(dir, `${letterName}.docx`));
     files.push(docxOut);
   }
 
@@ -220,11 +242,11 @@ export async function exportCoverLetterDownloads({
     jobTitle ? `Role: ${jobTitle}` : '',
     `Exported: ${new Date().toISOString()}`,
     '',
-    `- \`${base} Cover Letter.md\``,
-    pdfOut ? `- \`${base} Cover Letter.pdf\`` : '',
-    docxOut ? `- \`${base} Cover Letter.docx\`` : '',
-    existsSync(join(dir, `${base} CV.pdf`)) ? `- \`${base} CV.pdf\` — ATS / portals` : '',
-    existsSync(join(dir, `${base} CV Main.pdf`)) ? `- \`${base} CV Main.pdf\` — main / human-facing` : '',
+    `- \`${letterName}.md\``,
+    pdfOut ? `- \`${letterName}.pdf\`` : '',
+    docxOut ? `- \`${letterName}.docx\`` : '',
+    existsSync(join(dir, `${cvName}.pdf`)) ? `- \`${cvName}.pdf\` — ATS / portals` : '',
+    existsSync(join(dir, `${cvName}_Main.pdf`)) ? `- \`${cvName}_Main.pdf\` — main / human-facing` : '',
     '',
     `Path: \`${dir}\``,
     '',

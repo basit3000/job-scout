@@ -8,7 +8,9 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
-import { htmlFileToPdf, countPdfPages } from './pdf.mjs';
+import { compileTexToPdf, countPdfPages, htmlFileToPdf } from './pdf.mjs';
+import { buildLetterModel, buildLetterTex, detectLetterLanguage, LETTER_FIT_STEPS } from './letter-tex.mjs';
+import { detectPostingLanguage } from './cv-keywords.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
   agentRunnerAvailable,
@@ -244,16 +246,31 @@ ${site}
 `.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-export async function loadCoverLetterTemplate() {
-  try {
-    return await readFile(join(ROOT, 'cv', 'cover-letter.md'), 'utf8');
-  } catch {
-    return '';
+/**
+ * The letter template for a language. A German application starts from
+ * cv/cover-letter.de.md when it exists, so the body is German prose the
+ * candidate wrote rather than an English draft the agent has to translate.
+ */
+export async function loadCoverLetterTemplate(language = 'en') {
+  const names = language === 'de'
+    ? ['cover-letter.de.md', 'cover-letter.md']
+    : ['cover-letter.md'];
+  for (const name of names) {
+    try {
+      const text = await readFile(join(ROOT, 'cv', name), 'utf8');
+      if (text.trim()) return text;
+    } catch {
+      /* try the next one */
+    }
   }
+  return '';
 }
 
-export async function buildCoverLetter(job, profile, fit) {
-  const template = await loadCoverLetterTemplate();
+export async function buildCoverLetter(job, profile, fit, language = null) {
+  const lang = language === 'de' || language === 'en'
+    ? language
+    : (detectPostingLanguage(job) === 'de' ? 'de' : 'en');
+  const template = await loadCoverLetterTemplate(lang);
   if (template.trim()) {
     const assembled = assembleCoverLetter(template, job, profile);
     if (assembled.letter) return assembled.letter;
@@ -420,6 +437,41 @@ export async function coverLetterToDocx(letter) {
  * Convert a .docx file to .pdf using MS Word COM automation.
  * Falls back to HTML-based PDF if Word is unavailable.
  */
+
+/**
+ * Compile the letter, tightening the layout only as far as one page demands.
+ *
+ * The first step is the reference layout, so a letter that already fits is
+ * rendered exactly as designed and no later step ever runs.
+ */
+export async function renderLetterPdfFitted(model, dir, { onEvent = null } = {}) {
+  const texPath = join(dir, 'cover-letter.tex');
+  const pdfPath = join(dir, 'cover-letter.pdf');
+  let last = null;
+
+  for (const step of LETTER_FIT_STEPS) {
+    await writeFile(texPath, buildLetterTex(model, step));
+    const built = await compileTexToPdf(texPath, dir);
+    if (!built.ok) return { ok: false, error: built.error };
+    last = built;
+    const pages = await countPdfPages(built.path);
+    // An unreadable page count must not spin through every step.
+    if (pages === null || pages <= 1) {
+      if (step.id !== 'reference') {
+        onEvent?.({ stream: 'meta', line: `Cover letter: fitted to one page ("${step.id}")`, t: Date.now() });
+      }
+      return { ok: true, path: pdfPath, pages, fit: step.id };
+    }
+  }
+
+  onEvent?.({
+    stream: 'stderr',
+    line: 'Cover letter still runs past one page after every fit pass — trim the text',
+    t: Date.now(),
+  });
+  return { ok: true, path: pdfPath, pages: null, fit: 'bodysize', overflow: true, last };
+}
+
 function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
   // PowerShell script that opens the docx in Word and saves as PDF (formatType 17)
   const ps = `
@@ -445,8 +497,7 @@ function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
     return { ok: false, error: err.message || String(err) };
   }
 }
-
-async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
+async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, profile = null, language = 'auto' } = {}) {
   let pdfPath = null;
   let docxPath = null;
   let pdfError = null;
@@ -459,6 +510,26 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
     await writeFile(docxPath, docxBuf);
   } catch (err) {
     pdfError = `docx: ${err.message || err}`;
+  }
+
+  // LaTeX is the letter that goes out — same look as the CV. Word and the
+  // browser print stay behind it for machines with no tectonic.
+  if (job && profile) {
+    const model = buildLetterModel({
+      job,
+      profile,
+      body: letter,
+      // The letter's own language wins: the agent may answer a German ad in
+      // English, and the frame has to match the prose, not the posting.
+      // An explicit choice wins. On 'auto' the posting decides, and the prose
+      // only overrides it when the agent clearly wrote the other language.
+      language: language === 'en' || language === 'de'
+        ? language
+        : detectLetterLanguage(letter, detectPostingLanguage(job) === 'de' ? 'de' : 'en'),
+    });
+    const built = await renderLetterPdfFitted(model, dir);
+    if (built.ok) return { pdfPath: built.path, docxPath, pdfError };
+    pdfError = (pdfError ? `${pdfError}; ` : '') + `latex: ${built.error}`;
   }
 
   if (docxPath && existsSync(docxPath)) {
@@ -509,8 +580,12 @@ async function generateCoverLetterUncached(job, profile, fit, {
   provider = null,
   model = null,
   cvSource = 'local',
+  language = 'auto',
 } = {}) {
-  const assembled = assembleCoverLetter(await loadCoverLetterTemplate(), job, profile);
+  const letterLang = language === 'de' || language === 'en'
+    ? language
+    : (detectPostingLanguage(job) === 'de' ? 'de' : 'en');
+  const assembled = assembleCoverLetter(await loadCoverLetterTemplate(letterLang), job, profile);
   let letter = assembled.letter || fallbackCoverLetter(job, profile, fit);
   const htmlTitle = `Cover letter — ${job.title || ''} @ ${job.company || ''}`;
   const emit = typeof onEvent === 'function'
@@ -593,26 +668,16 @@ async function generateCoverLetterUncached(job, profile, fit, {
 
     const prepare = async () => {
       letter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
-      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
+      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile, language });
       pdfPath = artifacts.pdfPath;
       docxPath = artifacts.docxPath;
       pdfError = artifacts.pdfError;
 
+      // The LaTeX renderer tightens spacing until the letter fits, so no
+      // paragraph is dropped to win a page. Only a letter that overflows even
+      // the tightest layout is flagged, with the full text preserved.
       const pageNotes = [];
-      let pages = pdfPath ? await countPdfPages(pdfPath) : null;
-      if (pages > 1) {
-        emit({ stream: 'meta', line: `Cover letter PDF is ${pages} pages — trimming least relevant paragraphs…`, t: Date.now() });
-        const trimmed = trimLetterToOnePage(letter, job, { force: true });
-        if (trimmed.dropped.length) {
-          letter = trimmed.letter;
-          pageNotes.push(`dropped ${trimmed.dropped.length} paragraph(s) that did not match the posting`);
-          const again = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
-          pdfPath = artifacts.pdfPath = again.pdfPath;
-          docxPath = again.docxPath;
-          pdfError = again.pdfError;
-          pages = pdfPath ? await countPdfPages(pdfPath) : pages;
-        }
-      }
+      const pages = pdfPath ? await countPdfPages(pdfPath) : null;
       if (pdfPath && (pages == null || pages > 1)) {
         pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
         pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';

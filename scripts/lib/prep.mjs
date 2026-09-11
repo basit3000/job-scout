@@ -9,6 +9,7 @@ import {
 } from './tailor-cv.mjs';
 import { writeMasterResume } from './resume-md.mjs';
 import { htmlFileToPdf } from './pdf.mjs';
+import { buildLatexCv } from './latex-cv.mjs';
 import {
   overleafConfigured,
   overleafStatus,
@@ -22,6 +23,7 @@ import {
   exportCvDownloads,
   exportCoverLetterDownloads,
   cvFileBaseName,
+  cvDocumentName,
   clearJobDownloads,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
@@ -125,7 +127,7 @@ export function prepFlagsForJob(index, jobId) {
 export async function loadCvSettings() {
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const cv = config.cv || {};
-  const source = cv.source === 'overleaf' ? 'overleaf' : 'local';
+  const source = ['overleaf', 'latex'].includes(cv.source) ? cv.source : 'local';
   const tailorMode = cv.tailorMode === 'fast' ? 'fast' : 'agent';
   const agentProvider = normalizeAgentProvider(
     cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
@@ -199,9 +201,9 @@ export function buildPrepIndex(job, fit, {
   downloadFolder = null,
 } = {}) {
   const pdfLines = [];
-  if (hasAts) pdfLines.push('- Friendly export: `<Name> CV.pdf` (ATS) in downloads folder');
-  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `<Name> CV Main.pdf` in downloads folder');
-  if (hasAts) pdfLines.push('- [CV PDF (ATS → named CV.pdf)](./cv-ats.pdf)');
+  if (hasAts) pdfLines.push('- Friendly export: `Lebenslauf_<Name>.pdf` (ATS) in downloads folder');
+  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `Lebenslauf_<Name>_Main.pdf` in downloads folder');
+  if (hasAts) pdfLines.push('- [CV PDF (ATS → named Lebenslauf_<Name>.pdf)](./cv-ats.pdf)');
   if (hasMain) pdfLines.push('- [CV PDF (Main)](./cv-main.pdf)');
   if (hasPdf && !hasAts && !hasMain) pdfLines.push('- [CV PDF](./cv.pdf)');
   if (!pdfLines.length) pdfLines.push('- _PDF: open HTML → Print, or enable Overleaf + LaTeX / Chrome_');
@@ -264,7 +266,7 @@ ${job.url || '_no url_'}
 
 function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candidate') {
   const base = `/api/prep/${encodeURIComponent(jobId)}`;
-  const nice = cvFileBaseName(profileName);
+  // Labels must match the exported filenames exactly, or the UI promises the wrong file.
   return {
     downloadCvHtml: `${base}/cv.html`,
     downloadCvMd: `${base}/cv.md`,
@@ -273,26 +275,30 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
     downloadCvPdfMain: hasMain ? `${base}/cv-main.pdf?download=1` : (hasPdf ? `${base}/cv.pdf?download=1` : null),
     downloadCoverLetter: `${base}/cover-letter.md`,
     downloadCoverLetterPdf: `${base}/cover-letter.pdf?download=1`,
-    downloadLabelMain: `${nice} CV Main.pdf`,
-    downloadLabelAts: `${nice} CV.pdf`,
+    downloadLabelMain: `${cvDocumentName(profileName)}_Main.pdf`,
+    downloadLabelAts: `${cvDocumentName(profileName)}.pdf`,
   };
 }
 
 async function publishDownloads(job, profile, dir, { hasAts, hasMain, hasPdf }) {
-  const atsPath = hasAts ? join(dir, 'cv-ats.pdf') : null;
-  const mainPath = hasMain
-    ? join(dir, 'cv-main.pdf')
-    : hasPdf
-      ? join(dir, 'cv.pdf')
-      : null;
-  if (!atsPath && !mainPath) return null;
+  // One CV per company folder, never two. The LaTeX/ATS build is the one that
+  // goes out; cv-main.pdf and the browser print are only stand-ins for when
+  // LaTeX did not run. Whichever wins ships under the plain "<Name> CV.pdf".
+  const cvPdf = hasAts
+    ? join(dir, 'cv-ats.pdf')
+    : hasMain
+      ? join(dir, 'cv-main.pdf')
+      : hasPdf
+        ? join(dir, 'cv.pdf')
+        : null;
+  if (!cvPdf) return null;
   try {
     return await exportCvDownloads({
       jobId: job.id,
       company: job.company,
       profileName: profile?.name,
-      atsPdfPath: atsPath || (!hasMain ? mainPath : null),
-      mainPdfPath: hasMain ? mainPath : null,
+      atsPdfPath: cvPdf,
+      mainPdfPath: null,
       jobTitle: job.title,
     });
   } catch (err) {
@@ -404,6 +410,25 @@ async function finalizePrepPack({
     } else {
       pdfNote = printed.error || overleafResult?.pdf?.error || 'no PDF';
     }
+  } else if (settings.source === 'latex') {
+    const built = await buildLatexCv({
+      markdown: cvMd,
+      prepDir: dir,
+      onEvent: settings.onEvent || null,
+    });
+    if (built.ok) {
+      hasPdf = true;
+      hasAts = Boolean(built.ats);
+      hasMain = Boolean(built.main);
+      pdfNote = tailorMode === 'agent' ? `Agent + ${built.note}` : built.note;
+    } else {
+      // Keep the applicant unblocked: fall back to the browser print.
+      const printed = await htmlFileToPdf(join(dir, 'cv.html'), join(dir, 'cv.pdf'));
+      hasPdf = printed.ok;
+      pdfNote = printed.ok
+        ? `LaTeX failed (${built.error}) — HTML→PDF via browser`
+        : built.error;
+    }
   } else {
     const pdfPath = join(dir, 'cv.pdf');
     const printed = await htmlFileToPdf(join(dir, 'cv.html'), pdfPath);
@@ -489,7 +514,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
   await mkdir(dir, { recursive: true });
   await clearReview(dir, 'cv');
 
-  const model = await buildTailoredCvAsync(job, profile, fit);
+  const model = await buildTailoredCvAsync(job, profile, fit, settings.language === 'de' ? 'de' : 'en');
   if (extraInstructions) {
     const extra = extraInstructions
       .toLowerCase()
@@ -552,7 +577,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
 }
 
 async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = null) {
-  const model = await buildTailoredCvAsync(job, profile, fit);
+  const model = await buildTailoredCvAsync(job, profile, fit, settings.language === 'de' ? 'de' : 'en');
   let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
   let cvHtml = tailoredCvHtml(model);
   const requirementsMd = tailoredRequirementsMarkdown(model);
@@ -789,6 +814,7 @@ async function attachCoverLetterAfterPrep(pack, {
       prepDir: dir,
       cvSource: settings.source,
       extraInstructions,
+      language: settings.language,
       tailorMode,
       provider: settings.agentProvider,
       model: settings.agentModel,

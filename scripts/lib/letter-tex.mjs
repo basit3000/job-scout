@@ -68,6 +68,24 @@ export function firstCity(location) {
   return first;
 }
 
+/**
+ * Which language the letter is actually written in.
+ *
+ * The posting's language is not a safe proxy: a German ad often gets an English
+ * letter, and wrapping English prose in a German frame produces "Dear Hiring
+ * Team" above "Mit freundlichen Grüßen". The body decides; the posting only
+ * breaks ties when the body gives no signal.
+ */
+export function detectLetterLanguage(letter, fallback = 'en') {
+  const { subject, salutation } = splitLetterBody(letter);
+  for (const line of [salutation, subject]) {
+    if (line) return GERMAN_LINE.test(line) ? 'de' : 'en';
+  }
+  const text = String(letter ?? '');
+  if (/\b(und|der|die|das|mit|für|nicht|ich habe)\b/i.test(text)) return 'de';
+  return fallback === 'de' ? 'de' : 'en';
+}
+
 /** Keep a template's own wording only when it is already in the target language. */
 function inLanguage(line, language) {
   if (!line) return false;

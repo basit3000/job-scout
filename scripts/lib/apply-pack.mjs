@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { prepDir } from './common.mjs';
 import { detectAts } from './ats.mjs';
-import { cvFileBaseName, downloadsRoot, jobDownloadFolder } from './cv-downloads.mjs';
+import { cvFileBaseName, cvDocumentName, letterDocumentName, downloadsRoot, jobDownloadFolder } from './cv-downloads.mjs';
 
 function unset(value) {
   const s = String(value ?? '').trim();
@@ -113,24 +113,26 @@ export function buildApplyPack({ job = {}, profile = {}, answers = {} } = {}) {
     ? join(downloadsRoot(), jobDownloadFolder({ company: job.company, jobTitle: job.title, jobId: job.id }))
     : null;
   const base = cvFileBaseName(profile.name);
+  const cvName = cvDocumentName(profile.name);
+  const letterName = letterDocumentName(profile.name);
   const prep = job.id ? prepDir(job.id) : null;
 
   const cvPdf = pickExisting(
     prep && join(prep, 'cv-ats.pdf'),
     prep && join(prep, 'cv-main.pdf'),
     prep && join(prep, 'cv.pdf'),
-    folderAbs && join(folderAbs, `${base} CV.pdf`),
-    folderAbs && join(folderAbs, `${base} CV Main.pdf`),
+    folderAbs && join(folderAbs, `${cvName}.pdf`),
+    folderAbs && join(folderAbs, `${cvName}_Main.pdf`),
   );
   const coverLetterPdf = pickExisting(
     prep && join(prep, 'cover-letter.pdf'),
-    folderAbs && join(folderAbs, `${base} Cover Letter.pdf`),
+    folderAbs && join(folderAbs, `${letterName}.pdf`),
   );
   const coverLetterMd = pickExisting(
     prep && join(prep, 'cover-letter.md'),
-    folderAbs && join(folderAbs, `${base} Cover Letter.md`),
+    folderAbs && join(folderAbs, `${letterName}.md`),
   );
-  const coverLetterDocx = pickExisting(prep && join(prep, 'cover-letter.docx'), folderAbs && join(folderAbs, `${base} Cover Letter.docx`));
+  const coverLetterDocx = pickExisting(prep && join(prep, 'cover-letter.docx'), folderAbs && join(folderAbs, `${letterName}.docx`));
 
   const pack = {
     jobId: job.id || null,

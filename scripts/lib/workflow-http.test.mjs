@@ -75,7 +75,7 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   const first = await prep('fixture:1');
   assert.equal(first.pack.needsReview, false);
   assert.ok(first.pack.downloadFolderAbs);
-  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
+  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Lebenslauf_Test_Candidate.pdf'));
   const second = await prep('fixture:2');
   assert.notEqual(second.pack.downloadFolderAbs, first.pack.downloadFolderAbs);
   assert.equal((await prep('fixture:1', false)).cached, true);
@@ -84,7 +84,7 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   const letter = await request('/api/cover-letter', { id: 'fixture:1', mode: 'fast', open: false });
   assert.equal(letter.needsReview, false);
   assert.equal(letter.folder, first.pack.downloadFolderAbs);
-  assert.ok((await readdir(letter.folder)).includes('Test Candidate Cover Letter.pdf'));
+  assert.ok((await readdir(letter.folder)).includes('Anschreiben_Test_Candidate.pdf'));
   assert.equal((await request('/api/jobs')).jobs.find((j) => j.id === 'fixture:1').prepFreshness.letter, 'current');
   assert.equal((await request('/api/ready')).total, 2);
   async function batch(id, options = {}) {
@@ -133,8 +133,8 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   await assert.rejects(readFile(oldExport), /ENOENT/);
   await assert.rejects(readFile(join(replacement.pack.dir, 'obsolete.txt')), /ENOENT/);
   await assert.rejects(readFile(join(replacement.pack.dir, 'cover-letter.md')), /ENOENT/);
-  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
-  assert.ok((await readdir(second.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
+  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Anschreiben_Test_Candidate.pdf')), /ENOENT/);
+  assert.ok((await readdir(second.pack.downloadFolderAbs)).includes('Lebenslauf_Test_Candidate.pdf'));
   assert.equal(await readFile(join(root, 'cv', 'resume.md'), 'utf8'), `${resume}\nAdditional project: Python API.\n`);
   const invalidReplace = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -154,13 +154,13 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   const batchReplacement = await batch('fixture:1', { replaceExisting: true, includeCoverLetter: true });
   assert.equal(batchReplacement.items[0].status, 'done');
   await assert.rejects(readFile(oldExport), /ENOENT/);
-  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate Cover Letter.pdf'));
+  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Anschreiben_Test_Candidate.pdf'));
   assert.equal(await readFile(otherExport, 'utf8'), 'unselected role');
   const replacedBoth = await batch(['fixture:1', 'fixture:2'], { replaceExisting: true });
   assert.equal(replacedBoth.counts.done, 2);
   assert.equal(replacedBoth.counts.skipped, 0);
   await assert.rejects(readFile(otherExport), /ENOENT/);
-  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
+  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Anschreiben_Test_Candidate.pdf')), /ENOENT/);
   const normalBatch = await batch('fixture:1');
   assert.equal(normalBatch.replaceExisting, false, 'replacement does not leak into later batches');
   assert.equal(normalBatch.items[0].status, 'skipped');

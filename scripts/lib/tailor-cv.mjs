@@ -151,9 +151,9 @@ function fromProfile(job, profile, fit, keywords) {
   };
 }
 
-function fromResume(job, profile, fit, keywords, resumeText) {
+function fromResume(job, profile, fit, keywords, resumeText, language = 'en') {
   const parsed = parseResumeMarkdown(resumeText);
-  const tailored = tailorParsedResume(parsed, keywords, profile);
+  const tailored = { ...tailorParsedResume(parsed, keywords, profile), language };
   const allSkills = tailored.skillLine;
   const highlighted = allSkills.filter((s) => scoreText(s, keywords) > 0);
   return {
@@ -187,10 +187,10 @@ function fromResume(job, profile, fit, keywords, resumeText) {
  * Rank skills/projects against the posting; never invent content.
  * Pass resumeText (from cv/resume.md) to edit that CV instead of profile-only rebuild.
  */
-export function buildTailoredCv(job, profile, fit = {}, { resumeText = null } = {}) {
+export function buildTailoredCv(job, profile, fit = {}, { resumeText = null, language = 'en' } = {}) {
   const keywords = jobKeywords(job, fit);
   const core = resumeText
-    ? fromResume(job, profile, fit, keywords, resumeText)
+    ? fromResume(job, profile, fit, keywords, resumeText, language)
     : fromProfile(job, profile, fit, keywords);
 
   const requirements = extractRequirements(job).map((r) =>
@@ -223,11 +223,12 @@ export function buildTailoredCv(job, profile, fit = {}, { resumeText = null } = 
   };
 }
 
-/** Async: load cv/resume.md when present, then tailor. */
-export async function buildTailoredCvAsync(job, profile, fit = {}) {
-  const resume = await loadResumeText();
+/** Async: load the CV source for this language when present, then tailor. */
+export async function buildTailoredCvAsync(job, profile, fit = {}, language = 'en') {
+  const resume = await loadResumeText(language);
   return buildTailoredCv(job, profile, fit, {
     resumeText: resume?.text || null,
+    language,
   });
 }
 

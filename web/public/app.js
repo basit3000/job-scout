@@ -92,6 +92,12 @@ const els = {
   batchBarTitle: $('batchBarTitle'),
   batchBarText: $('batchBarText'),
   batchBarFill: $('batchBarFill'),
+  prepBar: $('prepBar'),
+  prepBarTitle: $('prepBarTitle'),
+  prepBarText: $('prepBarText'),
+  prepBarFill: $('prepBarFill'),
+  prepBarStop: $('prepBarStop'),
+  prepBarDismiss: $('prepBarDismiss'),
   batchBarDetails: $('batchBarDetails'),
   batchBarCancel: $('batchBarCancel'),
   batchBarDismiss: $('batchBarDismiss'),
@@ -134,6 +140,7 @@ const els = {
   prepModalTitle: $('prepModalTitle'),
   prepModalHint: $('prepModalHint'),
   prepInstrPreset: $('prepInstrPreset'),
+  prepLanguage: $('prepLanguage'),
   prepInstrCustom: $('prepInstrCustom'),
   prepModalCancel: $('prepModalCancel'),
   prepModalUseExisting: $('prepModalUseExisting'),
@@ -1505,6 +1512,7 @@ function choicePayload(recreate, mode) {
     recreate,
     mode,
     extraInstructions: readPrepInstructions(),
+    language: els.prepLanguage?.value || 'auto',
     createCv,
     createCoverLetter,
     replaceExisting: Boolean(recreate && createCv && els.prepReplaceExisting?.checked),
@@ -1523,6 +1531,7 @@ function openPrepModal(job, opts = {}) {
         recreate: true,
         mode: 'agent',
         extraInstructions: '',
+        language: 'auto',
         createCv: true,
         createCoverLetter: true,
       });
@@ -1540,6 +1549,13 @@ function openPrepModal(job, opts = {}) {
     if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
     if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
     if (els.prepReplaceExisting) els.prepReplaceExisting.checked = false;
+    if (els.prepLanguage) {
+      // Say what Auto resolves to, so the choice is visible before Create.
+      const posting = job.language === 'de' ? 'German' : job.language === 'en' ? 'English' : null;
+      const auto = els.prepLanguage.querySelector('option[value="auto"]');
+      if (auto) auto.textContent = posting ? `Auto — match the posting (${posting})` : 'Auto — match the posting';
+      els.prepLanguage.value = 'auto';
+    }
     if (els.prepInstrPreset) els.prepInstrPreset.value = '';
     if (els.prepInstrCustom) {
       els.prepInstrCustom.value = '';
@@ -1651,6 +1667,91 @@ function openStatusModal(job) {
 }
 
 /** @param {string} startedAt ISO timestamp from POST /api/prep */
+/* ---------------------------------------------------------------------------
+ * Prep progress strip
+ *
+ * A Prep run is an agent writing a CV, so there is no byte count to measure.
+ * What it does have is an ordered set of milestones the server already logs,
+ * so the bar advances a step at a time and says which step it is on.
+ *
+ * Matching is deliberately loose: if a line is reworded upstream the bar simply
+ * stops advancing early rather than breaking, and the elapsed time keeps running.
+ * ------------------------------------------------------------------------- */
+
+const PREP_STAGES = [
+  { id: 'evidence', label: 'Gathering evidence', re: /\bevidence\b/i },
+  { id: 'agent', label: 'Agent writing the CV', re: /^(starting|model:)/i },
+  { id: 'agent-done', label: 'Agent finished', re: /finished successfully|agent done/i },
+  { id: 'gate', label: 'Quality gate', re: /^quality gate(?!\s*\(letter\))/i },
+  { id: 'render', label: 'Rendering the CV', re: /cv-ats\.pdf|→ PDF|fit pass/i },
+  { id: 'letter', label: 'Writing the cover letter', re: /cover letter/i },
+  { id: 'letter-gate', label: 'Checking the letter', re: /quality gate \(letter\)|fitted to one page/i },
+];
+
+const prepProgress = { active: false, stage: -1, startedAt: 0, timer: null, jobTitle: '' };
+
+function prepBarRender(note = '') {
+  if (!els.prepBar) return;
+  const total = PREP_STAGES.length;
+  const done = Math.max(0, prepProgress.stage + 1);
+  // Never show a full bar while work is still running.
+  const pct = prepProgress.active ? Math.min(95, Math.round((done / total) * 100)) : 100;
+  if (els.prepBarFill) els.prepBarFill.style.width = `${pct}%`;
+  if (els.prepBarTitle) {
+    els.prepBarTitle.textContent = prepProgress.active
+      ? `Preparing documents${prepProgress.jobTitle ? ` — ${prepProgress.jobTitle}` : ''}`
+      : 'Prep finished';
+  }
+  if (els.prepBarText) {
+    const elapsed = prepProgress.startedAt ? formatDuration(Date.now() - prepProgress.startedAt) : '';
+    const stage = prepProgress.stage >= 0 ? PREP_STAGES[prepProgress.stage].label : 'Starting…';
+    els.prepBarText.textContent = prepProgress.active
+      ? [`Step ${done} of ${total}`, stage, elapsed].filter(Boolean).join(' · ')
+      : [note || 'Done', elapsed].filter(Boolean).join(' · ');
+  }
+}
+
+function prepBarStart(jobTitle = '') {
+  if (!els.prepBar) return;
+  prepProgress.active = true;
+  prepProgress.stage = -1;
+  prepProgress.startedAt = Date.now();
+  prepProgress.jobTitle = jobTitle;
+  els.prepBar.hidden = false;
+  els.prepBar.classList.remove('has-failed');
+  els.prepBar.classList.add('is-running');
+  if (els.prepBarStop) els.prepBarStop.hidden = false;
+  if (els.prepBarDismiss) els.prepBarDismiss.hidden = true;
+  clearInterval(prepProgress.timer);
+  // Keep the elapsed time honest while a long agent step runs.
+  prepProgress.timer = setInterval(() => prepBarRender(), 1000);
+  prepBarRender();
+}
+
+/** Advance to the furthest stage this line matches. Stages never go backwards. */
+function prepBarNote(line) {
+  if (!prepProgress.active || !line) return;
+  for (let i = PREP_STAGES.length - 1; i > prepProgress.stage; i -= 1) {
+    if (PREP_STAGES[i].re.test(line)) {
+      prepProgress.stage = i;
+      prepBarRender();
+      return;
+    }
+  }
+}
+
+function prepBarFinish(note = '', failed = false) {
+  if (!els.prepBar) return;
+  prepProgress.active = false;
+  clearInterval(prepProgress.timer);
+  prepProgress.timer = null;
+  els.prepBar.classList.remove('is-running');
+  els.prepBar.classList.toggle('has-failed', Boolean(failed));
+  if (els.prepBarStop) els.prepBarStop.hidden = true;
+  if (els.prepBarDismiss) els.prepBarDismiss.hidden = false;
+  prepBarRender(note);
+}
+
 function waitForPrepDone(startedAt) {
   return new Promise((resolve, reject) => {
     const es = new EventSource('/api/prep/stream');
@@ -1665,6 +1766,7 @@ function waitForPrepDone(startedAt) {
       try {
         const entry = JSON.parse(ev.data);
         appendLog(entry.line || '', entry.stream || 'stdout');
+        prepBarNote(entry.line || '');
       } catch {
         /* ignore */
       }
@@ -1782,6 +1884,20 @@ async function finishPrepUi(job, data) {
       for (const item of review.mustFix || []) appendLog(`${scope} must fix: ${item}`, 'stderr');
     }
     appendLog(`Needs review: complete draft at ${data.pack.draftDir || data.pack.dir}. ${data.pack.preservedPrevious ? 'Previous documents were preserved.' : 'Adjust the document and recreate it before applying.'}`, 'stderr');
+    // Open the draft, not downloads/: these documents did not pass review, and
+    // the company folder still holds the previous version.
+    const draftDir = data.pack.draftDir || data.pack.dir;
+    if (draftDir) {
+      try {
+        const res = await api('/api/prep/open-draft', {
+          method: 'POST',
+          body: JSON.stringify({ dir: draftDir }),
+        });
+        appendLog(`Opened the draft for review: ${res.folder}`);
+      } catch (err) {
+        appendLog(`Could not open the draft folder: ${err.message}`, 'stderr');
+      }
+    }
     await refreshJobs();
     return;
   }
@@ -1893,11 +2009,20 @@ async function executeCoverLetter(job, choice) {
       id: job.id,
       mode,
       extraInstructions: choice.extraInstructions || '',
+      language: choice.language || 'auto',
     }),
   });
-  const res = started.started
-    ? await waitForPrepDone(started.startedAt)
-    : started;
+  let res = started;
+  if (started.started) {
+    prepBarStart(job.title);
+    try {
+      res = await waitForPrepDone(started.startedAt);
+    } catch (err) {
+      prepBarFinish(err.message, true);
+      throw err;
+    }
+    prepBarFinish(res?.ok === false ? (res.error || 'Cover letter failed') : 'Cover letter ready', res?.ok === false);
+  }
   if (res?.ok === false) throw new Error(res.error || 'Cover letter failed');
   applyCoverLetterResult(job, res);
   await refreshJobs();
@@ -1938,6 +2063,7 @@ async function runPrepFlow(job, opts = {}) {
         recreate: choice.recreate,
         replaceExisting: choice.replaceExisting,
         extraInstructions: choice.extraInstructions || '',
+        language: choice.language || 'auto',
         mode,
         includeCoverLetter: Boolean(choice.createCoverLetter),
       }),
@@ -1945,12 +2071,15 @@ async function runPrepFlow(job, opts = {}) {
 
     if (data.started) {
       setChip('busy', 'Agent CV…');
+      prepBarStart(job.title);
       // Connect after start; server replays buffered logs + matching done
       const final = await waitForPrepDone(data.startedAt);
       setChip('idle', 'Idle');
       if (!final?.ok) {
+        prepBarFinish(final?.error || 'Prep failed', true);
         throw new Error(final?.error || 'Agent prep failed');
       }
+      prepBarFinish('CV and cover letter ready');
       await finishPrepUi(job, final);
       return;
     }
@@ -1958,6 +2087,7 @@ async function runPrepFlow(job, opts = {}) {
     await finishPrepUi(job, data);
   } catch (err) {
     setChip('idle', 'Idle');
+    prepBarFinish(err.message, true);
     appendLog(`Prep failed: ${err.message}`, 'stderr');
   }
 }
@@ -2531,6 +2661,18 @@ els.batchClose?.addEventListener('click', hideBatchModal);
 els.batchStart?.addEventListener('click', startBatch);
 els.batchReplaceExisting?.addEventListener('change', syncBatchReplacement);
 els.batchStop?.addEventListener('click', stopBatch);
+els.prepBarStop?.addEventListener('click', async () => {
+  try {
+    await api('/api/prep/stop', { method: 'POST', body: JSON.stringify({}) });
+    appendLog('Prep stop requested.');
+  } catch (err) {
+    appendLog(`Stop failed: ${err.message}`, 'stderr');
+  }
+});
+els.prepBarDismiss?.addEventListener('click', () => {
+  if (els.prepBar) els.prepBar.hidden = true;
+});
+
 els.batchBarCancel?.addEventListener('click', stopBatch);
 els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));
 els.batchBarDismiss?.addEventListener('click', () => {

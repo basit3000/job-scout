@@ -26,6 +26,9 @@ export function texEscape(s) {
     .replace(/([&%$#_{}])/g, '\\$1')
     .replace(/\^/g, '\\textasciicircum{}')
     .replace(/~/g, '\\textasciitilde{}')
+    // A literal ß in a T1 font lands in the PDF text layer as "SS", so an ATS
+    // (and the reviewer pass) reads "GrüSSen". The macro maps back to ß.
+    .replace(/ß/g, '\\ss{}')
     .replace(/–/g, '--')
     .replace(/—/g, '---')
     .replace(/·/g, '\\textperiodcentered{}')

@@ -23,6 +23,7 @@ import {
   exportCvDownloads,
   exportCoverLetterDownloads,
   cvFileBaseName,
+  cvDocumentName,
   clearJobDownloads,
   revealDownloadsFolder,
 } from './cv-downloads.mjs';
@@ -200,9 +201,9 @@ export function buildPrepIndex(job, fit, {
   downloadFolder = null,
 } = {}) {
   const pdfLines = [];
-  if (hasAts) pdfLines.push('- Friendly export: `<Name> CV.pdf` (ATS) in downloads folder');
-  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `<Name> CV Main.pdf` in downloads folder');
-  if (hasAts) pdfLines.push('- [CV PDF (ATS → named CV.pdf)](./cv-ats.pdf)');
+  if (hasAts) pdfLines.push('- Friendly export: `Lebenslauf_<Name>.pdf` (ATS) in downloads folder');
+  if (hasMain || hasPdf) pdfLines.push('- Friendly export: `Lebenslauf_<Name>_Main.pdf` in downloads folder');
+  if (hasAts) pdfLines.push('- [CV PDF (ATS → named Lebenslauf_<Name>.pdf)](./cv-ats.pdf)');
   if (hasMain) pdfLines.push('- [CV PDF (Main)](./cv-main.pdf)');
   if (hasPdf && !hasAts && !hasMain) pdfLines.push('- [CV PDF](./cv.pdf)');
   if (!pdfLines.length) pdfLines.push('- _PDF: open HTML → Print, or enable Overleaf + LaTeX / Chrome_');
@@ -265,7 +266,7 @@ ${job.url || '_no url_'}
 
 function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candidate') {
   const base = `/api/prep/${encodeURIComponent(jobId)}`;
-  const nice = cvFileBaseName(profileName);
+  // Labels must match the exported filenames exactly, or the UI promises the wrong file.
   return {
     downloadCvHtml: `${base}/cv.html`,
     downloadCvMd: `${base}/cv.md`,
@@ -274,8 +275,8 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
     downloadCvPdfMain: hasMain ? `${base}/cv-main.pdf?download=1` : (hasPdf ? `${base}/cv.pdf?download=1` : null),
     downloadCoverLetter: `${base}/cover-letter.md`,
     downloadCoverLetterPdf: `${base}/cover-letter.pdf?download=1`,
-    downloadLabelMain: `${nice} CV Main.pdf`,
-    downloadLabelAts: `${nice} CV.pdf`,
+    downloadLabelMain: `${cvDocumentName(profileName)}_Main.pdf`,
+    downloadLabelAts: `${cvDocumentName(profileName)}.pdf`,
   };
 }
 
@@ -513,7 +514,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
   await mkdir(dir, { recursive: true });
   await clearReview(dir, 'cv');
 
-  const model = await buildTailoredCvAsync(job, profile, fit);
+  const model = await buildTailoredCvAsync(job, profile, fit, settings.language === 'de' ? 'de' : 'en');
   if (extraInstructions) {
     const extra = extraInstructions
       .toLowerCase()
@@ -576,7 +577,7 @@ async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extr
 }
 
 async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = null) {
-  const model = await buildTailoredCvAsync(job, profile, fit);
+  const model = await buildTailoredCvAsync(job, profile, fit, settings.language === 'de' ? 'de' : 'en');
   let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
   let cvHtml = tailoredCvHtml(model);
   const requirementsMd = tailoredRequirementsMarkdown(model);
@@ -813,6 +814,7 @@ async function attachCoverLetterAfterPrep(pack, {
       prepDir: dir,
       cvSource: settings.source,
       extraInstructions,
+      language: settings.language,
       tailorMode,
       provider: settings.agentProvider,
       model: settings.agentModel,

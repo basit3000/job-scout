@@ -7,15 +7,26 @@ import { join } from 'node:path';
 import { ROOT } from './common.mjs';
 import { scoreText } from './tex-bullets.mjs';
 
-export function resumePaths() {
+/**
+ * CV source files in preference order.
+ *
+ * A German application starts from cv/resume.de.md when it exists, so the CV is
+ * German prose the candidate wrote rather than a translation the agent redoes
+ * (and can vary) on every run. Falls back to the English CV when absent.
+ */
+export function resumePaths(language = 'en') {
+  const german = language === 'de'
+    ? [join(ROOT, 'cv', 'resume.de.md'), join(ROOT, 'cv', 'resume.de.txt')]
+    : [];
   return [
+    ...german,
     join(ROOT, 'cv', 'resume.md'),
     join(ROOT, 'cv', 'resume.txt'),
   ];
 }
 
-export async function findResumePath() {
-  for (const p of resumePaths()) {
+export async function findResumePath(language = 'en') {
+  for (const p of resumePaths(language)) {
     try {
       await access(p);
       return p;
@@ -26,8 +37,8 @@ export async function findResumePath() {
   return null;
 }
 
-export async function loadResumeText() {
-  const path = await findResumePath();
+export async function loadResumeText(language = 'en') {
+  const path = await findResumePath(language);
   if (!path) return null;
   const text = await readFile(path, 'utf8');
   if (/\bYOUR_[A-Z0-9_]+\b/.test(text)) return null;
@@ -173,16 +184,36 @@ function isPersonalOrg(org) {
  * Reorder a parsed resume for a job (cv-tailor: Experience first).
  * Does not invent content — only reorders and re-weights bullets/skills.
  */
+/**
+ * Heading aliases, so a German CV parses the same as the English one.
+ * Without these a `## Berufserfahrung` section is simply dropped and the
+ * rendered CV comes out nearly empty.
+ */
+const SECTION_ALIASES = {
+  experience: ['experience', 'berufserfahrung', 'erfahrung', 'beruflicher werdegang', 'werdegang'],
+  projects: ['projects', 'projekte'],
+  education: ['education', 'ausbildung', 'bildung', 'studium'],
+  skills: ['skills', 'technical skills', 'technische kenntnisse', 'kenntnisse', 'faehigkeiten', 'fähigkeiten'],
+};
+
+/** First section whose heading matches any alias for `kind`. */
+function sectionFor(byHeading, kind) {
+  for (const alias of SECTION_ALIASES[kind] || []) {
+    if (byHeading[alias]) return byHeading[alias];
+  }
+  return undefined;
+}
+
 export function tailorParsedResume(parsed, keywords, profile = {}) {
   const kw = [...new Set(keywords.filter(Boolean))];
   const byHeading = Object.fromEntries(
     parsed.sections.map((s) => [s.heading.toLowerCase(), s]),
   );
 
-  const exp = byHeading.experience;
-  const projSec = byHeading.projects;
-  const edu = byHeading.education;
-  const skillsSec = byHeading.skills;
+  const exp = sectionFor(byHeading, 'experience');
+  const projSec = sectionFor(byHeading, 'projects');
+  const edu = sectionFor(byHeading, 'education');
+  const skillsSec = sectionFor(byHeading, 'skills');
 
   const fromExp = (exp?.entries ?? []).map((e) => ({ ...e, _personal: isPersonalOrg(e.org) }));
   const projects = [
@@ -270,7 +301,14 @@ function rankBullets(bullets, keywords, { limit = Infinity } = {}) {
 }
 
 /** Serialize tailored resume back to markdown (cv-tailor section order). */
+/** Section headings in the rendered CV, per language. */
+const SECTION_HEADINGS = {
+  en: { experience: 'Experience', education: 'Education', projects: 'Projects', skills: 'Skills' },
+  de: { experience: 'Berufserfahrung', education: 'Ausbildung', projects: 'Projekte', skills: 'Kenntnisse' },
+};
+
 export function serializeTailoredResume(model) {
+  const h = SECTION_HEADINGS[model.language === 'de' ? 'de' : 'en'];
   const lines = [];
   lines.push(`# ${model.name}`, '');
   if (model.contact) lines.push(model.contact, '');
@@ -278,7 +316,7 @@ export function serializeTailoredResume(model) {
 
   // Experience always first (cv-tailor hard rule)
   if (model.experience?.length) {
-    lines.push('## Experience', '');
+    lines.push(`## ${h.experience}`, '');
     for (const e of model.experience) {
       lines.push(`### ${e.title}${e.org ? ` — ${e.org}` : ''}`);
       if (e.dates) lines.push(e.dates);
@@ -289,7 +327,7 @@ export function serializeTailoredResume(model) {
   }
 
   if (model.education?.length) {
-    lines.push('## Education', '');
+    lines.push(`## ${h.education}`, '');
     for (const ed of model.education) {
       if (ed.org || ed.title) {
         const school = ed.org || '';
@@ -305,7 +343,7 @@ export function serializeTailoredResume(model) {
   }
 
   if (model.projects?.length) {
-    lines.push('## Projects', '');
+    lines.push(`## ${h.projects}`, '');
     for (const p of model.projects) {
       lines.push(`### ${p.title}`);
       if (p.dates) lines.push(p.dates);
@@ -316,7 +354,7 @@ export function serializeTailoredResume(model) {
   }
 
   if (model.skillLine?.length) {
-    lines.push('## Skills', '');
+    lines.push(`## ${h.skills}`, '');
     lines.push(model.skillLine.join(' · '), '');
   }
 

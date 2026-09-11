@@ -30,7 +30,7 @@ test('different jobs at one company retain their own exported CV and letter', as
   await exportCoverLetterDownloads({ ...opts, jobId: 'board:2', mdText: 'second letter' });
   assert.notEqual(first.dir, second.dir);
   assert.equal(await readFile(first.ats, 'utf8'), 'first CV');
-  assert.equal(await readFile(join(first.dir, 'Test Candidate Cover Letter.md'), 'utf8'), 'first letter\n');
+  assert.equal(await readFile(join(first.dir, 'Anschreiben_Test_Candidate.md'), 'utf8'), 'first letter\n');
   assert.equal(await readFile(second.ats, 'utf8'), 'second CV');
   assert.notEqual(jobDownloadFolder({ ...opts, jobId: 'a/b' }), jobDownloadFolder({ ...opts, jobId: 'a:b' }));
   assert.ok(!jobDownloadFolder({ ...opts, company: '..', jobId: 'x' }).startsWith('..'));

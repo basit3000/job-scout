@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildLetterModel,
   buildLetterTex,
+  detectLetterLanguage,
   LETTER_FIT_STEPS,
   buildLetterText,
   firstCity,
@@ -170,7 +171,8 @@ test('buildLetterTex lays out every block of the sample letter', () => {
   assert.match(tex, /\\textbf\{Bewerbung als Backend Engineer\}/);
   assert.match(tex, /Sehr geehrte Damen und Herren,/);
   assert.match(tex, /Erster Absatz\./);
-  assert.match(tex, /Mit freundlichen Grüßen/);
+  // ß is escaped to the macro: a literal ß lands in the PDF text layer as "SS".
+  assert.match(tex, /Mit freundlichen Grü\\ss\{\}en/);
   assert.match(tex, /\\end\{document\}/);
 });
 
@@ -201,6 +203,18 @@ test('later fit steps tighten spacing before they shrink the body', () => {
   const gap = (tex) => Number(tex.match(/\\vspace\{(\d+)pt\}\n\\hrule/)[1]);
   assert.ok(gap(byId.reference) > gap(byId.leading));
   assert.ok(gap(byId.bodysize) >= 2);
+});
+
+test('the letter language follows the prose, not the posting', () => {
+  // A German ad answered in English must not get a German frame.
+  const english = 'Application for Frontend Developer\n\nDear Hiring Team,\n\nI build dashboards.';
+  assert.equal(detectLetterLanguage(english, 'de'), 'en');
+  const m = buildLetterModel({ job: JOB, profile: PROFILE, body: english, language: detectLetterLanguage(english, 'de') });
+  assert.equal(m.salutation, 'Dear Hiring Team,');
+  assert.equal(m.closing, 'Best regards,');
+
+  const german = 'Bewerbung als Entwickler\n\nSehr geehrte Damen und Herren,\n\nIch baue Dashboards.';
+  assert.equal(detectLetterLanguage(german, 'en'), 'de');
 });
 
 test('buildLetterTex selects the English babel option', () => {

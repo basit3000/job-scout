@@ -113,6 +113,20 @@
 
       <div id="alerts" class="alerts"></div>
 
+      <div id="prepBar" class="batch-bar" hidden role="status" aria-live="polite">
+        <div class="batch-bar-main">
+          <div class="batch-bar-text">
+            <strong id="prepBarTitle">Preparing documents</strong>
+            <span id="prepBarText"></span>
+          </div>
+          <div class="batch-track" aria-hidden="true"><div class="batch-fill" id="prepBarFill"></div></div>
+        </div>
+        <div class="batch-bar-actions">
+          <button type="button" class="btn small danger" id="prepBarStop">Stop</button>
+          <button type="button" class="btn small" id="prepBarDismiss" hidden>Dismiss</button>
+        </div>
+      </div>
+
       <div id="batchBar" class="batch-bar" hidden role="status" aria-live="polite">
         <div class="batch-bar-main">
           <div class="batch-bar-text">
@@ -402,6 +416,15 @@
           </label>
           <p id="prepReplaceHint" class="meta">Starts fresh. After validation, deletes this role's old download folder, including its cover letter, and saves the new files. Select cover letter above to regenerate it too.</p>
         </div>
+        <label class="prep-modal-field">
+          <span>Document language</span>
+          <select id="prepLanguage" aria-describedby="prepLanguageHint">
+            <option value="auto" selected>Auto — match the posting</option>
+            <option value="en">English</option>
+            <option value="de">German</option>
+          </select>
+          <p id="prepLanguageHint" class="meta">Same layout either way; only the wording changes.</p>
+        </label>
         <label class="prep-modal-field">
           <span>Extra instructions</span>
           <select id="prepInstrPreset" aria-label="Instruction preset">

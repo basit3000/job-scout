@@ -9,7 +9,7 @@ import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
 import { compileTexToPdf, countPdfPages, htmlFileToPdf } from './pdf.mjs';
-import { buildLetterModel, buildLetterTex, LETTER_FIT_STEPS } from './letter-tex.mjs';
+import { buildLetterModel, buildLetterTex, detectLetterLanguage, LETTER_FIT_STEPS } from './letter-tex.mjs';
 import { detectPostingLanguage } from './cv-keywords.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
 import {
@@ -246,16 +246,31 @@ ${site}
 `.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
 
-export async function loadCoverLetterTemplate() {
-  try {
-    return await readFile(join(ROOT, 'cv', 'cover-letter.md'), 'utf8');
-  } catch {
-    return '';
+/**
+ * The letter template for a language. A German application starts from
+ * cv/cover-letter.de.md when it exists, so the body is German prose the
+ * candidate wrote rather than an English draft the agent has to translate.
+ */
+export async function loadCoverLetterTemplate(language = 'en') {
+  const names = language === 'de'
+    ? ['cover-letter.de.md', 'cover-letter.md']
+    : ['cover-letter.md'];
+  for (const name of names) {
+    try {
+      const text = await readFile(join(ROOT, 'cv', name), 'utf8');
+      if (text.trim()) return text;
+    } catch {
+      /* try the next one */
+    }
   }
+  return '';
 }
 
-export async function buildCoverLetter(job, profile, fit) {
-  const template = await loadCoverLetterTemplate();
+export async function buildCoverLetter(job, profile, fit, language = null) {
+  const lang = language === 'de' || language === 'en'
+    ? language
+    : (detectPostingLanguage(job) === 'de' ? 'de' : 'en');
+  const template = await loadCoverLetterTemplate(lang);
   if (template.trim()) {
     const assembled = assembleCoverLetter(template, job, profile);
     if (assembled.letter) return assembled.letter;
@@ -482,7 +497,7 @@ function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
     return { ok: false, error: err.message || String(err) };
   }
 }
-async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, profile = null } = {}) {
+async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, profile = null, language = 'auto' } = {}) {
   let pdfPath = null;
   let docxPath = null;
   let pdfError = null;
@@ -504,7 +519,13 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle, { job = null, p
       job,
       profile,
       body: letter,
-      language: detectPostingLanguage(job) === 'de' ? 'de' : 'en',
+      // The letter's own language wins: the agent may answer a German ad in
+      // English, and the frame has to match the prose, not the posting.
+      // An explicit choice wins. On 'auto' the posting decides, and the prose
+      // only overrides it when the agent clearly wrote the other language.
+      language: language === 'en' || language === 'de'
+        ? language
+        : detectLetterLanguage(letter, detectPostingLanguage(job) === 'de' ? 'de' : 'en'),
     });
     const built = await renderLetterPdfFitted(model, dir);
     if (built.ok) return { pdfPath: built.path, docxPath, pdfError };
@@ -559,8 +580,12 @@ async function generateCoverLetterUncached(job, profile, fit, {
   provider = null,
   model = null,
   cvSource = 'local',
+  language = 'auto',
 } = {}) {
-  const assembled = assembleCoverLetter(await loadCoverLetterTemplate(), job, profile);
+  const letterLang = language === 'de' || language === 'en'
+    ? language
+    : (detectPostingLanguage(job) === 'de' ? 'de' : 'en');
+  const assembled = assembleCoverLetter(await loadCoverLetterTemplate(letterLang), job, profile);
   let letter = assembled.letter || fallbackCoverLetter(job, profile, fit);
   const htmlTitle = `Cover letter — ${job.title || ''} @ ${job.company || ''}`;
   const emit = typeof onEvent === 'function'
@@ -643,7 +668,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
 
     const prepare = async () => {
       letter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
-      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile });
+      const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle, { job, profile, language });
       pdfPath = artifacts.pdfPath;
       docxPath = artifacts.docxPath;
       pdfError = artifacts.pdfError;

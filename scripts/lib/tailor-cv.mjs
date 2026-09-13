@@ -331,18 +331,18 @@ function renderEntriesHtml(entries, asProjects) {
         : `${escapeHtml(exp.title)}${exp.org ? ` — ${escapeHtml(exp.org)}` : ''}`;
       return `<section class="entry">
   <div class="entry-head"><strong>${title}</strong>${dates ? `<span class="dates">${escapeHtml(dates)}</span>` : ''}</div>
-  <ul>${bullets}</ul>
+  ${bullets ? `<ul>${bullets}</ul>` : ''}
 </section>`;
     })
     .join('\n');
 }
 
 export function tailoredCvHtml(model) {
-  const { profile, headline, skillLine, projects, experience, education, contact, meta, job } = model;
+  const { profile = {}, headline, skillLine = [], projects = [], experience = [], education = [], contact, meta = {}, job = {} } = model;
   const displayName = model.name || profile.name || 'CV';
   const contactList = Array.isArray(contact)
     ? contact
-    : String(contact || '').split(/\s*·\s*/).filter(Boolean);
+    : String(contact || '').split(/\s*[·|]\s*/).filter(Boolean);
   const filenameBase = `${displayName.replace(/\s+/g, '_')}_${(job.company || 'role')
     .replace(/[^\w.-]+/g, '_')
     .slice(0, 40)}`;
@@ -351,9 +351,11 @@ export function tailoredCvHtml(model) {
   const eduHtml = education
     .map((ed) => {
       const dates = ed.dates || [ed.from, ed.to].filter(Boolean).join(' – ');
+      const extra = (ed.bullets || []).map((b) => `<p class="sub">${escapeHtml(b)}</p>`).join('');
       return `<section class="entry">
   <div class="entry-head"><strong>${escapeHtml(ed.school || ed.org || '')}</strong>${dates ? `<span class="dates">${escapeHtml(dates)}</span>` : ''}</div>
   <p class="sub">${escapeHtml(ed.degree || ed.title || '')}</p>
+  ${extra}
 </section>`;
     })
     .join('\n');
@@ -361,13 +363,14 @@ export function tailoredCvHtml(model) {
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>${escapeHtml(profile.name)} — CV</title>
+  <title>${escapeHtml(displayName)} — CV</title>
   <style>
     /* ATS-friendly single column — mirrors cv-tailor ats.tex intent */
     @page { size: A4; margin: 12mm 14mm; }
     body { font-family: "Calibri", "Segoe UI", Arial, sans-serif; font-size: 10.5pt; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem 2.5rem; color: #111; line-height: 1.28; }
     h1 { margin: 0; font-size: 16pt; text-align: center; letter-spacing: -0.01em; }
     .headline { text-align: center; margin: 0.25rem 0 0.15rem; font-size: 10.5pt; }
+    .notes { text-align: center; font-size: 9.5pt; margin: 0 0 0.15rem; color: #333; }
     .contact { text-align: center; color: #333; font-size: 9.5pt; margin: 0 0 0.45rem; word-break: break-word; }
     h2 { margin: 0.55rem 0 0.2rem; font-size: 10.5pt; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #444; padding-bottom: 2px; }
     .entry { margin: 0.28rem 0 0.18rem; }
@@ -404,14 +407,52 @@ export function tailoredCvHtml(model) {
   <h1>${escapeHtml(displayName)}</h1>
   <p class="headline">${escapeHtml(headline)}</p>
   <p class="contact">${contactList.map(escapeHtml).join(' · ')}</p>
+  ${(model.notes || []).map((n) => `<p class="notes">${escapeHtml(n)}</p>`).join('\n')}
 
   ${experience.length ? `<h2>Experience</h2>\n${renderEntriesHtml(experience, false)}` : ''}
   ${eduHtml ? `<h2>Education</h2>\n${eduHtml}` : ''}
   ${projects.length ? `<h2>Projects</h2>\n${renderEntriesHtml(projects, true)}` : ''}
   ${skillLine.length ? `<h2>Skills</h2>\n<p>${skillLine.map(escapeHtml).join(' · ')}</p>` : ''}
 
-  <p class="foot">Generated ${escapeHtml(meta.generatedAt.slice(0, 10))} from ${escapeHtml(meta.source || 'profile')}. No invented metrics. Submit applications yourself.</p>
+  <p class="foot">Generated ${escapeHtml(String(meta.generatedAt || '').slice(0, 10))} from ${escapeHtml(meta.source || 'profile')}. No invented metrics. Submit applications yourself.</p>
 </body>
 </html>
 `;
+}
+
+/** Keep the agent's wording and section order; do not re-tailor. */
+export function cvModelFromMarkdown(markdown, { job = {}, profile = {}, meta = {} } = {}) {
+  const parsed = parseResumeMarkdown(markdown);
+  const by = Object.fromEntries((parsed.sections || []).map((s) => [s.heading.toLowerCase(), s]));
+  const skillsSec = by.skills;
+  return {
+    name: parsed.name || profile.name || 'CV',
+    headline: parsed.headline || '',
+    contact: parsed.contact
+      ? String(parsed.contact).split(/\s*[·|]\s*/).filter(Boolean)
+      : [],
+    notes: parsed.notes || [],
+    experience: by.experience?.entries || [],
+    projects: by.projects?.entries || [],
+    education: (by.education?.entries || []).map((ed) => ({
+      school: ed.org,
+      degree: ed.title,
+      org: ed.org,
+      title: ed.title,
+      dates: ed.dates,
+      bullets: ed.bullets || [],
+    })),
+    skillLine: skillsSec?.skillLines?.length ? skillsSec.skillLines : (skillsSec?.skills || []),
+    profile: { ...profile, name: parsed.name || profile.name },
+    job,
+    meta: {
+      generatedAt: new Date().toISOString(),
+      source: 'agent/cv.md',
+      ...meta,
+    },
+  };
+}
+
+export function cvMarkdownToHtml(markdown, options = {}) {
+  return tailoredCvHtml(cvModelFromMarkdown(markdown, options));
 }

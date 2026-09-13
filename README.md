@@ -4,6 +4,13 @@ Multi-country job finder for any profession. Local profile + CV → fetch → sh
 
 Personal data stays on your machine (gitignored). **Fill** submits LinkedIn Easy Apply; other boards are filled only.
 
+Keep real identity, career history and credentials in the ignored local profile, CV,
+state and secrets files. Tracked examples must use placeholders or fictional data.
+Run `npm run privacy` before staging, then `npm run privacy -- --staged` before
+committing. The check reports filenames and categories, never private values. It
+checks known local identity values and private paths; it does not erase Git history
+or replace a comprehensive secret scanner.
+
 ```text
 setup (once)  →  npm start  →  search  →  shortlist / tracker / Prep & CV / cover letter
 ```

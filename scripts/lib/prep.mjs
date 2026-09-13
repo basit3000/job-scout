@@ -6,9 +6,11 @@ import {
   tailoredCvHtml,
   tailoredCvMarkdown,
   tailoredRequirementsMarkdown,
+  cvMarkdownToHtml,
 } from './tailor-cv.mjs';
 import { writeMasterResume } from './resume-md.mjs';
 import { htmlFileToPdf } from './pdf.mjs';
+import { ensureLocalCvFits } from './cv-html-fit.mjs';
 import {
   overleafConfigured,
   overleafStatus,
@@ -406,19 +408,35 @@ async function finalizePrepPack({
     }
   } else {
     const pdfPath = join(dir, 'cv.pdf');
-    const printed = await htmlFileToPdf(join(dir, 'cv.html'), pdfPath);
-    if (printed.ok) {
+    const fitted = await ensureLocalCvFits({
+      html: cvHtml,
+      markdown: cvMd,
+      job,
+      profile,
+      meta: { ...(model?.meta || {}), source: model?.meta?.source || 'agent/cv.md' },
+      htmlPath: join(dir, 'cv.html'),
+      pdfPath,
+      onEvent: settings.onEvent || null,
+    });
+    cvHtml = fitted.html;
+    files['cv.html'] = cvHtml;
+    if (fitted.printed?.ok) {
       hasPdf = true;
       pdfNote = tailorMode === 'agent' ? 'Agent CV → PDF via browser' : 'HTML→PDF via browser';
+      if (fitted.pages > 1) pdfNote += ` (${fitted.pages} pages)`;
     } else {
-      pdfNote = printed.error || 'no PDF';
+      pdfNote = fitted.printed?.error || 'no PDF';
     }
   }
 
-  const flags = await pdfFlags(job.id);
+  const flags = {
+    hasAts: await fileExists(join(dir, 'cv-ats.pdf')),
+    hasMain: await fileExists(join(dir, 'cv-main.pdf')),
+    hasPdf: hasPdf || await fileExists(join(dir, 'cv.pdf')),
+  };
   hasAts = flags.hasAts;
   hasMain = flags.hasMain;
-  hasPdf = flags.hasPdf;
+  hasPdf = flags.hasAts || flags.hasMain || flags.hasPdf;
 
   const downloadExport = await publishDownloads(job, profile, dir, flags);
 
@@ -585,9 +603,11 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
       const agentCv = await readFile(join(dir, 'cv.md'), 'utf8');
       if (agentCv && agentCv.trim().length > 40 && !/\bYOUR_[A-Z0-9_]+\b/.test(agentCv)) {
         cvMd = agentCv;
-        cvHtml = `<!doctype html><html><head><meta charset="utf-8"><title>CV</title>
-<style>body{font-family:system-ui,sans-serif;max-width:720px;margin:2rem auto;line-height:1.45;white-space:pre-wrap}</style>
-</head><body>${escapeForPre(agentCv)}</body></html>`;
+        cvHtml = cvMarkdownToHtml(agentCv, {
+          job,
+          profile,
+          meta: { ...(model.meta || {}), source: 'agent/cv.md' },
+        });
         model.meta = { ...(model.meta || {}), source: 'agent/cv.md' };
       }
     } catch {
@@ -657,13 +677,6 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
   pack.review = await loadReviewSummary(dir);
   pack.agent = await loadAgentSession(dir);
   return pack;
-}
-
-function escapeForPre(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 /** Write prep files + tailored CV under .workspace/prep/<id>/ */

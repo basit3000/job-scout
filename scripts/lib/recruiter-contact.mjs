@@ -18,6 +18,7 @@ import {
   resolveProviderBinary,
 } from './cv-agent.mjs';
 import { formatAgentEvent } from './cv-agent-log.mjs';
+import { isAbortError } from './sdk-abort.mjs';
 import { loadCvSettings } from './prep.mjs';
 import {
   companyKey,
@@ -478,6 +479,9 @@ async function askCursorRecruiter(prompt, modelId, emit) {
     }
     return String(result?.result || '');
   } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('Cursor recruiter lookup was aborted');
+    }
     if (err instanceof CursorAgentError) {
       throw new Error(`Cursor agent error: ${err.message}`);
     }

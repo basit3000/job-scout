@@ -20,7 +20,7 @@ Cover letter: 8/10
 
 ## Must fix
 - Put FastAPI in the first current-role bullet (ats.tex).
-- Mirror "REST API" spelling in the Sample Organization project bullet.
+- Mirror "REST API" spelling in the sample project bullet.
 
 ## Should fix
 - Drop the filler "robust" if it is still there.

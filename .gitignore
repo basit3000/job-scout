@@ -1,17 +1,31 @@
 # Per-user identity & local config — never commit these
 profile.json
 search-profile.json
+profile.json.*
+search-profile.json.*
+profile.*.json
+search-profile.*.json
+!profile.example.json
+!search-profile.example.json
 cv/*
 !cv/.gitkeep
 !cv/README.md
 !cv/resume.example.md
 !cv/cover-letter.example.md
 !cv/cover-letter-notes.example.md
-state/decisions.json
-state/decisions.json.*.tmp
-state/attachments/
-state/saved-answers.json
-state/recruiter-contacts.json
+state/*
+!state/*.example.json
+!state/.gitkeep
+
+# Local backups and exported documents can contain candidate data
+/backups/
+/outputs/
+/work/
+*.pdf
+*.docx
+*.bak
+*.backup
+*.tmp
 
 # Personal cv-tailor overlay (real name, contacts, framing) — clonees use the
 # generic .agents/skills/cv-tailor/ templates with YOUR_* placeholders instead.
@@ -35,6 +49,10 @@ node_modules/
 .env.*
 !.env.example
 secrets/
+*.pem
+*.key
+*.p12
+*.pfx
 
 # OS / editors
 .DS_Store

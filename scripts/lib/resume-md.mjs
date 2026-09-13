@@ -60,6 +60,7 @@ export function parseResumeMarkdown(text) {
   let contact = '';
   let headline = '';
   let targetRole = '';
+  const notes = [];
   for (const line of preLines) {
     const role = line.match(/^Target role:\s*\*?\*?(.+?)\*?\*?$/i);
     if (role) {
@@ -70,7 +71,11 @@ export function parseResumeMarkdown(text) {
       contact = line;
       continue;
     }
-    if (!headline) headline = line;
+    if (!headline) {
+      headline = line;
+      continue;
+    }
+    notes.push(line);
   }
 
   const sections = [];
@@ -92,18 +97,21 @@ export function parseResumeMarkdown(text) {
     });
   }
 
-  return { name, contact, headline, targetRole, sections, raw: text };
+  return { name, contact, headline, targetRole, notes, sections, raw: text };
 }
 
 function parseSectionBody(heading, body) {
   const h = heading.toLowerCase();
   if (h === 'skills') {
-    const skills = body
+    const skillLines = body
       .split(/\n/)
-      .flatMap((l) => l.split(/\s*[·|,]\s*/))
       .map((s) => s.replace(/^[-*]\s*/, '').trim())
       .filter(Boolean);
-    return { kind: 'skills', skills, entries: [] };
+    const skills = skillLines
+      .flatMap((l) => l.split(/\s*[·|,]\s*/))
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return { kind: 'skills', skills, skillLines, entries: [] };
   }
 
   if (h === 'education') {

@@ -19,6 +19,7 @@ import {
   resolveAgentModel,
   resolveProviderBinary,
 } from './cv-agent.mjs';
+import { isAbortError } from './sdk-abort.mjs';
 
 export const FILL_LLM_TIMEOUT_MS = 90_000;
 export const FILL_LLM_MAX_STEPS = 3;
@@ -205,6 +206,9 @@ async function askCursorText(prompt, modelId) {
     }
     return String(result?.result || '');
   } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('Cursor fill agent was aborted');
+    }
     if (err instanceof CursorAgentError) {
       throw new Error(`Cursor agent error: ${err.message}`);
     }

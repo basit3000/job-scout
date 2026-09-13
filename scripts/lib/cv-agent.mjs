@@ -22,6 +22,7 @@ import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs
 import { styleRulesMarkdown, LETTER_LIMITS, WRITING_RULES_GENERIC, WRITING_RULES_LOCAL } from './cv-style.mjs';
 import { snapshotCvSources } from './cv-verify.mjs';
 import { appendAgentAttempt } from './agent-usage.mjs';
+import { isAbortError } from './sdk-abort.mjs';
 
 let activeRun = null;
 let activeChild = null;
@@ -922,6 +923,9 @@ async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvS
       local: { cwd: ROOT, settingSources: /Review/.test(sessionKey || '') ? [] : ['project'] },
     });
   } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('Cursor agent startup was aborted');
+    }
     if (err instanceof CursorAgentError) {
       throw new Error(`Cursor agent startup failed: ${err.message}`);
     }
@@ -952,6 +956,9 @@ async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvS
     await persistAgentMeta(prepDir, meta, sessionKey);
     return meta;
   } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error('Cursor agent run was aborted');
+    }
     if (err instanceof CursorAgentError) {
       throw new Error(`Cursor agent error: ${err.message}`);
     }

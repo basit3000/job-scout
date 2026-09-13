@@ -87,8 +87,13 @@ import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
 import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
+import { installSdkAbortGuard } from '../scripts/lib/sdk-abort.mjs';
 
 loadDotEnv();
+installSdkAbortGuard((err, origin) => {
+  console.warn(`Cursor SDK abort ignored (${origin}) — UI stays up: ${err?.message || err}`);
+});
+
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, 'public');

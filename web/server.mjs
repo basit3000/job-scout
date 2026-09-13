@@ -88,6 +88,7 @@ import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-stat
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
 import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
 import { installSdkAbortGuard } from '../scripts/lib/sdk-abort.mjs';
+import { resolveFetchConcurrency } from '../scripts/lib/fetch-pool.mjs';
 
 loadDotEnv();
 installSdkAbortGuard((err, origin) => {
@@ -580,6 +581,7 @@ async function getStatus({ light = false } = {}) {
     digestNewCount: digest?.newCount ?? 0,
     enabledBoards,
     limitPerQuery: Number(config.limitPerQuery ?? 25),
+    fetchConcurrency: resolveFetchConcurrency(config.fetchConcurrency).boards,
     maxApifyRuns: Number(config.maxApifyRuns ?? 8),
     maxAgeDays: Number(config.filters?.maxAgeDays ?? profile?.constraints?.maxAgeDays ?? 30),
     titleCount,
@@ -1700,6 +1702,13 @@ async function handleApi(req, res, url) {
       }
       config.limitPerQuery = Math.round(n);
     }
+    if (body.fetchConcurrency != null) {
+      const n = Number(body.fetchConcurrency);
+      if (!Number.isFinite(n) || n < 1 || n > 8) {
+        return json(res, 400, { error: 'fetchConcurrency must be 1–8' });
+      }
+      config.fetchConcurrency = Math.round(n);
+    }
     if (body.maxApifyRuns != null) {
       const n = Number(body.maxApifyRuns);
       if (!Number.isFinite(n) || n < 0 || n > 200) {
@@ -1800,6 +1809,9 @@ async function handleApi(req, res, url) {
     }
     if (body.maxAgeDays != null && Number(body.maxAgeDays) > 0) {
       args.push('--max-age-days', String(Math.round(Number(body.maxAgeDays))));
+    }
+    if (body.fetchConcurrency != null && Number(body.fetchConcurrency) > 0) {
+      args.push('--concurrency', String(Math.round(Number(body.fetchConcurrency))));
     }
 
     fetchState.buffer = [];

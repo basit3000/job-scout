@@ -57,6 +57,10 @@
             <span>Per query</span>
             <input type="number" id="limitPerQuery" min="1" max="100" step="1" />
           </label>
+          <label class="field field-num" title="How many portals search at once (1–8). Indeed/LinkedIn stay at most 2.">
+            <span>Parallel</span>
+            <input type="number" id="fetchConcurrency" min="1" max="8" step="1" />
+          </label>
           <label class="field field-num" title="Max paid Apify actor runs per fetch (0 = unlimited)">
             <span>Max paid</span>
             <input type="number" id="maxApifyRuns" min="0" max="200" step="1" />

@@ -225,6 +225,7 @@ export async function applySetup(body = {}) {
           { board: 'linkedin', queriesFromProfile: true },
         ],
     limitPerQuery: existingSearch.limitPerQuery ?? 15,
+    fetchConcurrency: existingSearch.fetchConcurrency ?? 4,
     preferJobspy: existingSearch.preferJobspy !== false,
     maxApifyRuns: existingSearch.maxApifyRuns ?? 8,
     cities: cities.length

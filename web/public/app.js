@@ -10,6 +10,7 @@ const els = {
   allowPaid: $('allowPaid'),
   replaceResults: $('replaceResults'),
   limitPerQuery: $('limitPerQuery'),
+  fetchConcurrency: $('fetchConcurrency'),
   maxApifyRuns: $('maxApifyRuns'),
   maxAgeDays: $('maxAgeDays'),
   cvSource: $('cvSource'),
@@ -2644,12 +2645,13 @@ async function refreshJobs() {
 function updatePlanHint(s = state.status) {
   if (!els.planHint || !s) return;
   const limit = Number(els.limitPerQuery?.value || s.limitPerQuery || 0);
+  const parallel = Number(els.fetchConcurrency?.value || s.fetchConcurrency || 4);
   const perBoard = (s.titleCount || 0) * (s.cityCount || 0);
   const boards = s.boardCount || 0;
   const maxJobs = perBoard * limit;
   els.planHint.hidden = !(perBoard && boards);
   els.planHint.textContent = perBoard && boards
-    ? `Plan: ${s.titleCount} titles × ${s.cityCount} cities = ${perBoard} queries/portal × ${boards} portals · up to ${maxJobs} jobs/portal (before filters)`
+    ? `Plan: ${s.titleCount} titles × ${s.cityCount} cities = ${perBoard} queries/portal × ${boards} portals · ${parallel} portals at a time · up to ${maxJobs} jobs/portal (before filters)`
     : '';
 }
 
@@ -2685,6 +2687,9 @@ async function refreshStatus() {
   if (s.marketId) els.marketSelect.value = s.marketId;
   if (els.limitPerQuery && document.activeElement !== els.limitPerQuery) {
     els.limitPerQuery.value = String(s.limitPerQuery ?? 10);
+  }
+  if (els.fetchConcurrency && document.activeElement !== els.fetchConcurrency) {
+    els.fetchConcurrency.value = String(s.fetchConcurrency ?? 4);
   }
   if (els.maxApifyRuns && document.activeElement !== els.maxApifyRuns) {
     els.maxApifyRuns.value = String(s.maxApifyRuns ?? 8);
@@ -3187,6 +3192,7 @@ async function runSearch() {
   const allowPaid = els.allowPaid.checked;
   const replace = Boolean(els.replaceResults?.checked);
   const limit = Number(els.limitPerQuery?.value || 0);
+  const fetchConcurrency = Number(els.fetchConcurrency?.value || 0);
   const maxApifyRuns = Number(els.maxApifyRuns?.value);
   const maxAgeDays = Number(els.maxAgeDays?.value || 0);
   if (allowPaid) {
@@ -3222,6 +3228,7 @@ async function runSearch() {
     try {
       await saveSettings({
         ...(limit > 0 ? { limitPerQuery: limit } : {}),
+        ...(fetchConcurrency > 0 ? { fetchConcurrency } : {}),
         ...(Number.isFinite(maxApifyRuns) ? { maxApifyRuns } : {}),
         ...(maxAgeDays > 0 ? { maxAgeDays } : {}),
       });
@@ -3234,6 +3241,7 @@ async function runSearch() {
         allowPaid ? 'allow-paid (Apify first, JobSpy fallback, capped)' : 'FREE JobSpy only',
         replace ? 'REPLACE archive' : 'merge into archive',
         limit > 0 ? `limit=${limit}/query` : null,
+        fetchConcurrency > 0 ? `parallel=${fetchConcurrency}` : null,
         Number.isFinite(maxApifyRuns) ? `max-paid=${maxApifyRuns}` : null,
         maxAgeDays > 0 ? `max-age=${maxAgeDays}d` : null,
       ]
@@ -3250,6 +3258,7 @@ async function runSearch() {
         allowPaid,
         replace,
         ...(limit > 0 ? { limit } : {}),
+        ...(fetchConcurrency > 0 ? { fetchConcurrency } : {}),
         ...(Number.isFinite(maxApifyRuns) ? { maxApifyRuns } : {}),
         ...(maxAgeDays > 0 ? { maxAgeDays } : {}),
       }),
@@ -3508,9 +3517,11 @@ async function onLimitChange(key, el, { min, max }) {
 }
 
 els.limitPerQuery?.addEventListener('change', () => onLimitChange('limitPerQuery', els.limitPerQuery, { min: 1, max: 100 }));
+els.fetchConcurrency?.addEventListener('change', () => onLimitChange('fetchConcurrency', els.fetchConcurrency, { min: 1, max: 8 }));
 els.maxApifyRuns?.addEventListener('change', () => onLimitChange('maxApifyRuns', els.maxApifyRuns, { min: 0, max: 200 }));
 els.maxAgeDays?.addEventListener('change', () => onLimitChange('maxAgeDays', els.maxAgeDays, { min: 1, max: 365 }));
 els.limitPerQuery?.addEventListener('input', () => updatePlanHint());
+els.fetchConcurrency?.addEventListener('input', () => updatePlanHint());
 els.cvSource?.addEventListener('change', async () => {
   try {
     await saveSettings({ cvSource: els.cvSource.value });

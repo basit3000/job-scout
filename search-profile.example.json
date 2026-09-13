@@ -28,6 +28,12 @@
   "limitPerQuery": 10,
   "_limitPerQuery": "Jobs per title×city query. Raise it in the UI if you want a wider page. Each title×city×board can become one Apify run when paid.",
 
+  "fetchConcurrency": 4,
+  "_fetchConcurrency": "How many portals search at once (1–8). JobSpy sites (Indeed/LinkedIn) stay at most 2 so the same IP is less likely to get blocked. CLI: --concurrency 4.",
+
+  "linkedinFetchDescription": false,
+  "_linkedinFetchDescription": "true = JobSpy opens every LinkedIn listing for the full JD (slow). false = titles/metadata only; descriptions still come from Indeed and DE portals when the same job appears there.",
+
   "preferJobspy": true,
   "_preferJobspy": "Only applies when Allow paid is OFF. With --allow-paid / Allow paid, Apify runs first (JobSpy is fallback).",
 

@@ -2,6 +2,7 @@
 
 import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
+import { pythonCandidates, isMissingPython } from './python-runtime.mjs';
 
 export const DEFAULT_FETCH_CONCURRENCY = 4;
 export const MAX_FETCH_CONCURRENCY = 8;
@@ -270,16 +271,18 @@ export async function startJobspyWorkerFromBins({
   script,
   env = process.env,
   cwd,
-  bins = process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python'],
+  bins,
+  root,
   spawnImpl = spawn,
   timeoutMs = JOBSPY_REQUEST_TIMEOUT_MS,
 } = {}) {
   let lastErr;
-  for (const bin of bins) {
+  const candidates = bins ? bins.map((command) => ({ command, args: [] })) : pythonCandidates({ root, env });
+  for (const candidate of candidates) {
     try {
       return await startJobspyWorker({
-        command: bin,
-        args: [script, '--worker'],
+        command: candidate.command,
+        args: [...candidate.args, script, '--worker'],
         env,
         cwd,
         spawnImpl,
@@ -287,8 +290,7 @@ export async function startJobspyWorkerFromBins({
       });
     } catch (err) {
       lastErr = err;
-      const msg = String(err?.message || err);
-      if (/not found|ENOENT|App execution aliases/i.test(msg)) continue;
+      if (isMissingPython(err)) continue;
       break;
     }
   }

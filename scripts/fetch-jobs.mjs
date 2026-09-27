@@ -13,6 +13,7 @@ import { mkdir, writeFile, mkdtemp, unlink } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { runPython } from './lib/python-runtime.mjs';
 
 import {
   ROOT,
@@ -278,37 +279,15 @@ async function fetchViaJobspyOnce(payload) {
   await writeFile(cfgPath, JSON.stringify(payload));
 
   const script = join(ROOT, 'scripts', 'jobspy_fallback.py');
-  // Windows often has a Store stub for `python3` while real Python is `python` / `py`.
-  const pyBins = process.platform === 'win32' ? ['py', 'python', 'python3'] : ['python3', 'python'];
-  let stdout;
-  let lastErr;
-  let stderr = '';
-  for (const bin of pyBins) {
-    try {
-      ({ stdout, stderr } = await run(bin, [script, '--config', cfgPath], {
-        maxBuffer: 32 * 1024 * 1024,
-        env: process.env,
-      }));
-      lastErr = null;
-      break;
-    } catch (err) {
-      lastErr = err;
-      const msg = String(err.stderr || err.message);
-      if (/not found|ENOENT|App execution aliases/i.test(msg) && bin !== pyBins[pyBins.length - 1]) {
-        continue;
-      }
-      break;
-    }
+  try {
+    const { stdout, stderr } = await runPython([script, '--config', cfgPath], {
+      maxBuffer: 32 * 1024 * 1024,
+      env: process.env,
+    });
+    return { result: JSON.parse(stdout), stderr };
+  } finally {
+    await unlink(cfgPath).catch(() => {});
   }
-  if (lastErr || stdout == null) {
-    const detail = String(lastErr?.stderr || lastErr?.message || 'Python not found')
-      .trim()
-      .split('\n')
-      .slice(-3)
-      .join(' | ');
-    throw new Error(detail);
-  }
-  return { result: JSON.parse(stdout), stderr };
 }
 
 async function fetchViaJobspy(boards, query, opts, market, session = null) {

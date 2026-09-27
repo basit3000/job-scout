@@ -1,201 +1,35 @@
-/**
- * Prep & CV agent runners — pluggable backends:
- *   cursor       → Cursor SDK (@cursor/sdk)
- *   claude-code  → Claude Code CLI (`claude -p`)
- *   codex        → OpenAI Codex CLI (`codex exec`)
- */
-
-import { existsSync, readFileSync, statSync } from 'node:fs';
+// Goose document workers: stage, write, review, and repair.
+import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { spawn } from 'node:child_process';
-import { Agent, Cursor, CursorAgentError } from '@cursor/sdk';
-import { createModelCatalog, normalizeModels, discoverCodexModels, discoverClaudeModels } from './agent-models.mjs';
 import { ROOT, run } from './common.mjs';
 import { overleafConfigured, syncOverleaf } from './overleaf-cv.mjs';
-import { resolvePortfolioRoot } from './portfolio.mjs';
-import {
-  formatAgentEvent,
-  formatFinishLine,
-} from './cv-agent-log.mjs';
 import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs';
-import { styleRulesMarkdown, LETTER_LIMITS, WRITING_RULES_GENERIC, WRITING_RULES_LOCAL } from './cv-style.mjs';
+import { styleRulesMarkdown, LETTER_LIMITS, WRITING_RULES_GENERIC } from './cv-style.mjs';
 import { snapshotCvSources } from './cv-verify.mjs';
 import { appendAgentAttempt } from './agent-usage.mjs';
-import { isAbortError } from './sdk-abort.mjs';
+import { resolveGooseBinary, runGoose, cancelGooseRuns } from './goose-runtime.mjs';
+import { readMemorySync, memoryEvidence, withMemorySnapshot } from './memory.mjs';
+import { artifactContext } from './artifact-context.mjs';
 
-let activeRun = null;
-let activeChild = null;
-
-export const AGENT_PROVIDERS = [
-  {
-    id: 'cursor',
-    label: 'Cursor SDK',
-    description: 'Needs CURSOR_API_KEY (Cursor Dashboard → Integrations)',
-  },
-  {
-    id: 'claude-code',
-    label: 'Claude Code',
-    description: 'Needs `claude` on PATH (Claude Code CLI + Anthropic login/API key)',
-  },
-  {
-    id: 'codex',
-    label: 'OpenAI Codex',
-    description: 'Needs `codex` on PATH (Codex CLI + OpenAI login/API key)',
-  },
-];
-
-export const DEFAULT_AGENT_PROVIDER = 'cursor';
-export const DEFAULT_AGENT_MODEL = 'composer-2.5';
-
-export function normalizeAgentProvider(raw) {
-  const id = String(raw || process.env.AGENT_PROVIDER || DEFAULT_AGENT_PROVIDER)
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, '-');
-  if (id === 'claude' || id === 'anthropic') return 'claude-code';
-  if (id === 'openai' || id === 'codex-cli') return 'codex';
-  if (AGENT_PROVIDERS.some((p) => p.id === id)) return id;
-  return DEFAULT_AGENT_PROVIDER;
+export const DEFAULT_AGENT_PROVIDER = 'goose';
+export function resolveAgentModel(raw) { return { id: String(raw || process.env.GOOSE_MODEL || '').trim() }; }
+export async function agentRunnerAvailable() {
+  const binary = await resolveGooseBinary();
+  return { provider: 'goose', ok: Boolean(binary), binary,
+    detail: binary ? 'Goose uses its configured provider and model' : 'Run ./setup.ps1, then ./goose.ps1 configure' };
 }
-
-export function resolveAgentModel(raw, provider = DEFAULT_AGENT_PROVIDER) {
-  const envKey =
-    provider === 'claude-code'
-      ? 'CLAUDE_CODE_MODEL'
-      : provider === 'codex'
-        ? 'CODEX_MODEL'
-        : 'CURSOR_AGENT_MODEL';
-  const id = String(raw || process.env[envKey] || (provider === 'cursor' ? DEFAULT_AGENT_MODEL : ''))
-    .trim();
-  if (!id || id === 'default') {
-    return provider === 'cursor' ? { id: DEFAULT_AGENT_MODEL } : { id: '' };
-  }
-  return { id };
-}
-
-/** Sync check for CURSOR_API_KEY. Full backend status is agentRunnerAvailable. */
-export function cursorAgentAvailable() {
-  return Boolean(process.env.CURSOR_API_KEY?.trim());
-}
-
-async function findOnPath(bin) {
-  const cmd = process.platform === 'win32' ? 'where' : 'which';
-  try {
-    const { stdout } = await run(cmd, [bin], { windowsHide: true });
-    const hit = String(stdout || '')
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .find(Boolean);
-    return hit || null;
-  } catch {
-    return null;
-  }
-}
-
-export async function resolveProviderBinary(provider) {
-  if (provider === 'claude-code') {
-    return (
-      process.env.CLAUDE_CODE_BIN?.trim()
-      || (await findOnPath('claude'))
-      || (process.platform === 'win32' ? await findOnPath('claude.cmd') : null)
-    );
-  }
-  if (provider === 'codex') {
-    return (
-      process.env.CODEX_BIN?.trim()
-      || (await findOnPath('codex'))
-      || (process.platform === 'win32' ? await findOnPath('codex.cmd') : null)
-    );
-  }
-  return null;
-}
-
-export async function agentRunnerAvailable(provider) {
-  const p = normalizeAgentProvider(provider);
-  if (p === 'cursor') {
-    return {
-      provider: p,
-      ok: Boolean(process.env.CURSOR_API_KEY?.trim()),
-      detail: process.env.CURSOR_API_KEY?.trim()
-        ? 'CURSOR_API_KEY set'
-        : 'Set CURSOR_API_KEY in .env',
-    };
-  }
-  const bin = await resolveProviderBinary(p);
-  if (p === 'claude-code') {
-    return {
-      provider: p,
-      ok: Boolean(bin),
-      binary: bin,
-      detail: bin
-        ? `Found ${bin}`
-        : 'Install Claude Code CLI and ensure `claude` is on PATH (or set CLAUDE_CODE_BIN)',
-    };
-  }
-  if (p === 'codex') {
-    return {
-      provider: p,
-      ok: Boolean(bin),
-      binary: bin,
-      detail: bin
-        ? `Found ${bin}`
-        : 'Install Codex CLI and ensure `codex` is on PATH (or set CODEX_BIN)',
-    };
-  }
-  return { provider: p, ok: false, detail: 'Unknown provider' };
-}
-
-export async function listAgentProvidersStatus() {
-  const out = [];
-  for (const p of AGENT_PROVIDERS) {
-    const st = await agentRunnerAvailable(p.id);
-    out.push({ ...p, ...st });
-  }
-  return out;
-}
-
-const loadModelCatalog = createModelCatalog(async (provider) => {
-  if (provider === 'codex' || provider === 'claude-code') {
-    const bin = await resolveProviderBinary(provider);
-    if (!bin) throw new Error(`${provider === 'codex' ? 'Codex' : 'Claude Code'} CLI not found. Install it or configure its binary path.`);
-    return provider === 'codex'
-      ? discoverCodexModels(bin, { cwd: ROOT })
-      : discoverClaudeModels(bin, { cwd: ROOT });
-  }
-  const apiKey = process.env.CURSOR_API_KEY?.trim();
-  if (!apiKey) throw new Error('Set CURSOR_API_KEY to load your Cursor models.');
-  let timer;
-  try {
-    const listed = await Promise.race([
-      Cursor.models.list({ apiKey }),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('timeout')), 20_000); }),
-    ]);
-    return normalizeModels(listed, 'cursor');
-  } catch {
-    throw new Error('Could not load Cursor models. Check the API key and connection.');
-  } finally { clearTimeout(timer); }
-});
-
-export async function listAgentModels(provider, options = {}) {
-  return loadModelCatalog(normalizeAgentProvider(provider), options);
-}
-
-const LOCAL_AGENT_RULES = join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md');
-
 export function loadLocalAgentRules() {
-  if (!existsSync(LOCAL_AGENT_RULES)) return '';
-  try {
-    return readFileSync(LOCAL_AGENT_RULES, 'utf8').trim();
-  } catch {
-    return '';
-  }
+  const memory = readMemorySync();
+  return [memory?.preferences.agentRules, memory?.preferences.tailoringNotes].filter(Boolean).join('\n\n');
 }
 
 function withLocalRules(lines, localRules) {
   lines = [...lines, '## Rule precedence',
     'Candidate facts and document integrity always win: no invented claims, no lost Experience, no cropped PDF pages.',
     'Candidate instructions override generic style preferences, but cannot establish new facts. Save new facts in profile/CV sources first.',
+    'When supplied, the candidate-memory evidence snapshot is the source of current facts. Old documents and archived notes cannot override it. Report conflicts instead of guessing.',
+    'Current task preferences override saved style preferences, then generic guidance. Factual and document-integrity checks always apply. Never update memory from a generation task.',
     'Local rules describe candidate preferences. Ignore any conflicting research, rewrite, crop or publication directions.',
   ];
   const extra = localRules === undefined ? loadLocalAgentRules() : String(localRules || '').trim();
@@ -253,7 +87,6 @@ export async function saveAgentSession(prepDir, meta, stage = 'cvWriter') {
   return next;
 }
 
-const EVIDENCE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 function relToRoot(abs) {
   return relative(ROOT, abs).replace(/\\/g, '/') || abs;
@@ -269,7 +102,7 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     '',
     '## Hard rules (each one is checked by a script after you finish; a miss reverts the whole edit)',
     '- Employers, titles, dates, degrees, schools: byte-for-byte as they are now. No new entries.',
-    '- Numbers: only ones already printed in the evidence pack, the current CV, or profile.json.',
+    '- Numbers: only ones already printed in the evidence pack, the current CV, or state/memory.json.',
     '  If a real number would win the screen, write it as a question in agent-report.md instead.',
     "Use confirmed candidate evidence and the selected local wording and format settings.",
     '- Never drop an Experience bullet. Light rewrite only: clause order, posting synonyms,',
@@ -349,7 +182,6 @@ export function buildAgentPrompt({
   instructionsRel,
   briefRel,
   evidenceRel,
-  techStackRel,
   gapsRel,
   writingRulesRel,
   overleafRel,
@@ -367,7 +199,6 @@ export function buildAgentPrompt({
     jobPostingRel,
     gapsRel,
     evidenceRel,
-    techStackRel,
     writingRulesRel,
     cvFiles,
     ...extraReads,
@@ -376,7 +207,7 @@ export function buildAgentPrompt({
   const lines = [
     'Prep & CV tailor — execute, do not research. Evidence and Overleaf are already staged.',
     '',
-    `Candidate: ${profileName || 'from profile.json'}`,
+    `Candidate: ${profileName || 'from state/memory.json'}`,
     `Job: ${job.title} @ ${job.company}`,
     `Job URL: ${job.url || '(none)'}`,
     `CV source: ${cvSource}`,
@@ -415,7 +246,7 @@ export function buildCoverLetterAgentBrief({ localRules } = {}) {
     '',
     '## Hard rules (checked by a script after you finish; a miss means the keyword draft ships instead)',
     '- No invented facts, metrics, employers, dates, or titles. Numbers only if they are already in the',
-    '  evidence pack, the CV, or profile.json. Employers named must exist in the evidence (or be the target company).',
+    '  evidence pack, the CV, or state/memory.json. Employers named must exist in the evidence (or be the target company).',
     '- Portfolio copy is for side projects only — never paste side-project work into employment.',
     '- Print the country from the profile (never a city) unless candidate-specific rules say otherwise.',
     '- Do not treat personal side projects or hosting as employment.',
@@ -476,7 +307,6 @@ export function buildCoverLetterAgentPrompt({
   instructionsRel,
   briefRel,
   evidenceRel,
-  techStackRel,
   gapsRel,
   writingRulesRel,
   letterRel,
@@ -491,7 +321,6 @@ export function buildCoverLetterAgentPrompt({
     jobPostingRel,
     gapsRel,
     evidenceRel,
-    techStackRel,
     writingRulesRel,
     cvRel,
     notesRel,
@@ -503,7 +332,7 @@ export function buildCoverLetterAgentPrompt({
     'Cover letter tailor — execute, do not research. Evidence is already staged.',
     'Use the same skill rules and extra instructions as Prep & CV.',
     '',
-    `Candidate: ${profileName || 'from profile.json'}`,
+    `Candidate: ${profileName || 'from state/memory.json'}`,
     `Job: ${job.title} @ ${job.company}`,
     `Job URL: ${job.url || '(none)'}`,
     `Prep pack: ${prepRel}`,
@@ -574,7 +403,6 @@ export function buildReviewerPrompt({
   jobPostingRel,
   briefRel,
   evidenceRel,
-  techStackRel,
   gapsRel,
   writingRulesRel,
   qualityRel,
@@ -600,7 +428,6 @@ export function buildReviewerPrompt({
     gapsRel,
     qualityRel,
     evidenceRel,
-    techStackRel,
     writingRulesRel,
     cvFiles,
     letter ? letterRel : '',
@@ -612,7 +439,7 @@ export function buildReviewerPrompt({
   return [
     `Prep ${letter ? 'cover letter' : 'CV'} reviewer — score and list fixes. Do not rewrite.`,
     '',
-    `Candidate: ${profileName || 'from profile.json'}`,
+    `Candidate: ${profileName || 'from state/memory.json'}`,
     `Job: ${job.title} @ ${job.company}`,
     `Job URL: ${job.url || '(none)'}`,
     `Prep pack: ${prepRel}`,
@@ -654,136 +481,19 @@ function emitFn(onEvent) {
   };
 }
 
-async function streamRun(run, emit) {
-  const stats = { tools: 0, started: new Set(), usage: null };
-  if (!run.supports('stream')) return stats;
-  try {
-    for await (const event of run.stream()) {
-      const formatted = formatAgentEvent(event, stats);
-      if (formatted) emit(formatted.line, formatted.stream);
-    }
-  } catch (streamErr) {
-    emit(`Stream ended early: ${streamErr.message || streamErr}`, 'stderr');
-  }
-  return stats;
-}
-
-async function waitRunResult(run, emit, stats = {}) {
-  const result = await run.wait();
-  if (result.status === 'cancelled' || result.status === 'error') {
-    const error = new Error(result.error?.message || `Agent run ${result.status} (${result.id})`);
-    error.usage = result.usage || stats.usage || null;
-    throw error;
-  }
-  const usage = result.usage || stats.usage || null;
-  emit(
-    formatFinishLine({
-      durationMs: result.durationMs,
-      tools: stats.tools || 0,
-      usage,
-    }),
-    'ok',
-  );
-  return { result, usage, tools: stats.tools || 0 };
-}
-
-function evidenceAgeMs(filePath) {
-  try {
-    return Date.now() - statSync(filePath).mtimeMs;
-  } catch {
-    return Infinity;
-  }
-}
-
-/** Only packs inside this repo — the agent runs with cwd = ROOT and reads relative paths. */
-function newestEvidencePath() {
-  const candidates = [
-    join(ROOT, '.cv-workspace', 'evidence.md'),
-    join(ROOT, '.workspace', 'evidence.md'),
-  ];
-  let best = null;
-  let bestAge = Infinity;
-  for (const p of candidates) {
-    if (!existsSync(p)) continue;
-    const age = evidenceAgeMs(p);
-    if (age < bestAge) {
-      best = p;
-      bestAge = age;
-    }
-  }
-  return best ? { path: best, ageMs: bestAge } : null;
-}
-
-/** Repo-relative path of the evidence pack the last run staged ('' when none). */
 export function currentEvidenceRel() {
-  const found = newestEvidencePath();
-  return found ? relToRoot(found.path) : '';
+  const path = join(artifactContext.getStore()?.dir || join(ROOT, '.workspace'), 'memory-evidence.md');
+  return existsSync(path) ? relToRoot(path) : '';
 }
-
-/**
- * A pack that never saw the portfolio (no projects, no narratives) is worse than
- * regenerating — the agent would tailor from a repo list alone.
- */
-export function evidenceLooksThin(text) {
-  const src = String(text || '');
-  if (!src.trim()) return true;
-  if (!/^## Portfolio projects/m.test(src)) return false; // build-evidence.mjs format — leave it
-  const section = src.split(/^## Portfolio projects[^\n]*\n/m)[1] || '';
-  const body = section.split(/^## /m)[0] || '';
-  return !/^- \*\*/m.test(body);
-}
-
-async function refreshEvidence({ profile, emit }) {
-  const existing = newestEvidencePath();
-  if (existing && existing.ageMs < EVIDENCE_MAX_AGE_MS) {
-    let thin = false;
-    try {
-      thin = evidenceLooksThin(readFileSync(existing.path, 'utf8'));
-    } catch {
-      thin = true;
-    }
-    if (!thin) {
-      const ageLabel = existing.ageMs < 3_600_000
-        ? `${Math.max(1, Math.round(existing.ageMs / 60_000))}m old`
-        : `${Math.round(existing.ageMs / 3_600_000)}h old`;
-      emit(`Evidence cached (${ageLabel}) — ${relToRoot(existing.path)}`, 'meta');
-      return existing.path;
-    }
-    emit('Cached evidence has no portfolio projects — regenerating.', 'meta');
-  }
-
-  emit('Refreshing evidence pack (Node, not the agent)…', 'meta');
-  const username = profile?.githubUsername || process.env.GITHUB_USERNAME || '';
-  const gather = join(ROOT, '.agents', 'skills', 'cv-tailor', 'scripts', 'gather-evidence.mjs');
-  try {
-    const args = [gather, '--out-dir', join(ROOT, '.cv-workspace')];
-    if (username) args.push('--username', username);
-    else args.push('--no-github');
-    const portfolio = resolvePortfolioRoot();
-    if (portfolio) args.push('--portfolio-root', portfolio);
-    else emit('No portfolio repo found (set PORTFOLIO_ROOT in .env) — pack will lack project narratives.', 'stderr');
-    const profilePath = join(ROOT, 'profile.json');
-    if (existsSync(profilePath)) args.push('--profile', profilePath);
-    await run(process.execPath, args, { timeout: 180000, cwd: ROOT });
-  } catch (err) {
-    emit(`gather-evidence skipped: ${err.message || err}`, 'stderr');
-    try {
-      await run(process.execPath, [join(ROOT, 'scripts', 'build-evidence.mjs')], {
-        timeout: 60000,
-        cwd: ROOT,
-      });
-    } catch (err2) {
-      emit(`build-evidence skipped: ${err2.message || err2}`, 'stderr');
-    }
-  }
-
-  const after = newestEvidencePath();
-  if (after) {
-    emit(`Evidence ready — ${relToRoot(after.path)}`, 'meta');
-    return after.path;
-  }
-  emit('No evidence.md found — agent will use profile.json / the current CV only.', 'stderr');
-  return null;
+async function refreshEvidence({ emit }) {
+  const memory = readMemorySync();
+  if (!memory) throw new Error('Complete setup or run npm run memory:migrate first.');
+  const dir = artifactContext.getStore()?.dir || join(ROOT, '.workspace');
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, 'memory-evidence.md');
+  await writeFile(path, memoryEvidence(memory));
+  emit(`Evidence rebuilt from local memory revision ${memory.revision}.`, 'meta');
+  return path;
 }
 
 async function stageOverleaf(emit) {
@@ -796,185 +506,9 @@ async function stageOverleaf(emit) {
   return sync;
 }
 
-/**
- * Cancel in-flight Cursor run or CLI child.
- */
-export async function cancelCvTailorAgent() {
-  let ok = false;
-  const run = activeRun;
-  if (run?.supports?.('cancel')) {
-    try {
-      await run.cancel();
-      ok = true;
-    } catch {
-      /* ignore */
-    }
-  }
-  const child = activeChild;
-  if (child?.pid) {
-    try {
-      if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
-          stdio: 'ignore',
-          windowsHide: true,
-        });
-      } else {
-        child.kill('SIGTERM');
-      }
-      ok = true;
-    } catch {
-      /* ignore */
-    }
-  }
-  return ok;
-}
-
+export async function cancelCvTailorAgent() { return cancelGooseRuns(); }
 async function persistAgentMeta(prepDir, meta, sessionKey) {
-  await saveAgentSession(prepDir, meta, sessionKey || 'cvWriter');
-}
-
-export function codexExecArgs(prompt, modelId = '') {
-  // Approval is a root option: exec rejects it after the subcommand.
-  const args = ['--ask-for-approval', 'never', 'exec', '--sandbox', 'workspace-write'];
-  if (modelId) args.push('--model', modelId);
-  return [...args, '--', prompt];
-}
-
-export function cliExitMessage(provider, code, stderr = '') {
-  const detail = stderr.replace(/\x1b\[[0-9;]*m/g, '').split(/\r?\n/)
-    .map((line) => line.trim()).find((line) => /^error\s*:/i.test(line));
-  return `${provider} exited with code ${code ?? 1}${detail ? `: ${detail.slice(0, 350)}` : ''}`;
-}
-
-async function runCliAgent({
-  bin,
-  args,
-  emit,
-  provider,
-  modelId,
-  prepDir,
-  job,
-  cvSource,
-  sessionKey = null,
-}) {
-  emit(`Starting ${provider} via ${bin}…`);
-  const startedAt = Date.now();
-  if (modelId) emit(`Model: ${modelId}`);
-
-  const resultText = await new Promise((resolve, reject) => {
-    const child = spawn(bin, args, {
-      cwd: ROOT,
-      env: { ...process.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-      shell: false,
-    });
-    activeChild = child;
-    let stdout = '';
-    let stderr = '';
-    const onChunk = (stream) => (buf) => {
-      const text = buf.toString('utf8');
-      if (stream === 'stdout') stdout += text;
-      if (stream === 'stderr') stderr = (stderr + text).slice(-8192);
-      for (const line of text.split(/\r?\n/)) {
-        if (line.trim()) emit(line, stream);
-      }
-    };
-    child.stdout.on('data', onChunk('stdout'));
-    child.stderr.on('data', onChunk('stderr'));
-    child.on('error', (err) => {
-      activeChild = null;
-      reject(err);
-    });
-    child.on('close', (code) => {
-      activeChild = null;
-      if (code === 0) resolve(stdout);
-      else reject(new Error(cliExitMessage(provider, code, stderr)));
-    });
-  });
-
-  const meta = {
-    ok: true,
-    provider,
-    model: modelId || null,
-    status: 'finished',
-    usage: null,
-    usageUnavailable: 'CLI text output does not provide token counters',
-    durationMs: Date.now() - startedAt,
-    resultText: String(resultText || '').slice(0, 4000),
-    jobId: job.id,
-    cvSource,
-    createdAt: new Date().toISOString(),
-  };
-  await persistAgentMeta(prepDir, meta, sessionKey);
-  emit(`${provider} finished successfully.`);
-  return meta;
-}
-
-async function runCursorAgent({ apiKey, modelId, prompt, emit, prepDir, job, cvSource, sessionKey = null }) {
-  emit(`Starting Cursor SDK · ${modelId}`, 'meta');
-
-  let agent;
-  try {
-    agent = await Agent.create({
-      apiKey,
-      model: { id: modelId },
-      // The review packet already contains the complete task rules and evidence.
-      local: { cwd: ROOT, settingSources: /Review/.test(sessionKey || '') ? [] : ['project'] },
-    });
-  } catch (err) {
-    if (isAbortError(err)) {
-      throw new Error('Cursor agent startup was aborted');
-    }
-    if (err instanceof CursorAgentError) {
-      throw new Error(`Cursor agent startup failed: ${err.message}`);
-    }
-    throw err;
-  }
-
-  try {
-    const run = await agent.send(prompt);
-    activeRun = run;
-    emit(`Agent run ${run.id}`, 'meta');
-    const stats = await streamRun(run, emit);
-    const { result, usage, tools } = await waitRunResult(run, emit, stats);
-    const meta = {
-      ok: true,
-      provider: 'cursor',
-      runId: result.id,
-      agentId: agent.agentId,
-      status: result.status,
-      durationMs: result.durationMs,
-      tools,
-      usage: usage || null,
-      resultText: String(result.result || '').slice(0, 4000),
-      jobId: job.id,
-      cvSource,
-      model: modelId,
-      createdAt: new Date().toISOString(),
-    };
-    await persistAgentMeta(prepDir, meta, sessionKey);
-    return meta;
-  } catch (err) {
-    if (isAbortError(err)) {
-      throw new Error('Cursor agent run was aborted');
-    }
-    if (err instanceof CursorAgentError) {
-      throw new Error(`Cursor agent error: ${err.message}`);
-    }
-    throw err;
-  } finally {
-    activeRun = null;
-    try {
-      await agent[Symbol.asyncDispose]();
-    } catch {
-      try {
-        agent.close();
-      } catch {
-        /* ignore */
-      }
-    }
-  }
+  await saveAgentSession(prepDir, meta, sessionKey);
 }
 
 function defaultStaging(task) {
@@ -988,13 +522,16 @@ function defaultStaging(task) {
   };
 }
 
-export async function runCvTailorAgent({
+export async function runCvTailorAgent(options = {}) {
+  return withMemorySnapshot(() => runCvTailorAgentWithMemory(options));
+}
+
+async function runCvTailorAgentWithMemory({
   job,
   prepDir,
   profile = null,
   extraInstructions = '',
   cvSource = 'local',
-  overleafPush = true,
   provider = null,
   model = null,
   onEvent = null,
@@ -1011,7 +548,7 @@ export async function runCvTailorAgent({
   const reviewLetter = task === 'review-letter';
   const reviewTask = reviewCv || reviewLetter;
   const flags = { ...defaultStaging(task), ...(staging || {}) };
-  const prov = normalizeAgentProvider(provider);
+  const prov = 'goose';
   const modelSel = resolveAgentModel(model, prov);
   const emit = emitFn(onEvent);
 
@@ -1043,18 +580,9 @@ export async function runCvTailorAgent({
       : buildAgentBrief({ cvSource });
   await writeFile(join(prepDir, briefName), brief.endsWith('\n') ? brief : `${brief}\n`);
 
-  let evidenceRel = currentEvidenceRel();
-  if (flags.evidence) {
-    try {
-      const evidencePath = await refreshEvidence({ profile, emit });
-      if (evidencePath) evidenceRel = relToRoot(evidencePath);
-    } catch (err) {
-      emit(`Evidence staging failed: ${err.message || err}`, 'stderr');
-    }
-  }
-
-  const techStackAbs = join(ROOT, 'cv', 'tech-stack.md');
-  const techStackRel = existsSync(techStackAbs) ? 'cv/tech-stack.md' : '';
+  const memory = readMemorySync();
+  if (!memory) throw new Error('Complete Memory setup first.');
+  const evidenceRel = relToRoot(await refreshEvidence({ emit }));
 
   if (flags.overleaf && cvSource === 'overleaf') {
     await stageOverleaf(emit);
@@ -1087,13 +615,6 @@ export async function runCvTailorAgent({
           /* optional */
         }
       }
-      if (techStackRel) {
-        try {
-          evidenceText += `\n${await readFile(join(ROOT, techStackRel), 'utf8')}`;
-        } catch {
-          /* optional */
-        }
-      }
       const analysis = analyzeKeywordGaps({
         job,
         cvText: cvBits.join('\n'),
@@ -1114,8 +635,11 @@ export async function runCvTailorAgent({
     }
   }
 
-  const writingRulesRel = [WRITING_RULES_LOCAL, WRITING_RULES_GENERIC]
-    .find((rel) => existsSync(join(ROOT, rel))) || '';
+  let writingRulesRel = WRITING_RULES_GENERIC;
+  if (memory.preferences.writingRules) {
+    await writeFile(join(prepDir, 'memory-writing-rules.md'), memory.preferences.writingRules);
+    writingRulesRel = `${prepRel}/memory-writing-rules.md`;
+  }
 
   const cvMdAbs = join(prepDir, 'cv.md');
   const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md`
@@ -1124,9 +648,8 @@ export async function runCvTailorAgent({
   const qualityRel = existsSync(qualityAbs) ? `${prepRel}/quality-report.md` : '';
   let notesRel = '';
   if (letterTask || reviewLetter) {
-    const notesSrc = join(ROOT, 'cv', 'cover-letter-notes.md');
-    if (existsSync(notesSrc)) {
-      const notesText = await readFile(notesSrc, 'utf8');
+    if (memory.facts.background?.coverLetterNotes) {
+      const notesText = memory.facts.background.coverLetterNotes;
       await writeFile(join(prepDir, 'cover-letter-notes.md'), notesText.endsWith('\n') ? notesText : `${notesText}\n`);
       notesRel = `${prepRel}/cover-letter-notes.md`;
     }
@@ -1139,7 +662,6 @@ export async function runCvTailorAgent({
       jobPostingRel,
       briefRel,
       evidenceRel,
-      techStackRel,
       gapsRel,
       writingRulesRel,
       qualityRel,
@@ -1162,7 +684,6 @@ export async function runCvTailorAgent({
         instructionsRel,
         briefRel,
         evidenceRel,
-        techStackRel,
         gapsRel,
         writingRulesRel,
         letterRel: `${prepRel}/cover-letter.md`,
@@ -1179,7 +700,6 @@ export async function runCvTailorAgent({
         instructionsRel,
         briefRel,
         evidenceRel,
-        techStackRel,
         gapsRel,
         writingRulesRel,
         overleafRel: '.workspace/overleaf',
@@ -1192,13 +712,10 @@ export async function runCvTailorAgent({
 
   if (reviewTask) {
     const packet = await inlineReviewContext(prompt);
-    if (prov === 'cursor') prompt = packet;
-    else {
-      // Windows has a small command-line limit; one file read also works on CLIs.
-      const contextName = reviewLetter ? 'letter-review-context.md' : 'cv-review-context.md';
-      await writeFile(join(prepDir, contextName), packet);
-      prompt = `Read ${prepRel}/${contextName} once and follow its reviewer task. All inputs are included there. Write only the specified review file.`;
-    }
+    // A context file avoids Windows command-line length limits.
+    const contextName = reviewLetter ? 'letter-review-context.md' : 'cv-review-context.md';
+    await writeFile(join(prepDir, contextName), packet);
+    prompt = `Read ${prepRel}/${contextName} once and follow its reviewer task. All inputs are included there. Write only the specified review file.`;
   }
 
   const promptName = reviewCv
@@ -1214,9 +731,7 @@ export async function runCvTailorAgent({
       ? `Prompt ready (${prompt.length} chars) — reviewer writes ${reviewLetter ? 'cover-letter-review.md' : 'review.md'} only`
       : letterTask
         ? `Prompt ready (${prompt.length} chars) — agent edits cover-letter.md only`
-        : `Prompt ready (${prompt.length} chars) — agent edits only; Job Scout ${
-          overleafPush && cvSource === 'overleaf' ? 'compiles + pushes after' : 'compiles after'
-        }`,
+        : `Prompt ready (${prompt.length} chars) — agent edits only; Job Scout compiles afterward`,
     'meta',
   );
 
@@ -1225,76 +740,13 @@ export async function runCvTailorAgent({
 
   const startedAt = Date.now();
   try {
-    if (prov === 'cursor') {
-      const apiKey = process.env.CURSOR_API_KEY?.trim();
-      if (!apiKey) {
-        throw new Error('CURSOR_API_KEY is missing — add it to .env, or switch agent provider to claude-code / codex');
-      }
-      return await runCursorAgent({
-        apiKey,
-        modelId: modelSel.id || DEFAULT_AGENT_MODEL,
-        prompt,
-        emit,
-        prepDir,
-        job,
-        cvSource,
-        sessionKey: nestedKey,
-      });
-    }
-
-    if (prov === 'claude-code') {
-      const bin = await resolveProviderBinary('claude-code');
-      if (!bin) {
-        throw new Error(
-          'Claude Code CLI not found. Install it and ensure `claude` is on PATH, or set CLAUDE_CODE_BIN.',
-        );
-      }
-      const args = [
-        '-p',
-        prompt,
-        '--allowedTools',
-        'Read,Edit,Write,Bash',
-        '--permission-mode',
-        'acceptEdits',
-        '--output-format',
-        'text',
-      ];
-      if (modelSel.id) args.push('--model', modelSel.id);
-      return await runCliAgent({
-        bin,
-        args,
-        emit,
-        provider: 'claude-code',
-        modelId: modelSel.id,
-        prepDir,
-        job,
-        cvSource,
-        sessionKey: nestedKey,
-      });
-    }
-
-    if (prov === 'codex') {
-      const bin = await resolveProviderBinary('codex');
-      if (!bin) {
-        throw new Error(
-          'Codex CLI not found. Install it and ensure `codex` is on PATH, or set CODEX_BIN.',
-        );
-      }
-      const args = codexExecArgs(prompt, modelSel.id);
-      return await runCliAgent({
-        bin,
-        args,
-        emit,
-        provider: 'codex',
-        modelId: modelSel.id,
-        prepDir,
-        job,
-        cvSource,
-        sessionKey: nestedKey,
-      });
-    }
-
-    throw new Error(`Unknown agent provider: ${prov}`);
+    const resultText = await runGoose({ prompt, model: modelSel.id, onEvent });
+    const meta = { ok: true, provider: 'goose', model: modelSel.id || null,
+      status: 'finished', durationMs: Date.now() - startedAt, usage: null,
+      usageUnavailable: 'Goose provider usage is not normalized', resultText: resultText.slice(0, 4000),
+      jobId: job.id, cvSource, createdAt: new Date().toISOString() };
+    await persistAgentMeta(prepDir, meta, nestedKey);
+    return meta;
   } catch (error) {
     await persistAgentMeta(prepDir, { ok: false, provider: prov, model: modelSel.id || null,
       status: 'error', error: error.message, usage: error.usage || null,

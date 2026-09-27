@@ -33,7 +33,7 @@ export async function stageFinalDocumentText(dir, scope, extract = extractPdfTex
 }
 
 export async function reviewStatusReason(dir, scope, review) {
-  if (!review) return null; // Fast mode has no LLM review.
+  if (!review) return null; // A missing review is handled by the document validation gate.
   if (review.verdict !== 'pass') return review.error || `Reviewer: ${review.verdict === 'not_reviewed' ? 'Not reviewed' : 'unresolved Must fix items'}`;
   if (!review.documentFingerprint || review.documentFingerprint !== await documentFingerprint(dir, scope)) {
     return 'Review does not match the final documents';

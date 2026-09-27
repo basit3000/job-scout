@@ -4,22 +4,13 @@
  * Never invents visa/sponsorship/salary when the pack is empty or "depends".
  */
 
-import { spawn } from 'node:child_process';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Agent, CursorAgentError } from '@cursor/sdk';
-import { ROOT } from './common.mjs';
 import { isPlaceholderValue } from './apply-questions.mjs';
 import { yesNoFromText } from './apply-yesno.mjs';
-import {
-  agentRunnerAvailable,
-  DEFAULT_AGENT_MODEL,
-  normalizeAgentProvider,
-  resolveAgentModel,
-  resolveProviderBinary,
-} from './cv-agent.mjs';
-import { isAbortError } from './sdk-abort.mjs';
+import { agentRunnerAvailable } from './cv-agent.mjs';
+import { runGoose } from './goose-runtime.mjs';
 
 export const FILL_LLM_TIMEOUT_MS = 90_000;
 export const FILL_LLM_MAX_STEPS = 3;
@@ -160,131 +151,10 @@ export function sanitizeLlmAnswers(answers = [], fields = [], pack = {}) {
   return out;
 }
 
-async function withTimeout(promise, ms, onTimeout) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          try { onTimeout?.(); } catch { /* ignore */ }
-          reject(new Error(`Fill agent timed out after ${Math.round(ms / 1000)}s`));
-        }, ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function fillAgentCwd() {
-  return mkdtemp(join(tmpdir(), 'js-fill-'));
-}
-
-async function askCursorText(prompt, modelId) {
-  const apiKey = process.env.CURSOR_API_KEY?.trim();
-  if (!apiKey) throw new Error('CURSOR_API_KEY is missing');
-  const cwd = await fillAgentCwd();
-  let agent;
-  let run;
-  try {
-    agent = await Agent.create({
-      apiKey,
-      model: { id: modelId || DEFAULT_AGENT_MODEL },
-      local: { cwd, settingSources: [] },
-    });
-    run = await agent.send(
-      `${prompt}\n\nReturn JSON only. Do not use tools.`,
-    );
-    const result = await withTimeout(
-      run.wait(),
-      FILL_LLM_TIMEOUT_MS,
-      () => { run.cancel?.().catch(() => null); },
-    );
-    if (result?.status === 'error') {
-      throw new Error(result.error?.message || 'Cursor agent error');
-    }
-    return String(result?.result || '');
-  } catch (err) {
-    if (isAbortError(err)) {
-      throw new Error('Cursor fill agent was aborted');
-    }
-    if (err instanceof CursorAgentError) {
-      throw new Error(`Cursor agent error: ${err.message}`);
-    }
-    throw err;
-  } finally {
-    try {
-      await agent?.[Symbol.asyncDispose]?.();
-    } catch {
-      try { agent?.close?.(); } catch { /* ignore */ }
-    }
-  }
-}
-
-async function askCliText({ bin, args, cwd = ROOT }) {
-  let child;
-  const stdout = await withTimeout(
-    new Promise((resolve, reject) => {
-      child = spawn(bin, args, {
-        cwd,
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        shell: false,
-      });
-      let out = '';
-      let err = '';
-      child.stdout.on('data', (buf) => { out += buf.toString('utf8'); });
-      child.stderr.on('data', (buf) => { err += buf.toString('utf8'); });
-      child.on('error', reject);
-      child.on('close', (code) => {
-        if (code === 0) resolve(out);
-        else reject(new Error((err || out || `exit ${code}`).slice(0, 400)));
-      });
-    }),
-    FILL_LLM_TIMEOUT_MS,
-    () => {
-      if (!child?.pid) return;
-      try {
-        if (process.platform === 'win32') {
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], {
-            stdio: 'ignore',
-            windowsHide: true,
-          });
-        } else {
-          child.kill('SIGTERM');
-        }
-      } catch {
-        /* ignore */
-      }
-    },
-  );
-  return stdout;
-}
-
-export async function askAgentText({ prompt, provider, model } = {}) {
-  const prov = normalizeAgentProvider(provider);
-  const modelSel = resolveAgentModel(model, prov);
-  if (prov === 'cursor') {
-    return askCursorText(prompt, modelSel.id || DEFAULT_AGENT_MODEL);
-  }
-  if (prov === 'claude-code') {
-    const bin = await resolveProviderBinary('claude-code');
-    if (!bin) throw new Error('Claude Code CLI not found');
-    const args = ['-p', prompt, '--output-format', 'text'];
-    if (modelSel.id) args.push('--model', modelSel.id);
-    return askCliText({ bin, args, cwd: await fillAgentCwd() });
-  }
-  if (prov === 'codex') {
-    const bin = await resolveProviderBinary('codex');
-    if (!bin) throw new Error('Codex CLI not found');
-    const args = ['exec', '--sandbox', 'read-only', '--ask-for-approval', 'never'];
-    if (modelSel.id) args.push('--model', modelSel.id);
-    args.push(prompt);
-    return askCliText({ bin, args, cwd: await fillAgentCwd() });
-  }
-  throw new Error(`Unknown agent provider: ${prov}`);
+export async function askAgentText({ prompt } = {}) {
+  const cwd = await mkdtemp(join(tmpdir(), 'js-fill-'));
+  return runGoose({ prompt: prompt + '\nReturn JSON only. Do not use tools.', cwd,
+    timeoutMs: FILL_LLM_TIMEOUT_MS, maxTurns: FILL_LLM_MAX_STEPS, builtins: false });
 }
 
 /**

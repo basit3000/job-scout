@@ -35,6 +35,7 @@
         </button>
         <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
         <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
+        <button type="button" class="tab" data-view="memory" role="tab">Memory</button>
         <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
       </div>
 
@@ -89,27 +90,7 @@
                 <option value="overleaf">Overleaf</option>
               </select>
             </label>
-            <label class="field" title="Which coding agent runs Prep (Create CV / cover letter). Fast (keyword) ignores this.">
-              <span>Agent</span>
-              <select id="agentProvider" aria-label="Prep agent provider">
-                <option value="cursor">Cursor SDK</option>
-                <option value="claude-code">Claude Code</option>
-                <option value="codex">OpenAI Codex</option>
-              </select>
-            </label>
-            <label class="field agent-model-field" title="Models reported by the selected provider. Configured default uses your existing configuration.">
-              <span>Agent model</span>
-              <select id="agentModel" aria-label="Prep agent model" aria-describedby="agentModelsHint"></select>
-              <input id="agentModelCustom" aria-label="Custom agent model ID" placeholder="Exact model ID, then Enter" hidden />
-              <small id="agentModelsHint" role="status"></small>
-            </label>
-            <button id="refreshAgentModels" type="button" class="btn" title="Reload models from the selected provider">Refresh models</button>
-            <div class="toolbar-toggles">
-              <label class="toggle" title="When CV source is Overleaf: push tailored .tex back to the project.">
-                <input type="checkbox" id="overleafPush" checked />
-                <span>Push to Overleaf</span>
-              </label>
-            </div>
+            <p class="meta">Goose runs all preparation. Configure its provider and model with goose configure.</p>
           </div>
         </details>
       </section>
@@ -264,6 +245,24 @@
           <form id="answersForm" class="answers-form"></form>
         </section>
 
+        <section class="jobs-panel" id="viewMemory" hidden aria-label="Local candidate memory">
+          <div class="panel-head"><div><h2>Local memory</h2><p class="meta" id="memoryMessage" role="status"></p></div></div>
+          <div class="memory-editor">
+            <p>Store candidate facts, preferences and application answers in one place. This file is excluded from Git. Relevant information is shared with your AI provider when you run an agent.</p>
+            <div id="memoryFields" hidden>
+              <p class="meta">Edit the JSON sections below, preview the changes, then confirm. Keep unknown answers blank. Contact details belong in facts.links; sponsorship belongs in answers.needsSponsorship. API keys belong in .env, not memory.</p>
+              <details id="memoryConflicts" hidden><summary>Imported alternatives to review</summary><pre id="memoryConflictText"></pre></details>
+              <label class="prep-modal-field"><span>Facts and background</span><textarea id="memory-facts" rows="14" spellcheck="false"></textarea></label>
+              <label class="prep-modal-field"><span>Writing preferences</span><textarea id="memory-preferences" rows="10" spellcheck="false"></textarea></label>
+              <label class="prep-modal-field"><span>Application answers</span><textarea id="memory-answers" rows="8" spellcheck="false"></textarea></label>
+              <button type="button" class="btn" id="memoryPreviewBtn">Preview changes</button>
+              <div id="memoryPreview" hidden><h3>Review your changes</h3><pre id="memoryChanges"></pre><button type="button" class="btn primary" id="memoryConfirm" disabled>Confirm and save memory</button></div>
+              <details><summary>Source inventory and retirement notes</summary><pre id="memorySources"></pre></details>
+              <details><summary>Additional source material — review before adding facts</summary><p class="meta">These references are preserved for comparison. Agents do not treat them as confirmed facts. Copy only supported details into Facts after reviewing them.</p><pre id="memoryReferences"></pre></details>
+            </div>
+          </div>
+        </section>
+
         <section class="jobs-panel" id="viewPortals" hidden aria-label="Job portals">
           <div class="panel-head">
             <div>
@@ -314,6 +313,7 @@
           <div class="panel-head">
             <h2 id="sideTitle">Run log</h2>
             <div class="panel-head-actions">
+              <button type="button" class="btn ghost" id="stopPrepBtn" hidden>Stop agent</button>
               <button type="button" class="btn ghost" id="clearLogBtn">Clear</button>
               <button
                 type="button"
@@ -386,46 +386,24 @@
       <div class="prep-modal-card" role="dialog" aria-labelledby="prepModalTitle" aria-modal="true">
         <h3 id="prepModalTitle">Prep</h3>
         <p id="prepModalHint" class="meta">
-          Pick what to generate. Agent uses cv-tailor. Fast = keyword only (no LLM). Files land in the company folder.
+          Choose tools and a prompt for Goose.
         </p>
-        <div class="prep-modal-checks" role="group" aria-label="What to create">
-          <label class="filter-check">
-            <input type="checkbox" id="prepCreateCv" checked />
-            Create CV
+        <div id="gooseOptions">
+          <p class="meta" id="gooseStatus" role="status">Checking Goose…</p>
+          <fieldset class="goose-tools" id="gooseTools">
+            <legend>Tools Goose may use</legend>
+          </fieldset>
+          <p class="meta">Goose chooses the steps from your prompt. Document tools include factual checks, PDF rendering, review and one repair attempt.</p>
+          <label class="prep-modal-field">
+            <span>Your task for Goose</span>
+            <textarea id="goosePrompt" rows="4" maxlength="4000" placeholder="Compare my CV with this job, explain the gaps, then prepare a CV using only supported facts."></textarea>
           </label>
-          <label class="filter-check">
-            <input type="checkbox" id="prepCreateCoverLetter" checked />
-            Create cover letter
-          </label>
+          <button type="button" class="btn small" id="gooseSuggestPrompt">Build prompt from selected tools</button>
+          <p class="meta">Uses your Goose login and configured model. Runs only for this job. No application submission or Overleaf push.</p>
         </div>
-        <div id="prepReplaceRow" hidden>
-          <label class="filter-check">
-            <input type="checkbox" id="prepReplaceExisting" aria-describedby="prepReplaceHint" />
-            Replace existing CV and reset role folder
-          </label>
-          <p id="prepReplaceHint" class="meta">Starts fresh. After validation, deletes this role's old download folder, including its cover letter, and saves the new files. Select cover letter above to regenerate it too.</p>
-        </div>
-        <label class="prep-modal-field">
-          <span>Extra instructions</span>
-          <select id="prepInstrPreset" aria-label="Instruction preset">
-            <option value="" selected>None (default)</option>
-            <option value="custom">Custom…</option>
-            <option value="Lead with backend / FastAPI / APIs">Lead with backend / FastAPI</option>
-            <option value="Emphasize React and frontend work">Emphasize React / frontend</option>
-            <option value="Highlight Docker and deployment">Highlight Docker / deployment</option>
-          </select>
-          <textarea
-            id="prepInstrCustom"
-            rows="3"
-            placeholder="Stack emphasis, what to lead with…"
-            hidden
-          ></textarea>
-        </label>
         <div class="prep-modal-actions">
           <button type="button" class="btn ghost" id="prepModalCancel">Cancel</button>
-          <button type="button" class="btn" id="prepModalUseExisting" hidden>Use existing</button>
-          <button type="button" class="btn" id="prepModalFast">Fast (keyword)</button>
-          <button type="button" class="btn primary" id="prepModalRecreate">Create</button>
+          <button type="button" class="btn primary" id="prepModalRecreate">Run Goose</button>
         </div>
       </div>
     </div>
@@ -446,15 +424,8 @@
           </div>
           <div class="batch-list" id="batchSelectList" role="group" aria-label="Postings to prepare"></div>
           <div class="batch-options">
-            <fieldset class="batch-mode">
-              <legend>Mode</legend>
-              <label class="toggle"><input type="radio" name="batchMode" value="agent" checked /> Agent (cv-tailor)</label>
-              <label class="toggle"><input type="radio" name="batchMode" value="fast" /> Fast (keyword)</label>
-            </fieldset>
             <label class="toggle"><input type="checkbox" id="batchIncludeLetter" checked /> Cover letter too</label>
             <label class="toggle"><input type="checkbox" id="batchSkipExisting" checked /> Skip jobs that already have files</label>
-            <label class="toggle"><input type="checkbox" id="batchReplaceExisting" aria-describedby="batchReplaceHint" /> Replace existing CVs and reset role folders</label>
-            <p id="batchReplaceHint" class="meta">Starts fresh for every selected role and turns off Skip existing. After validation, replaces each role's download folder, including its old cover letter. Select Cover letter too to regenerate letters.</p>
             <label class="prep-modal-field">
               <span>Extra instructions (optional)</span>
               <input type="text" id="batchInstructions" maxlength="500" placeholder="Stack emphasis, what to lead with…" />

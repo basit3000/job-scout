@@ -1,4 +1,5 @@
-import { createModelPicker } from './agent-model-picker.js';
+import { createMemoryEditor } from './memory-editor.js';
+import { selectedGooseTools, suggestedGoosePrompt, renderGooseTools } from './goose-prep.js';
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
@@ -14,9 +15,6 @@ const els = {
   maxApifyRuns: $('maxApifyRuns'),
   maxAgeDays: $('maxAgeDays'),
   cvSource: $('cvSource'),
-  agentProvider: $('agentProvider'),
-  agentModel: $('agentModel'),
-  overleafPush: $('overleafPush'),
   planHint: $('planHint'),
   runBtn: $('runBtn'),
   stopBtn: $('stopBtn'),
@@ -109,7 +107,6 @@ const els = {
   batchSelectList: $('batchSelectList'),
   batchIncludeLetter: $('batchIncludeLetter'),
   batchSkipExisting: $('batchSkipExisting'),
-  batchReplaceExisting: $('batchReplaceExisting'),
   batchInstructions: $('batchInstructions'),
   batchError: $('batchError'),
   batchCancelSetup: $('batchCancelSetup'),
@@ -134,16 +131,8 @@ const els = {
   prepModal: $('prepModal'),
   prepModalTitle: $('prepModalTitle'),
   prepModalHint: $('prepModalHint'),
-  prepInstrPreset: $('prepInstrPreset'),
-  prepInstrCustom: $('prepInstrCustom'),
   prepModalCancel: $('prepModalCancel'),
-  prepModalUseExisting: $('prepModalUseExisting'),
-  prepModalFast: $('prepModalFast'),
   prepModalRecreate: $('prepModalRecreate'),
-  prepCreateCv: $('prepCreateCv'),
-  prepCreateCoverLetter: $('prepCreateCoverLetter'),
-  prepReplaceRow: $('prepReplaceRow'),
-  prepReplaceExisting: $('prepReplaceExisting'),
   statusModal: $('statusModal'),
   statusModalTitle: $('statusModalTitle'),
   statusModalHint: $('statusModalHint'),
@@ -578,7 +567,7 @@ function fetchHistoryLine(row) {
 
 function batchHistoryLine(row) {
   const bits = [formatRunWhen(row.finishedAt || row.startedAt || row.recordedAt)];
-  bits.push(row.mode === 'fast' ? 'Fast' : 'Agent');
+  bits.push('Goose');
   if (row.durationMs != null) bits.push(formatDuration(row.durationMs));
   if (row.avgMsPerJob != null) bits.push(`${formatDuration(row.avgMsPerJob)}/job`);
   const tail = [];
@@ -1454,13 +1443,6 @@ async function saveRecruiterEdits() {
   appendLog(`Recruiter saved for ${recruiterJob.title}`);
 }
 
-function readPrepInstructions() {
-  const preset = els.prepInstrPreset?.value || '';
-  if (!preset) return '';
-  if (preset === 'custom') return (els.prepInstrCustom?.value || '').trim().slice(0, 500);
-  return preset;
-}
-
 function closePrepModal() {
   if (els.prepModal) els.prepModal.hidden = true;
 }
@@ -1469,137 +1451,50 @@ function closeStatusModal() {
   if (els.statusModal) els.statusModal.hidden = true;
 }
 
-function readPrepTargets() {
-  return {
-    createCv: Boolean(els.prepCreateCv?.checked),
-    createCoverLetter: Boolean(els.prepCreateCoverLetter?.checked),
-  };
+function syncPrepModalActions() {
+  els.prepModalRecreate.disabled = $('gooseOptions').dataset.ready !== 'true'
+    || !selectedGooseTools().length || !$('goosePrompt').value.trim();
 }
-
-function syncPrepModalActions(hasCache) {
-  const { createCv, createCoverLetter } = readPrepTargets();
-  if (els.prepReplaceRow) els.prepReplaceRow.hidden = !hasCache;
-  if (els.prepReplaceExisting) {
-    els.prepReplaceExisting.disabled = !createCv;
-    if (!createCv || !hasCache) els.prepReplaceExisting.checked = false;
-  }
-  const canCreate = createCv || createCoverLetter;
-  if (els.prepModalFast) els.prepModalFast.disabled = !canCreate;
-  if (els.prepModalRecreate) {
-    els.prepModalRecreate.disabled = !canCreate;
-    if (!canCreate) els.prepModalRecreate.textContent = 'Create';
-    else if (createCv && createCoverLetter) els.prepModalRecreate.textContent = hasCache ? 'Recreate (agent)' : 'Create';
-    else if (createCv) els.prepModalRecreate.textContent = hasCache ? 'Recreate CV' : 'Create CV';
-    else els.prepModalRecreate.textContent = 'Create letter (agent)';
-  }
-  if (els.prepModalUseExisting) {
-    els.prepModalUseExisting.hidden = !hasCache || !createCv
-      || els.prepModal.dataset.currentCv !== 'true'
-      || (createCoverLetter && els.prepModal.dataset.currentLetter !== 'true')
-      || Boolean(readPrepInstructions()) || Boolean(els.prepReplaceExisting?.checked);
-  }
-}
-
-function choicePayload(recreate, mode) {
-  const { createCv, createCoverLetter } = readPrepTargets();
-  return {
-    recreate,
-    mode,
-    extraInstructions: readPrepInstructions(),
-    createCv,
-    createCoverLetter,
-    replaceExisting: Boolean(recreate && createCv && els.prepReplaceExisting?.checked),
-  };
-}
-
-/**
- * Show Prep dialog with CV / cover-letter checkboxes.
- * @param {{ preferCoverLetter?: boolean }} [opts]
- * @returns {Promise<{ recreate: boolean, mode: 'agent'|'fast', extraInstructions: string, createCv: boolean, createCoverLetter: boolean } | null>}
- */
 function openPrepModal(job, opts = {}) {
-  return new Promise((resolve) => {
-    if (!els.prepModal) {
-      resolve({
-        recreate: true,
-        mode: 'agent',
-        extraInstructions: '',
-        createCv: true,
-        createCoverLetter: true,
-      });
-      return;
-    }
-    const hasCache = Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv);
-    els.prepModal.dataset.currentCv = String(Boolean(job.tailoredPdf && job.prepFreshness?.cv === 'current'));
-    els.prepModal.dataset.currentLetter = String(job.prepFreshness?.letter === 'current');
-    const keyOk = Boolean(state.status?.cursorApiKeyPresent);
-    const letterFirst = Boolean(opts.preferCoverLetter);
-    els.prepModalTitle.textContent = 'Prep';
-    els.prepModalHint.textContent = hasCache
-      ? `Pack exists. Check CV and/or cover letter, then Create (agent)${keyOk ? '' : ' — set CURSOR_API_KEY or use Fast'}. Fast = keyword only.`
-      : `Check what to generate. Create runs the agent (cv-tailor)${keyOk ? '' : ' — CURSOR_API_KEY missing, will fall back to Fast'}. Fast = keyword only.`;
-    if (els.prepCreateCv) els.prepCreateCv.checked = !letterFirst;
-    if (els.prepCreateCoverLetter) els.prepCreateCoverLetter.checked = true;
-    if (els.prepReplaceExisting) els.prepReplaceExisting.checked = false;
-    if (els.prepInstrPreset) els.prepInstrPreset.value = '';
-    if (els.prepInstrCustom) {
-      els.prepInstrCustom.value = '';
-      els.prepInstrCustom.hidden = true;
-    }
-    syncPrepModalActions(hasCache);
+  return new Promise(resolve => {
+    els.prepModalTitle.textContent = 'Prepare with Goose';
+    els.prepModalHint.textContent = 'Choose tools and describe the work. Goose plans the steps and checks the results.';
+    $('gooseOptions').dataset.ready = 'false';
     els.prepModal.hidden = false;
-
-    const finish = (value) => {
-      els.prepModalCancel?.removeEventListener('click', onCancel);
-      els.prepModalUseExisting?.removeEventListener('click', onUse);
-      els.prepModalRecreate?.removeEventListener('click', onRecreate);
-      els.prepModalFast?.removeEventListener('click', onFast);
-      els.prepInstrPreset?.removeEventListener('change', onPreset);
-      els.prepInstrCustom?.removeEventListener('input', onChecks);
-      els.prepCreateCv?.removeEventListener('change', onChecks);
-      els.prepCreateCoverLetter?.removeEventListener('change', onChecks);
-      els.prepReplaceExisting?.removeEventListener('change', onChecks);
-      els.prepModal.removeEventListener('click', onBackdrop);
-      document.removeEventListener('keydown', onKey);
-      closePrepModal();
-      resolve(value);
+    const finish = value => {
+      els.prepModalCancel.removeEventListener('click', cancel);
+      els.prepModalRecreate.removeEventListener('click', run);
+      $('gooseTools').removeEventListener('change', syncPrepModalActions);
+      $('goosePrompt').removeEventListener('input', syncPrepModalActions);
+      $('gooseSuggestPrompt').removeEventListener('click', suggest);
+      els.prepModal.removeEventListener('click', backdrop);
+      document.removeEventListener('keydown', key);
+      closePrepModal(); resolve(value);
     };
-    const onCancel = () => finish(null);
-    const onBackdrop = (ev) => {
-      if (ev.target === els.prepModal) finish(null);
-    };
-    const onKey = (ev) => {
-      if (ev.key === 'Escape') finish(null);
-    };
-    const onUse = () => finish(choicePayload(false, 'agent'));
-    const onRecreate = () => {
-      const { createCv, createCoverLetter } = readPrepTargets();
-      if (!createCv && !createCoverLetter) return;
-      finish(choicePayload(true, 'agent'));
-    };
-    const onFast = () => {
-      const { createCv, createCoverLetter } = readPrepTargets();
-      if (!createCv && !createCoverLetter) return;
-      finish(choicePayload(true, 'fast'));
-    };
-    const onPreset = () => {
-      if (els.prepInstrCustom) {
-        els.prepInstrCustom.hidden = els.prepInstrPreset.value !== 'custom';
+    const cancel = () => finish(null);
+    const run = () => finish({ tools: selectedGooseTools(), prompt: $('goosePrompt').value.trim() });
+    const suggest = () => { $('goosePrompt').value = suggestedGoosePrompt(selectedGooseTools()); syncPrepModalActions(); };
+    const backdrop = event => { if (event.target === els.prepModal) cancel(); };
+    const key = event => { if (event.key === 'Escape') cancel(); };
+    els.prepModalCancel.addEventListener('click', cancel);
+    els.prepModalRecreate.addEventListener('click', run);
+    $('gooseTools').addEventListener('change', syncPrepModalActions);
+    $('goosePrompt').addEventListener('input', syncPrepModalActions);
+    $('gooseSuggestPrompt').addEventListener('click', suggest);
+    els.prepModal.addEventListener('click', backdrop);
+    document.addEventListener('keydown', key);
+    syncPrepModalActions();
+    api('/api/goose').then(({ tools, status }) => {
+      $('gooseTools').replaceChildren();
+      renderGooseTools($('gooseTools'), tools);
+      for (const input of $('gooseTools').querySelectorAll('input')) {
+        if (input.value === 'prepare_cv') input.checked = !opts.preferCoverLetter;
+        if (input.value === 'prepare_letter') input.checked = Boolean(opts.preferCoverLetter);
       }
-      syncPrepModalActions(hasCache);
-    };
-    const onChecks = () => syncPrepModalActions(hasCache);
-    els.prepModalCancel?.addEventListener('click', onCancel);
-    els.prepModalUseExisting?.addEventListener('click', onUse);
-    els.prepModalRecreate?.addEventListener('click', onRecreate);
-    els.prepModalFast?.addEventListener('click', onFast);
-    els.prepInstrPreset?.addEventListener('change', onPreset);
-    els.prepInstrCustom?.addEventListener('input', onChecks);
-    els.prepCreateCv?.addEventListener('change', onChecks);
-    els.prepCreateCoverLetter?.addEventListener('change', onChecks);
-    els.prepReplaceExisting?.addEventListener('change', onChecks);
-    els.prepModal.addEventListener('click', onBackdrop);
-    document.addEventListener('keydown', onKey);
+      $('gooseStatus').textContent = status.detail;
+      $('gooseOptions').dataset.ready = String(status.ok);
+      suggest();
+    }).catch(error => { $('gooseStatus').textContent = error.message; });
   });
 }
 
@@ -1654,11 +1549,23 @@ function openStatusModal(job) {
 /** @param {string} startedAt ISO timestamp from POST /api/prep */
 function waitForPrepDone(startedAt) {
   return new Promise((resolve, reject) => {
+    const stopButton = $('stopPrepBtn');
+    stopButton.hidden = false; stopButton.disabled = false;
+    const stop = async () => {
+      stopButton.disabled = true;
+      try {
+        await api('/api/prep/stop', { method: 'POST', body: '{}' });
+        appendLog('Stop requested. Waiting for the current step to finish cancelling…');
+      } catch (error) { stopButton.disabled = false; appendLog(error.message, 'stderr'); }
+    };
+    stopButton.addEventListener('click', stop);
     const es = new EventSource('/api/prep/stream');
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
+      stopButton.hidden = true;
+      stopButton.removeEventListener('click', stop);
       es.close();
       fn(value);
     };
@@ -1759,208 +1666,52 @@ function showLogView() {
   if (els.sideTitle) els.sideTitle.textContent = 'Run log';
 }
 
-async function finishPrepUi(job, data) {
-  const agent = data.pack?.agent;
-  if (agent?.usageSummary) {
-    const summary = agent.usageSummary;
-    const usage = summary.counters || {};
-    appendLog(`Agent usage: ${summary.attempts} attempts · ${formatDuration(summary.durationMs)} · ${usage.inputTokens == null ? 'unknown' : Number(usage.inputTokens).toLocaleString()} input / ${usage.outputTokens == null ? 'unknown' : Number(usage.outputTokens).toLocaleString()} output tokens${summary.complete ? '' : ' · incomplete provider usage'}`);
-  } else if (agent?.usage || agent?.tools || agent?.durationMs) {
-    const bits = [];
-    if (agent.durationMs) bits.push(formatDuration(agent.durationMs));
-    if (agent.tools) bits.push(`${agent.tools} tools`);
-    if (agent.usage?.inputTokens != null) {
-      bits.push(`${Number(agent.usage.inputTokens).toLocaleString()} in / ${Number(agent.usage.outputTokens || 0).toLocaleString()} out`);
-    }
-    if (bits.length) appendLog(`Agent: ${bits.join(' · ')}`, 'ok');
-  }
-  if (data.pack?.needsReview) {
-    for (const [scope, report] of Object.entries(data.pack.documentReports || {})) {
-      for (const reason of report.reasons || []) appendLog(`${scope}: ${reason}`, 'stderr');
-    }
-    for (const [scope, review] of Object.entries(data.pack.review || {})) {
-      if (!review || typeof review !== 'object') continue;
-      for (const item of review.mustFix || []) appendLog(`${scope} must fix: ${item}`, 'stderr');
-    }
-    appendLog(`Needs review: complete draft at ${data.pack.draftDir || data.pack.dir}. ${data.pack.preservedPrevious ? 'Previous documents were preserved.' : 'Adjust the document and recreate it before applying.'}`, 'stderr');
-    await refreshJobs();
-    return;
-  }
-  state.lastPrepJobId = job.id;
-  if (data.cached) appendLog('Skipped compile — cached PDFs.');
-  if (data.pack?.tailorMode) {
-    appendLog(
-      `Tailor mode: ${data.pack.tailorMode}${
-        data.pack.fallbackReason ? ` (fallback: ${data.pack.fallbackReason})` : ''
-      }`,
-    );
-  }
-  if (data.pack?.coverLetterMode) {
-    appendLog(
-      `Cover letter: ${data.pack.coverLetterMode}${
-        data.pack.coverLetterFallback ? ` (fallback: ${data.pack.coverLetterFallback})` : ''
-      }`,
-    );
-  }
-  if (data.pack?.coverLetterError) {
-    appendLog(`Cover letter after Prep failed: ${data.pack.coverLetterError}`, 'stderr');
-  }
-  if (data.pack?.coverLetterPdfError) {
-    appendLog(`Cover letter PDF: ${data.pack.coverLetterPdfError}`, 'stderr');
-  }
-  if (data.pack?.relativeDir) {
-    appendLog(`Prep pack ready: ${data.pack.relativeDir}`);
-  }
-  if (data.pack?.downloadFolderAbs) {
-    appendLog(`Company folder: ${data.pack.downloadFolderAbs}`);
-  }
-  // Populate prep panel HTML but stay on the run log
-  showPrep(data, { reveal: false });
-  try {
-    const res = await api('/api/prep/open-folder', {
-      method: 'POST',
-      body: JSON.stringify({ id: job.id }),
-    });
-    appendLog(`Opened: ${res.folder}`);
-    const pathsEl = $('companyFolderPaths');
-    if (pathsEl) {
-      pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
-        res.folder || '',
-      )}</code>`;
-    }
-  } catch (err) {
-    appendLog(`Folder open failed: ${err.message}`, 'stderr');
-  }
-  await refreshJobs();
-}
-
-function applyCoverLetterResult(job, res) {
-  if (res.needsReview) {
-    appendLog(`Cover letter needs review: complete draft at ${res.draftDir}. Previous documents were preserved when available.`, 'stderr');
-    return;
-  }
-  const included = (res.included || []).map((b) => b.id).filter(Boolean);
-  if (res.tailorMode) {
-    appendLog(
-      `Cover letter mode: ${res.tailorMode}${
-        res.fallbackReason ? ` (fallback: ${res.fallbackReason})` : ''
-      }`,
-    );
-  }
-  if (res.extraInstructions) appendLog(`Instructions: ${res.extraInstructions}`);
-  if (included.length) {
-    appendLog(`Included extra experience because the posting asked for it: ${included.join(', ')}`);
-  } else {
-    appendLog('Core letter only — posting did not match earlier jobs or side projects.');
-  }
-  if (res.pdfError) appendLog(`PDF: ${res.pdfError}`, 'stderr');
-  if (res.folder) appendLog(`Saved + opened: ${res.folder}`);
-  const pathsEl = $('companyFolderPaths');
-  if (pathsEl && res.folder) {
-    pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
-      res.folder,
-    )}</code>`;
-  }
-  if (res.letter) {
-    showPrep(
-      {
-        fit: job.fit,
-        pack: {
-          relativeDir: res.relativeDir,
-          coverLetter: res.letter,
-          extraInstructions: res.extraInstructions,
-          tailorMode: res.tailorMode,
-          downloadFolderAbs: res.folder,
-          applyUrl: job.url,
-          jobId: job.id,
-        },
-      },
-      { reveal: false },
-    );
-  }
-}
-
-async function executeCoverLetter(job, choice) {
-  showLogView();
-  const mode = choice.mode === 'fast' ? 'fast' : 'agent';
-  appendLog(
-    `Generating cover letter for ${job.title} @ ${job.company}${
-      choice.extraInstructions ? ' (with instructions)' : ''
-    }…`,
-  );
-  const started = await api('/api/cover-letter', {
-    method: 'POST',
-    body: JSON.stringify({
-      id: job.id,
-      mode,
-      extraInstructions: choice.extraInstructions || '',
-    }),
-  });
-  const res = started.started
-    ? await waitForPrepDone(started.startedAt)
-    : started;
-  if (res?.ok === false) throw new Error(res.error || 'Cover letter failed');
-  applyCoverLetterResult(job, res);
-  await refreshJobs();
-}
-
 async function runPrepFlow(job, opts = {}) {
   const choice = await openPrepModal(job, opts);
-  if (!choice) {
-    appendLog('Prep cancelled.');
-    return;
-  }
-  showLogView();
-  const mode = choice.mode === 'fast' ? 'fast' : 'agent';
+  if (!choice) return;
+  showLogView(); applyLogMinimized(false);
   try {
-    if (!choice.recreate) {
-      appendLog(`Using existing prep pack for ${job.title}…`);
-    } else if (!choice.createCv && choice.createCoverLetter) {
-      await executeCoverLetter(job, choice);
-      return;
-    } else if (mode === 'agent') {
-      const bits = [
-        choice.createCv ? 'CV' : null,
-        choice.createCoverLetter ? 'cover letter' : null,
-      ].filter(Boolean);
-      appendLog(
-        `Starting agent Prep (${bits.join(' + ')}) for ${job.title}${
-          choice.extraInstructions ? ' (with instructions)' : ''
-        }…`,
-      );
-    } else {
-      appendLog(`Building Fast (keyword) prep for ${job.title}…`);
-    }
-
-    const data = await api('/api/prep', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: job.id,
-        recreate: choice.recreate,
-        replaceExisting: choice.replaceExisting,
-        extraInstructions: choice.extraInstructions || '',
-        mode,
-        includeCoverLetter: Boolean(choice.createCoverLetter),
-      }),
+    appendLog(`Starting Goose workflow for ${job.title}…`);
+    const started = await api('/api/prep', {
+      method: 'POST', body: JSON.stringify({ id: job.id, ...choice }),
     });
+    setChip('busy', 'Goose…');
+    const result = await waitForPrepDone(started.startedAt);
+    if (!result?.ok) throw new Error(result?.error || 'Goose workflow failed');
+    showGooseResult(result);
+    await refreshJobs();
+  } catch (error) { appendLog(`Prep failed: ${error.message}`, 'stderr'); }
+  finally { setChip('idle', 'Idle'); }
+}
 
-    if (data.started) {
-      setChip('busy', 'Agent CV…');
-      // Connect after start; server replays buffered logs + matching done
-      const final = await waitForPrepDone(data.startedAt);
-      setChip('idle', 'Idle');
-      if (!final?.ok) {
-        throw new Error(final?.error || 'Agent prep failed');
-      }
-      await finishPrepUi(job, final);
-      return;
-    }
-
-    await finishPrepUi(job, data);
-  } catch (err) {
-    setChip('idle', 'Idle');
-    appendLog(`Prep failed: ${err.message}`, 'stderr');
+function showGooseResult(result) {
+  applyLogMinimized(false);
+  els.sideTitle.textContent = 'Goose workflow';
+  const workflow = result.workflow;
+  if (result.pack) showPrep(result, { reveal: true });
+  else {
+    els.prepView.replaceChildren();
+    els.logView.hidden = true;
+    els.prepView.hidden = false;
   }
+  const section = document.createElement('section');
+  section.className = 'goose-result';
+  const title = document.createElement('h3');
+  title.textContent = `Goose workflow · ${workflow.status}`;
+  const steps = document.createElement('ol');
+  for (const call of workflow.calls) {
+    const item = document.createElement('li');
+    item.textContent = `${call.tool}: ${call.status}`; steps.append(item);
+  }
+  const summary = document.createElement('pre'); summary.textContent = workflow.summary;
+  const audit = document.createElement('p'); audit.className = 'meta';
+  audit.textContent = `Run record: ${workflow.auditPath}`;
+  section.append(title, steps, summary, audit); els.prepView.prepend(section);
+  if (!result.pack) {
+    const back = document.createElement('button'); back.className = 'btn ghost';
+    back.textContent = 'Back to log'; back.addEventListener('click', showLogView); section.append(back);
+  }
+  appendLog(`Goose workflow ${workflow.status}. ${workflow.auditPath}`);
 }
 
 function reviewScoreBits(scores) {
@@ -2023,7 +1774,7 @@ function showPrep(data, { reveal = true } = {}) {
     : '';
   const cachedNote = data.cached || pack.cached ? ' · cached' : '';
   const modeNote = pack.tailorMode
-    ? ` · tailor: ${pack.tailorMode}${pack.fallbackReason ? ` (fallback)` : ''}`
+    ? ` · tailor: ${pack.tailorMode}`
     : '';
   els.prepView.innerHTML = `
     <h3>${escapeHtml(data.fit?.verdict || '')} · ${escapeHtml(pack.relativeDir || '')}</h3>
@@ -2054,7 +1805,7 @@ function showPrep(data, { reveal = true } = {}) {
       }
     </p>
     ${pack.downloadError ? `<p class="meta error">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
-    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from profile.json). Cover letter: <code>&lt;Your Name&gt; Cover Letter.pdf</code>.</p>
+    <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from your master CV). Cover letter: <code>&lt;Your Name&gt; Cover Letter.pdf</code>.</p>
     <p>Cover letter draft:</p>
     <pre>${escapeHtml(pack.coverLetter || '')}</pre>
     <button type="button" class="btn ghost" id="backToLog">Back to log</button>
@@ -2227,7 +1978,7 @@ function renderBatchBar(snap) {
   els.batchBar.classList.toggle('has-failed', Boolean(snap.counts?.failed));
   if (els.batchBarTitle) {
     els.batchBarTitle.textContent = snap.running
-      ? `Batch Prep (${snap.mode === 'fast' ? 'Fast' : 'Agent'})`
+      ? `Batch Prep (${'Goose'})`
       : 'Batch Prep finished';
   }
   if (els.batchBarText) els.batchBarText.textContent = batchSummaryText(snap);
@@ -2474,41 +2225,31 @@ async function openBatchSetup() {
     return;
   }
   if (els.batchSetupHint) {
-    const keyOk = Boolean(state.status?.cursorApiKeyPresent);
+    const keyOk = Boolean((await api('/api/goose')).status?.ok);
     els.batchSetupHint.textContent = `${jobs.length} new posting(s) in Digest. Files go to the company folders; nothing opens. Finished jobs show up under Ready to apply.${
-      keyOk ? '' : ' Agent needs a working provider — otherwise each job falls back to Fast.'
+      keyOk ? '' : ' Configure Goose before starting a batch.'
     }`;
   }
   batchJobs = jobs; batchSelection = new Set(jobs.map(job => job.id)); batchPage.page = 1;
   renderBatchSelectList(jobs);
   if (els.batchInstructions) els.batchInstructions.value = '';
-  if (els.batchReplaceExisting) els.batchReplaceExisting.checked = false;
   if (els.batchSkipExisting) els.batchSkipExisting.checked = true;
-  syncBatchReplacement();
   showBatchModal('setup');
-}
-
-function syncBatchReplacement() {
-  if (!els.batchSkipExisting) return;
-  const replace = Boolean(els.batchReplaceExisting?.checked);
-  els.batchSkipExisting.disabled = replace;
-  if (replace) els.batchSkipExisting.checked = false;
 }
 
 async function startBatch() {
   const ids = batchSelectedIds();
   if (!ids.length) return;
-  const mode = document.querySelector('input[name="batchMode"]:checked')?.value === 'fast' ? 'fast' : 'agent';
+  const mode = 'agent';
   const includeCoverLetter = Boolean(els.batchIncludeLetter?.checked);
-  const replaceExisting = Boolean(els.batchReplaceExisting?.checked);
-  const skipExisting = !replaceExisting && Boolean(els.batchSkipExisting?.checked);
+  const skipExisting = Boolean(els.batchSkipExisting?.checked);
   const extraInstructions = (els.batchInstructions?.value || '').trim().slice(0, 500);
   if (els.batchStart) els.batchStart.disabled = true;
   if (els.batchError) els.batchError.hidden = true;
   try {
     const res = await api('/api/prep/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, replaceExisting, extraInstructions }),
+      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
     });
     state.batchDismissed = false;
     applyBatchSnapshot(res.batch);
@@ -2530,7 +2271,6 @@ els.batchOpenBtn?.addEventListener('click', openBatchSetup);
 els.batchCancelSetup?.addEventListener('click', hideBatchModal);
 els.batchClose?.addEventListener('click', hideBatchModal);
 els.batchStart?.addEventListener('click', startBatch);
-els.batchReplaceExisting?.addEventListener('change', syncBatchReplacement);
 els.batchStop?.addEventListener('click', stopBatch);
 els.batchBarCancel?.addEventListener('click', stopBatch);
 els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));
@@ -2664,22 +2404,6 @@ async function saveSettings(partial) {
   return state.status;
 }
 
-const modelPicker = createModelPicker({
-  select: els.agentModel,
-  provider: els.agentProvider,
-  customInput: $('agentModelCustom'),
-  hint: $('agentModelsHint'),
-  refreshButton: $('refreshAgentModels'),
-  fetchCatalog: (provider, refresh) => api(`/api/prep/models?provider=${encodeURIComponent(provider)}${refresh ? '&refresh=1' : ''}`),
-  saveModel: async (agentProvider, agentModel) => {
-    await saveSettings({ agentProvider, agentModel });
-    appendLog(`Agent model → ${agentModel || '(configured default)'}`);
-  },
-  onError: (error) => appendLog(`Agent models: ${error.message}`, 'stderr'),
-});
-
-const refreshAgentModels = (...args) => modelPicker.load(...args);
-
 async function refreshStatus() {
   state.status = await api('/api/status?light=1');
   const s = state.status;
@@ -2700,16 +2424,6 @@ async function refreshStatus() {
   if (els.cvSource && document.activeElement !== els.cvSource) {
     els.cvSource.value = s.cv?.source === 'overleaf' ? 'overleaf' : 'local';
   }
-  if (els.agentProvider && document.activeElement !== els.agentProvider) {
-    const ap = s.cv?.agentProvider || 'cursor';
-    els.agentProvider.value = ['cursor', 'claude-code', 'codex'].includes(ap) ? ap : 'cursor';
-  }
-  if (els.overleafPush && document.activeElement !== els.overleafPush) {
-    els.overleafPush.checked = s.cv?.overleafPush !== false;
-  }
-  if (!els.agentProvider.disabled && document.activeElement !== els.agentModel && document.activeElement !== $('agentModelCustom')) {
-    void refreshAgentModels(s.cv?.agentProvider || 'cursor', s.cv?.agentModel || '');
-  }
   updatePlanHint(s);
   updateSheetsUi(s.sheets);
   showSetup(Boolean(s.setup?.needsSetup) && !s.setup?.profileParseError);
@@ -2717,7 +2431,7 @@ async function refreshStatus() {
 
   const alerts = [];
   if (s.setup?.profileParseError) {
-    alerts.push(`profile.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
+    alerts.push(`state/memory.json is invalid JSON (${s.setup.profileParseError}). Fix the file — your data is still there.`);
   }
   if (s.digestNewCount > 0) {
     // The New matches badge already communicates this without a duplicate alert.
@@ -3161,6 +2875,8 @@ async function refreshPortals() {
     .join('');
 }
 
+const memoryEditor = createMemoryEditor({ api, onSaved: async () => { await refreshStatus(); await refreshJobs(); } });
+
 function setView(view) {
   state.view = view;
   document.querySelectorAll('.tab').forEach((t) => {
@@ -3175,6 +2891,7 @@ function setView(view) {
   els.viewResults.hidden = view !== 'results';
   els.viewTracker.hidden = view !== 'tracker';
   els.viewAnswers.hidden = view !== 'answers';
+  $('viewMemory').hidden = view !== 'memory';
   els.viewPortals.hidden = view !== 'portals';
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
@@ -3182,6 +2899,7 @@ function setView(view) {
   if (view === 'results') refreshJobs();
   if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
   if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'memory') memoryEditor.refresh();
   if (view === 'portals') refreshPortals().catch((err) => { appendLog(err.message, 'stderr');  });
   if (view === 'digest') refreshDigest().catch((err) => { appendLog(err.message, 'stderr');  });
   if (view === 'ready') refreshReady().catch((err) => { appendLog(err.message, 'stderr');  });
@@ -3283,7 +3001,7 @@ async function stopSearch() {
 }
 
 async function refreshAll() {
-  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers }[state.view];
+  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers, memory: memoryEditor.refresh }[state.view];
   const results = await Promise.allSettled([refreshStatus(), refresh?.()]);
   for (const result of results) if (result.status === 'rejected') appendLog(result.reason.message, 'stderr');
 }
@@ -3533,32 +3251,6 @@ els.cvSource?.addEventListener('change', async () => {
     appendLog(err.message, 'stderr');
   }
 });
-els.agentProvider?.addEventListener('change', async () => {
-  const agentProvider = els.agentProvider.value;
-  modelPicker.invalidate();
-  els.agentProvider.disabled = true;
-  try {
-    const saved = await saveSettings({ agentProvider });
-    appendLog(`Prep agent → ${agentProvider}`);
-    els.agentProvider.disabled = false;
-    await refreshAgentModels(agentProvider, saved.cv?.agentModel || '');
-    const st = saved.agentProviders?.find((p) => p.id === agentProvider);
-    if (st && !st.ok) appendLog(st.detail || 'Provider not ready', 'stderr');
-  } catch (err) {
-    appendLog(err.message, 'stderr');
-    els.agentProvider.disabled = false;
-    await refreshStatus();
-  }
-});
-els.overleafPush?.addEventListener('change', async () => {
-  try {
-    await saveSettings({ overleafPush: els.overleafPush.checked });
-    appendLog(`Overleaf push → ${els.overleafPush.checked ? 'on' : 'off'}`);
-  } catch (err) {
-    appendLog(err.message, 'stderr');
-  }
-});
-
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => setView(tab.dataset.view));
   const panel = $('view' + tab.dataset.view[0].toUpperCase() + tab.dataset.view.slice(1));
@@ -3624,7 +3316,7 @@ connectStream();
 (async function init() {
   initFilterMenus();
   const initialView = location.hash.slice(1);
-  setView(['results', 'tracker', 'answers', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
+  setView(['results', 'tracker', 'answers', 'memory', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
   els.runBtn.disabled = true; els.emptyRunBtn.disabled = true;
   const startup = await Promise.allSettled([refreshMarkets(), refreshStatus()]);
   const startupReady = startup.every(result => result.status === 'fulfilled');

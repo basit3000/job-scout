@@ -140,8 +140,6 @@ body {
 
 /* Form controls ----------------------------------------------------------- */
 
-.agent-model-field { max-width: 26rem; }
-.agent-model-field small { white-space: normal; overflow-wrap: anywhere; text-transform: none; letter-spacing: normal; }
 
 .field {
   display: grid;
@@ -2017,3 +2015,14 @@ body.setup-open .app {
 .list-pagination span { font-size: .8rem; color: var(--muted); }
 .list-feedback { padding: .75rem 1.2rem; color: var(--muted); display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
 [aria-busy="true"].job-list { opacity: .55; pointer-events: none; }
+.goose-tools { border: 1px solid var(--line-soft); border-radius: 8px; padding: .75rem; display: grid; gap: .7rem; }
+.goose-tool { display: flex; gap: .6rem; align-items: flex-start; cursor: pointer; }
+.goose-tool input { margin-top: .25rem; flex: 0 0 auto; }
+.goose-tool strong, .goose-tool small { display: block; }
+.goose-tool small { color: var(--muted); margin-top: .15rem; line-height: 1.4; }
+.goose-result pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+#prepModal .prep-modal-card { width: min(560px, 100%); max-height: calc(100dvh - 2.5rem); overflow-y: auto; }
+.memory-editor { padding: 1.2rem; }
+.memory-editor textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
+.memory-editor pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow-y: auto; }
+.memory-editor details, .memory-editor .prep-modal-field, #memoryPreview { margin: 1rem 0; }

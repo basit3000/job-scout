@@ -19,14 +19,14 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
     }
     await rm(root, { recursive: true, force: true });
   });
-  for (const dir of ['scripts/lib', 'web', 'markets']) await cp(join(ROOT, dir), join(root, dir), { recursive: true });
+  for (const dir of ['scripts/lib', 'web', 'markets', '.agents/skills/cv-tailor']) await cp(join(ROOT, dir), join(root, dir), { recursive: true });
   await writeFile(join(root, 'package.json'), '{"type":"module"}');
   for (const dir of ['cv', 'state', '.workspace']) await mkdir(join(root, dir), { recursive: true });
   const profile = { name: 'Test Candidate', headline: 'Backend Engineer', targetRole: 'Backend Engineer', seniority: 'mid',
     search: { titles: ['Backend Engineer'], includeTitlePatterns: ['Backend'] }, skills: { strong: ['Python', 'SQL'] },
-    links: { email: 'candidate@example.com' } };
-  await writeFile(join(root, 'profile.json'), JSON.stringify(profile));
-  await writeFile(join(root, 'search-profile.json'), JSON.stringify({ market: 'DE', filters: { maxAgeDays: 14 }, cv: { source: 'local', tailorMode: 'fast', agentProvider: 'cursor', agentModel: 'composer-2.5' } }));
+    links: { email: 'candidate@example.com' }, experience:[{title:'Engineer',org:'Example',from:'2022',to:'present'}],education:[{degree:'Computer Science',school:'University',to:'2020'}] };
+  await writeFile(join(root, 'state/memory.json'), JSON.stringify({schemaVersion:1,revision:1,facts:profile,preferences:{},answers:{}}));
+  await writeFile(join(root, 'search-profile.json'), JSON.stringify({ market: 'DE', filters: { maxAgeDays: 14 }, cv: { source: 'local' } }));
   const resume = '# Test Candidate\ncandidate@example.com\n\n## Experience\n### Engineer | Example\n2022 – Present\n- Built Python services and SQL databases.\n\n## Education\n### Computer Science | University\n2020\n\n## Skills\nPython, SQL\n';
   await writeFile(join(root, 'cv', 'resume.md'), resume);
   const job = { id: 'fixture:1', title: 'Backend Engineer', company: 'Example', location: 'Berlin, Germany', description: 'Build Python services and SQL databases.', postedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), url: 'https://example.com/job/1' };
@@ -54,6 +54,36 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.ok(wordStart >= 0 && wordEnd > wordStart);
   await writeFile(letterPath, letterSource.slice(0, wordStart)
     + 'function docxToPdfViaWord() { return { ok: false }; }\n' + letterSource.slice(wordEnd));
+  // Fake only model processes; keep the MCP bridge, document gates and publication real.
+  await writeFile(join(root, 'scripts/lib/goose-runtime.mjs'), `
+    import { readFile, writeFile } from 'node:fs/promises';
+    import { ROOT } from './common.mjs';
+    import { join } from 'node:path';
+    export const resolveGooseBinary = async () => process.execPath;
+    export const withGooseContext = (signal, fn) => fn();
+    export const cancelGooseRuns = () => false;
+    export async function runGoose({prompt,extensionUrl}) {
+      if (await readFile(join(ROOT,'.workspace/fail-agent'),'utf8').catch(()=>'')) throw new Error('Synthetic Goose failure');
+      if (!extensionUrl) {
+        const dir = join(ROOT, prompt.match(/\\.workspace\\/prep-staging\\/[a-f0-9-]+/)[0]);
+        if (prompt.includes('review-context.md')) {
+          const letter = prompt.includes('letter-review-context.md');
+          await writeFile(join(dir, letter ? 'cover-letter-review.md' : 'review.md'),
+            'Verdict: pass\\nATS: 9/10\\nPosting fit: 9/10\\nRecruiter scan: 9/10\\nCover letter: 9/10\\n\\n## Must fix\\n- _none_\\n');
+        } else if (!prompt.startsWith('Cover letter tailor')) {
+          await writeFile(join(dir,'cv.md'), await readFile(join(ROOT,'cv/resume.md'),'utf8'));
+        }
+        return 'Worker completed.';
+      }
+      const names=prompt.match(/Available Job Scout tools: (.*)\\./)[1].split(', ');
+      for (const name of names) {
+        const response=await fetch(extensionUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:name,method:'tools/call',params:{name,arguments:{}}})});
+        const result=await response.json();
+        if (result.error || result.result?.isError) throw new Error('Synthetic tool failed: '+JSON.stringify(result));
+      }
+      return 'Selected tools completed.';
+    }
+  `);
   const serverPath = join(root, 'web/server.mjs');
   await writeFile(serverPath, (await readFile(serverPath, 'utf8')).replace('server.listen(PORT, () => {', 'server.listen(PORT, () => { process.send({ port: server.address().port });'));
   child = spawn(process.execPath, [serverPath], { cwd: root, windowsHide: true,
@@ -71,97 +101,50 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.equal((await request('/api/jobs')).pagination.total, 2);
   assert.equal((await request('/api/jobs?scope=history')).pagination.total, 3);
   assert.equal((await request('/api/tracker')).total, 1);
-  const prep = (id, recreate = true) => request('/api/prep', { id, mode: 'fast', recreate, includeCoverLetter: false });
-  const first = await prep('fixture:1');
-  assert.equal(first.pack.needsReview, false);
-  assert.ok(first.pack.downloadFolderAbs);
-  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
-  const second = await prep('fixture:2');
-  assert.notEqual(second.pack.downloadFolderAbs, first.pack.downloadFolderAbs);
-  assert.equal((await prep('fixture:1', false)).cached, true);
-  const reusedFast = await request('/api/prep', { id: 'fixture:1', mode: 'agent', recreate: false, includeCoverLetter: false });
-  assert.equal(reusedFast.cached, true, 'Use existing reuses a current Fast pack without launching an agent');
-  const letter = await request('/api/cover-letter', { id: 'fixture:1', mode: 'fast', open: false });
-  assert.equal(letter.needsReview, false);
-  assert.equal(letter.folder, first.pack.downloadFolderAbs);
-  assert.ok((await readdir(letter.folder)).includes('Test Candidate Cover Letter.pdf'));
-  assert.equal((await request('/api/jobs')).jobs.find((j) => j.id === 'fixture:1').prepFreshness.letter, 'current');
-  assert.equal((await request('/api/ready')).total, 2);
-  async function batch(id, options = {}) {
-    await request('/api/prep/batch', { ids: Array.isArray(id) ? id : [id], mode: 'fast', includeCoverLetter: false, skipExisting: true, ...options });
-    for (let i = 0; i < 100; i++) {
-      const result = await request('/api/prep/batch');
-      if (!result.running) return result;
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    throw new Error('Batch did not finish');
+  async function prep(id, tools = ['inspect_job','inspect_cv','prepare_cv','inspect_reviews']) {
+    const started=await request('/api/prep',{id,tools,prompt:'Prepare and review the selected documents using only supported candidate facts.'});
+    const response=await fetch(`http://127.0.0.1:${port}/api/prep/stream`);
+    const reader=response.body.getReader();let text='';
+    try {
+      while(true) {
+        const {value,done}=await reader.read(); if(done)throw new Error('Missing completion');
+        text+=new TextDecoder().decode(value);
+        const match=text.match(/event: done\r?\ndata: ([^\r\n]+)/);
+        if(match)return JSON.parse(match[1]);
+      }
+    } finally {await reader.cancel();}
   }
-  const skipped = await batch('fixture:2');
-  assert.equal(skipped.items[0].status, 'skipped');
-  await writeFile(join(root, 'cv', 'resume.md'), `${resume}\nAdditional project: Python API.\n`);
-  // The UI enrichment cache has a short TTL; a settings mutation invalidates it.
-  await request('/api/settings', { maxAgeDays: 14 }, 'PUT');
-  assert.equal((await request('/api/jobs')).jobs.find((j) => j.id === 'fixture:1').prepOutdated, true);
-  assert.equal((await request('/api/ready')).total, 0);
-  const staleReuse = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: 'fixture:1', recreate: false, mode: 'agent', includeCoverLetter: false }) });
-  assert.equal(staleReuse.status, 409, 'Use existing must not silently start paid generation');
-  const regenerated = await prep('fixture:1');
-  assert.equal(regenerated.cached, false);
-  assert.ok(regenerated.pack.previousDir);
-  const rebuilt = await batch('fixture:2');
-  assert.equal(rebuilt.items[0].status, 'done', 'stale documents must not be skipped');
-  const bytes = await readFile(join(regenerated.pack.dir, 'cv.pdf'));
-  await writeFile(join(root, '.workspace', 'overflow'), '1');
-  const overflow = await prep('fixture:1');
-  assert.equal(overflow.pack.needsReview, true);
-  assert.equal(overflow.pack.preservedPrevious, true);
-  assert.deepEqual(await readFile(join(regenerated.pack.dir, 'cv.pdf')), bytes);
-  assert.ok(overflow.pack.draftDir);
-  const oldExport = join(first.pack.downloadFolderAbs, 'obsolete.txt');
-  await writeFile(oldExport, 'old export');
-  await writeFile(join(regenerated.pack.dir, 'obsolete.txt'), 'old cache');
-  const replace = () => request('/api/prep', { id: 'fixture:1', recreate: true,
-    replaceExisting: true, mode: 'fast', includeCoverLetter: false });
-  const failedReplacement = await replace();
-  assert.equal(failedReplacement.pack.preservedPrevious, true);
-  assert.equal(await readFile(oldExport, 'utf8'), 'old export');
-  await writeFile(join(root, '.workspace', 'overflow'), '');
-  const replacement = await replace();
-  assert.equal(replacement.cached, false);
-  assert.equal(replacement.pack.needsReview, false);
-  assert.equal(replacement.pack.downloadFolderAbs, first.pack.downloadFolderAbs);
-  await assert.rejects(readFile(oldExport), /ENOENT/);
-  await assert.rejects(readFile(join(replacement.pack.dir, 'obsolete.txt')), /ENOENT/);
-  await assert.rejects(readFile(join(replacement.pack.dir, 'cover-letter.md')), /ENOENT/);
-  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
-  assert.ok((await readdir(second.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
-  assert.equal(await readFile(join(root, 'cv', 'resume.md'), 'utf8'), `${resume}\nAdditional project: Python API.\n`);
-  const invalidReplace = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ id: 'fixture:1', recreate: false, replaceExisting: true }) });
-  assert.equal(invalidReplace.status, 400);
-
-  const otherExport = join(second.pack.downloadFolderAbs, 'obsolete.txt');
-  await writeFile(oldExport, 'selected role');
-  await writeFile(otherExport, 'unselected role');
-  await writeFile(join(root, '.workspace', 'overflow'), '1');
-  const failedBatchReplacement = await batch('fixture:1', { replaceExisting: true });
-  assert.equal(failedBatchReplacement.replaceExisting, true);
-  assert.equal(failedBatchReplacement.skipExisting, false, 'replacement overrides the skip default');
-  assert.equal(failedBatchReplacement.items[0].status, 'failed');
-  assert.equal(await readFile(oldExport, 'utf8'), 'selected role');
-  await writeFile(join(root, '.workspace', 'overflow'), '');
-  const batchReplacement = await batch('fixture:1', { replaceExisting: true, includeCoverLetter: true });
-  assert.equal(batchReplacement.items[0].status, 'done');
-  await assert.rejects(readFile(oldExport), /ENOENT/);
-  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate Cover Letter.pdf'));
-  assert.equal(await readFile(otherExport, 'utf8'), 'unselected role');
-  const replacedBoth = await batch(['fixture:1', 'fixture:2'], { replaceExisting: true });
-  assert.equal(replacedBoth.counts.done, 2);
-  assert.equal(replacedBoth.counts.skipped, 0);
-  await assert.rejects(readFile(otherExport), /ENOENT/);
-  await assert.rejects(readFile(join(first.pack.downloadFolderAbs, 'Test Candidate Cover Letter.pdf')), /ENOENT/);
-  const normalBatch = await batch('fixture:1');
-  assert.equal(normalBatch.replaceExisting, false, 'replacement does not leak into later batches');
-  assert.equal(normalBatch.items[0].status, 'skipped');
+  const first=await prep('fixture:1');
+  assert.equal(first.ok,true,first.error);
+  assert.equal(first.pack.needsReview,false);
+  assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
+  const second=await prep('fixture:2');
+  assert.equal(second.ok,true,second.error);
+  assert.notEqual(first.pack.downloadFolderAbs,second.pack.downloadFolderAbs);
+  assert.equal((await request('/api/ready')).total,2);
+  const oldMode=await fetch(`http://127.0.0.1:${port}/api/prep`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'fixture:1',mode:'fast'})});
+  assert.equal(oldMode.status,400);
+  const legacyProvider=await fetch(`http://127.0.0.1:${port}/api/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentProvider:'cursor'})});
+  assert.equal(legacyProvider.status,400);
+  await writeFile(join(root,'cv/resume.md'),resume+'\nAdditional project: Python API.\n');
+  await request('/api/settings',{maxAgeDays:14},'PUT');
+  assert.equal((await request('/api/ready')).total,0);
+  const regenerated=await prep('fixture:1');
+  assert.equal(regenerated.ok,true,regenerated.error);
+  const bytes=await readFile(join(regenerated.pack.dir,'cv.pdf'));
+  await writeFile(join(root,'.workspace/fail-agent'),'1');
+  const failed=await prep('fixture:1');
+  assert.equal(failed.ok,false);
+  assert.deepEqual(await readFile(join(regenerated.pack.dir,'cv.pdf')),bytes,'agent failure cannot overwrite accepted CV');
+  await writeFile(join(root,'.workspace/fail-agent'),'');
+  await writeFile(join(root,'.workspace/overflow'),'1');
+  const overflow=await prep('fixture:1');
+  assert.equal(overflow.ok,true,overflow.error);
+  assert.equal(overflow.pack.needsReview,true);
+  assert.deepEqual(await readFile(join(regenerated.pack.dir,'cv.pdf')),bytes,'overflow preserves previous accepted CV');
+  await writeFile(join(root,'.workspace/overflow'),'');
+  await request('/api/prep/batch',{ids:['fixture:2'],includeCoverLetter:false,skipExisting:false});
+  let batch;
+  for(let i=0;i<200;i++) {batch=await request('/api/prep/batch');if(!batch.running)break;await new Promise(r=>setTimeout(r,20));}
+  assert.equal(batch.items[0].status,'done',batch.items[0].error);
 });

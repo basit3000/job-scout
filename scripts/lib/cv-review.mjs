@@ -217,7 +217,7 @@ export async function runReviewerPass({
   const letterScope = scope === 'letter';
   const reviewName = letterScope ? 'cover-letter-review.md' : 'review.md';
   const stage = letterScope ? 'letter' : 'cv';
-  const common = { job, prepDir, profile, extraInstructions, cvSource, provider, model, onEvent, overleafPush: false };
+  const common = { job, prepDir, profile, extraInstructions, cvSource, provider, model, onEvent };
   let ranFixLoop = false;
   let restored = false;
   let originalReview = null;

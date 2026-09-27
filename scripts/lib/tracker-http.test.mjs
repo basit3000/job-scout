@@ -20,13 +20,14 @@ test('manual application lifecycle and submitted files through the real HTTP rou
   for (const dir of ['scripts/lib', 'web', 'markets']) await cp(join(ROOT, dir), join(root, dir), { recursive: true });
   await writeFile(join(root, 'package.json'), '{"type":"module"}');
   await mkdir(join(root, '.workspace'), { recursive: true });
-  await writeFile(join(root, 'profile.json'), JSON.stringify({ name: 'Test', search: { titles: ['Developer'], includeTitlePatterns: ['Developer'] } }));
-  await writeFile(join(root, 'search-profile.json'), JSON.stringify({ market: 'DE', filters: { maxAgeDays: 30 }, cv: { source: 'local', agentProvider: 'cursor', agentModel: 'test-model' } }));
+  await mkdir(join(root, 'state'), { recursive: true });
+  await writeFile(join(root, 'state/memory.json'), JSON.stringify({schemaVersion:1,revision:1,facts:{ name: 'Test', search: { titles: ['Developer'], includeTitlePatterns: ['Developer'] } },preferences:{},answers:{}}));
+  await writeFile(join(root, 'search-profile.json'), JSON.stringify({ market: 'DE', filters: { maxAgeDays: 30 }, cv: { source: 'local', agentProvider: 'goose', agentModel: '' } }));
   const jobs = Array.from({ length: 63 }, (_, i) => ({ id: `test:${i}`, company: `Company ${i}`, title: 'Developer', location: 'Berlin, Germany', description: 'Software developer role.', postedAt: new Date().toISOString(), url: `https://example.com/${i}` }));
   await writeFile(join(root, '.workspace/jobs.json'), JSON.stringify({ jobs }));
   await writeFile(join(root, '.workspace/digest.json'), JSON.stringify({ newIds: jobs.map(job => job.id) }));
-  const profile = JSON.parse(await readFile(join(root, 'profile.json'), 'utf8'));
-  const settings = { source: 'local', agentProvider: 'cursor', agentModel: 'test-model' };
+  const profile = JSON.parse(await readFile(join(root, 'state/memory.json'), 'utf8')).facts;
+  const settings = { source: 'local', agentProvider: 'goose', agentModel: '' };
   const inputs = await loadPrepInputs(settings, root);
   for (const job of jobs.slice(0, 16)) {
     const dir = join(root, '.workspace/prep', job.id.replace(':', '_'));
@@ -49,7 +50,7 @@ test('manual application lifecycle and submitted files through the real HTTP rou
   const light = await request('/api/status?light=1', null, 'GET');
   assert.equal(light.status, 200);
   assert.equal(light.data.readyCount, null);
-  assert.deepEqual(light.data.agentProviders, []);
+  assert.equal(light.data.goose, null);
   const digestOne = await request('/api/digest?page=1&pageSize=20', null, 'GET');
   const digestTwo = await request('/api/digest?page=2&pageSize=20', null, 'GET');
   assert.equal(digestOne.data.pagination.total, 63);

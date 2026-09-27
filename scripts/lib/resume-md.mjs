@@ -2,7 +2,7 @@
  * Load / parse / reorder cv/resume.md (source of truth for local CV mode).
  */
 
-import { readFile, writeFile, access } from 'node:fs/promises';
+import { readFile, access } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './common.mjs';
 import { scoreText } from './tex-bullets.mjs';
@@ -329,11 +329,4 @@ export function serializeTailoredResume(model) {
   }
 
   return `${lines.join('\n').trim()}\n`;
-}
-
-/** Optionally refresh the master cv/resume.md with tailored order (local mode). */
-export async function writeMasterResume(markdown) {
-  const path = join(ROOT, 'cv', 'resume.md');
-  await writeFile(path, markdown.endsWith('\n') ? markdown : `${markdown}\n`);
-  return path;
 }

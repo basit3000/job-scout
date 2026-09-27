@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import { loadCandidateProfile } from '../scripts/lib/memory.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
 //   npm start          → http://localhost:4040
@@ -13,73 +13,29 @@ import { spawn, exec } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname } from 'node:path';
 
-import {
-  ROOT,
-  loadJson,
-  loadDotEnv,
-  loadMarket,
-  listMarketIds,
-  workspaceDir,
-  pickDescription,
-} from '../scripts/lib/common.mjs';
-import {
-  loadDecisions,
-  recordDecision,
-  patchDecision,
-  VALID_DECISIONS,
-} from '../scripts/lib/decisions.mjs';
+import { ROOT, loadJson, loadDotEnv, loadMarket, listMarketIds, workspaceDir, pickDescription } from '../scripts/lib/common.mjs';
+import { loadDecisions, recordDecision, patchDecision, VALID_DECISIONS } from '../scripts/lib/decisions.mjs';
 import { dedupeJobs, clusterByCompany } from '../scripts/lib/dedupe.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
 import { createScoreCache } from '../scripts/lib/score-cache.mjs';
 const cachedScorer = createScoreCache(scoreJob);
-import {
-  writePrepPack,
-  readPrepPack,
-  loadCachedPrepPack,
-  readPrepFile,
-  hasCvPdf,
-  loadPrepFlagsIndex,
-  prepFlagsForJob,
-  loadCvSettings,
-  overleafStatus,
-  exportPrepDownloads,
-  revealDownloadsFolder,
-  generateCoverLetterPack,
-  prepDir,
-  cursorAgentAvailable,
-  listAgentModels,
-  listAgentProvidersStatus,
-  agentRunnerAvailable,
-} from '../scripts/lib/prep.mjs';
+import { readPrepPack, readPrepFile, loadPrepFlagsIndex, prepFlagsForJob, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
 import { cancelCvTailorAgent } from '../scripts/lib/cv-agent.mjs';
-import { updateAgentSelection } from '../scripts/lib/agent-models.mjs';
+import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
+import { handleMemoryApi } from './memory-routes.mjs';
+import { GOOSE_TOOLS, validateGooseRequest } from '../scripts/lib/goose-tools.mjs';
+let gooseController = null;
+let batchController = null;
 import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
 import { detectAts } from '../scripts/lib/ats.mjs';
 import { buildApplyPack } from '../scripts/lib/apply-pack.mjs';
-import {
-  fillApplyInBrowser,
-  fillAssistPayload,
-  playwrightAvailable,
-} from '../scripts/lib/apply-fill.mjs';
-import {
-  BOARD_CATALOG,
-  BOARD_IDS,
-  boardAvailableForMarket,
-  mergeBoardSelection,
-  selectedBoardIds,
-} from '../scripts/lib/boards.mjs';
+import { fillApplyInBrowser, fillAssistPayload, playwrightAvailable } from '../scripts/lib/apply-fill.mjs';
+import { BOARD_CATALOG, BOARD_IDS, boardAvailableForMarket, mergeBoardSelection, selectedBoardIds } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
 import { compareFit, sortJobs, sortTrackerItems, trackerRecencyMs } from '../scripts/lib/job-sort.mjs';
 import { detectPostingLanguage, detectGermanRequirement, postingWrittenLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
 import { hydrateJobDescription } from '../scripts/lib/de-portals.mjs';
-import {
-  sheetsStatus,
-  sheetsUrl,
-  syncDecisionsToSheet,
-  maybeSyncDecisionToSheet,
-  pullRejectedFromSheet,
-  SHEET_SYNC_DECISIONS,
-} from '../scripts/lib/google-sheets.mjs';
+import { sheetsStatus, sheetsUrl, syncDecisionsToSheet, maybeSyncDecisionToSheet, pullRejectedFromSheet, SHEET_SYNC_DECISIONS } from '../scripts/lib/google-sheets.mjs';
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 import { handleRecruiterApi } from './recruiter-routes.mjs';
 import { handleTrackerApi } from './tracker-routes.mjs';
@@ -87,15 +43,9 @@ import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
 import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
-import { installSdkAbortGuard } from '../scripts/lib/sdk-abort.mjs';
 import { resolveFetchConcurrency } from '../scripts/lib/fetch-pool.mjs';
 
 loadDotEnv();
-installSdkAbortGuard((err, origin) => {
-  console.warn(`Cursor SDK abort ignored (${origin}) — UI stays up: ${err?.message || err}`);
-});
-
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC = join(__dirname, 'public');
 const PORT = Number(process.env.PORT || 4040);
@@ -147,7 +97,6 @@ const batchState = {
   mode: 'agent',
   includeCoverLetter: true,
   skipExisting: true,
-  replaceExisting: false,
   currentId: null,
   /** @type {Array<{id:string,title:string,company:string,status:string,error?:string|null,tailorMode?:string|null,note?:string|null,startedAt?:string|null,durationMs?:number|null}>} */
   items: [],
@@ -179,7 +128,6 @@ function batchSnapshot({ withItems = true } = {}) {
     mode: batchState.mode,
     includeCoverLetter: batchState.includeCoverLetter,
     skipExisting: batchState.skipExisting,
-    replaceExisting: batchState.replaceExisting,
     total: batchState.items.length,
     finished,
     counts,
@@ -218,11 +166,11 @@ function batchLog(line, stream = 'stdout') {
 }
 
 async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
+  extraInstructions ||= 'Prepare and review the selected documents using only supported candidate facts.';
   const total = batchState.items.length;
   batchLog(
     `Batch Prep: ${total} job(s) · ${batchState.mode}${batchState.includeCoverLetter ? ' + cover letter' : ''}${
-      batchState.replaceExisting ? ' · replacing CVs and resetting selected role folders'
-        : batchState.skipExisting ? ' · skipping jobs that already have files' : ''
+      batchState.skipExisting ? ' · skipping jobs that already have files' : ''
     }`,
     'meta',
   );
@@ -264,15 +212,14 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
           }
         }
         const fit = job.fit || scoreJob(job, profile);
-        const pack = await writePrepPack(job, profile, fit, saved, {
-          recreate: true,
-          useCache: false,
-          extraInstructions,
-          tailorMode: batchState.mode,
-          includeCoverLetter: batchState.includeCoverLetter,
-          replaceExisting: batchState.replaceExisting,
-          onEvent: (entry) => batchLog(`  ${entry.line}`, entry.stream),
-        });
+        const result = await runGoosePipeline({ job, profile, fit, savedAnswers: saved,
+          signal: batchController.signal,
+          request: { tools: ['inspect_job', 'inspect_cv', 'prepare_cv',
+            ...(batchState.includeCoverLetter ? ['prepare_letter'] : []), 'inspect_reviews'],
+            prompt: extraInstructions || 'Prepare and review the selected documents using only supported candidate facts.' },
+          onEvent: entry => batchLog(`  ${entry.line}`, entry.stream) });
+        const pack = result.pack || { needsReview: true };
+        if (result.workflow.status === 'needs-review') pack.needsReview = true;
         try {
           await attachPrepPath(job, pack);
         } catch {
@@ -281,11 +228,6 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         item.status = pack.needsReview ? 'failed' : 'done';
         if (pack.needsReview) item.error = `Needs review: complete draft at ${pack.draftDir || pack.dir}; previous documents preserved when available.`;
         item.tailorMode = pack?.tailorMode || batchState.mode;
-        if (batchState.stopping && pack?.fallbackReason) {
-          item.note = 'agent stopped — Fast fallback written';
-        } else if (pack?.fallbackReason) {
-          item.note = `Fast fallback (${pack.fallbackReason})`;
-        }
         if (pack?.coverLetterError) item.note = `letter failed: ${pack.coverLetterError}`;
         markBatchItemDuration(item);
         batchLog(
@@ -327,7 +269,6 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         mode: batchState.mode,
         includeCoverLetter: batchState.includeCoverLetter,
         skipExisting: batchState.skipExisting,
-        replaceExisting: batchState.replaceExisting,
         total: snap.total,
         done: snap.counts.done,
         skipped: snap.counts.skipped,
@@ -465,8 +406,8 @@ async function applyPackForJobId(id, jobHint = null) {
     }
   }
   if (!job) return { error: 'Job not found' };
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
-  if (!profile) return { error: 'profile.json required' };
+  const profile = await loadCandidateProfile();
+  if (!profile) return { error: 'Complete Memory setup first' };
   const answers = await loadSavedAnswers();
   const pack = buildApplyPack({ job, profile, answers });
   const documentState = await prepStatus(job, profile, await loadCvSettings(), {
@@ -539,7 +480,7 @@ async function loadSearchProfile() {
 
 async function getStatus({ light = false } = {}) {
   const config = await loadSearchProfile();
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
+  const profile = await loadCandidateProfile();
   let market = null;
   try {
     market = await loadMarket(config);
@@ -567,8 +508,7 @@ async function getStatus({ light = false } = {}) {
     candidate: profile?.name ?? null,
     targetRole: profile?.targetRole ?? null,
     apifyTokenPresent: Boolean(process.env.APIFY_TOKEN?.trim()),
-    cursorApiKeyPresent: cursorAgentAvailable(),
-    agentProviders: light ? [] : await listAgentProvidersStatus(),
+    goose: light ? null : await agentRunnerAvailable(),
     fetchRunning: Boolean(fetchState.child),
     fetchStartedAt: fetchState.startedAt,
     lastFetchCode: fetchState.lastCode,
@@ -648,7 +588,7 @@ async function enrichJobs({ force = false } = {}) {
   const cache = jobsEnrichCache;
   const run = (async () => {
     const data = await loadJson(join(workspaceDir(), 'jobs.json'), null);
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
+    const profile = await loadCandidateProfile();
     const decisions = await loadDecisions();
     const byId = new Map((decisions.decisions ?? []).map((d) => [d.id, d]));
     const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
@@ -752,6 +692,8 @@ async function handleApi(req, res, url) {
   if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 
   if (await handleRecruiterApi(req, res, url, { json, readBody })) return;
+  if (await handleMemoryApi(req, res, url, { json, readBody,
+    busy: () => prepState.running || batchState.running || Boolean(fetchState.child), invalidate: invalidateJobsCache })) return;
 
   if (req.method === 'OPTIONS' && path.startsWith('/api/apply-assist')) {
     res.writeHead(204, CORS_APPLY);
@@ -768,8 +710,10 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && path === '/api/setup') {
     try {
+      if (prepState.running || batchState.running || fetchState.child) return json(res, 409, { error: 'Wait for the active run before changing candidate information.' });
       const body = await readBody(req);
       const status = await applySetup(body);
+      invalidateJobsCache();
       return json(res, 200, { ok: true, setup: status, status: await getStatus() });
     } catch (err) {
       return json(res, 400, { error: err.message || 'Setup failed' });
@@ -787,8 +731,8 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/profile') {
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    if (!profile) return json(res, 404, { error: 'No profile.json' });
+    const profile = await loadCandidateProfile();
+    if (!profile) return json(res, 404, { error: 'No candidate memory' });
     return json(res, 200, {
       name: profile.name ?? null,
       headline: profile.headline ?? null,
@@ -1061,8 +1005,10 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'PUT' && path === '/api/saved-answers') {
+    if (prepState.running || batchState.running || fetchState.child) return json(res, 409, { error: 'Wait for the active run before changing saved answers.' });
     const body = await readBody(req);
     const answers = await saveSavedAnswers(body.answers ?? body);
+    invalidateJobsCache();
     return json(res, 200, { ok: true, answers });
   }
 
@@ -1074,8 +1020,8 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/apply-assist/answers') {
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    if (!profile) return json(res, 400, { error: 'profile.json required' });
+    const profile = await loadCandidateProfile();
+    if (!profile) return json(res, 400, { error: 'Complete Memory setup first' });
     const answers = await loadSavedAnswers();
     const pack = buildApplyPack({ job: {}, profile, answers });
     return json(res, 200, { ok: true, text: pack.text, pack });
@@ -1149,166 +1095,52 @@ async function handleApi(req, res, url) {
     }
   }
 
+  if (req.method === 'GET' && path === '/api/goose') {
+    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose') });
+  }
+
   if (req.method === 'POST' && path === '/api/prep') {
-    if (prepState.running) return json(res, 409, { error: 'Preparation is running; wait for it to finish.' });
-    if (batchState.running) {
-      return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
-    }
+    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     const body = await readBody(req);
+    let request;
+    try { request = validateGooseRequest(body); }
+    catch (error) { return json(res, 400, { error: error.message }); }
+    const status = await agentRunnerAvailable('goose');
+    if (!status.ok) return json(res, 400, { error: status.detail });
     const enriched = await enrichJobs();
     const job = enriched.jobs.find((j) => j.id === body.id);
     if (!job) return json(res, 404, { error: 'Job not found in current results' });
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    if (!profile) return json(res, 400, { error: 'profile.json required' });
-    const saved = await loadSavedAnswers();
-    const fit = job.fit || scoreJob(job, profile);
-    const extraInstructions = typeof body.extraInstructions === 'string'
-      ? body.extraInstructions.trim().slice(0, 500)
-      : '';
-    const mode = body.mode === 'fast' ? 'fast' : 'agent';
-    const includeCoverLetter = body.includeCoverLetter !== false;
-
-    const replaceExisting = body.replaceExisting === true;
-    if (replaceExisting && body.recreate === false) {
-      return json(res, 400, { error: 'Replace existing CV requires creating a new CV.' });
-    }
-
-    // Cached pack: skip rebuild unless recreate (sync)
-    if (body.recreate === false) {
-      const freshness = await prepStatus(job, profile, await loadCvSettings(), {
-        cv: true, letter: includeCoverLetter, instructions: extraInstructions || undefined,
-      });
-      if (!(await hasCvPdf(job.id)) || Object.values(freshness).some((s) => s !== 'current')) {
-        return json(res, 409, { error: 'Documents are missing, outdated, or need review. Choose Recreate to generate replacements.' });
-      }
-      const pack = await loadCachedPrepPack(job.id, fit, job, profile);
-      invalidateJobsCache();
-      return json(res, 200, { ok: true, cached: true, pack, fit });
-    }
-
-    // Fast mode stays synchronous
+    const profile = await loadCandidateProfile();
+    if (!profile) return json(res, 400, { error: 'Complete Memory setup first' });
+    const savedAnswers = await loadSavedAnswers();
+    // Recheck after asynchronous reads before reserving the shared Prep slot.
     if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
-    if (mode === 'fast') {
-      prepState.running = true;
-      try {
-        const pack = await writePrepPack(job, profile, fit, saved, {
-          recreate: true,
-          useCache: false,
-          extraInstructions,
-          tailorMode: 'fast',
-          includeCoverLetter,
-          replaceExisting,
-        });
-        try {
-          await attachPrepPath(job, pack);
-        } catch {
-          /* decision optional */
-        }
-        invalidateJobsCache();
-        return json(res, 200, { ok: true, cached: false, pack, fit, mode: 'fast' });
-      } finally { prepState.running = false; }
-    }
-
-    if (prepState.running) {
-      return json(res, 409, {
-        error: 'An agent run is already in progress',
-        jobId: prepState.jobId,
-      });
-    }
-
-    prepState.running = true;
-    prepState.jobId = job.id;
-    prepState.startedAt = new Date().toISOString();
-    prepState.stopping = false;
-    prepState.buffer = [];
-    prepState.result = null;
-    prepState.error = null;
-
-    // Background agent (default) — client listens on /api/prep/stream
+    const fit = job.fit || scoreJob(job, profile);
+    gooseController = new AbortController();
+    const signal = gooseController.signal;
+    Object.assign(prepState, { running: true, jobId: job.id, startedAt: new Date().toISOString(),
+      stopping: false, buffer: [], result: null, error: null });
     void (async () => {
       try {
-        prepLog(`Prep starting for ${job.title} @ ${job.company} — staging first, then the agent`, 'meta');
-        if (!cursorAgentAvailable()) {
-          prepLog('CURSOR_API_KEY missing — will fall back to Fast after attempt check.', 'stderr');
-        }
-        const pack = await writePrepPack(job, profile, fit, saved, {
-          recreate: true,
-          useCache: false,
-          extraInstructions,
-          tailorMode: 'agent',
-          includeCoverLetter,
-          replaceExisting,
-          onEvent: (entry) => {
-            prepState.buffer.push(entry);
-            if (prepState.buffer.length > 800) prepState.buffer.shift();
-            broadcastPrep('log', entry);
-          },
-        });
-        try {
-          await attachPrepPath(job, pack);
-        } catch {
-          /* optional */
-        }
-        prepState.result = {
-          ok: true,
-          cached: false,
-          pack,
-          fit,
-          mode: pack.tailorMode || 'agent',
-          jobId: job.id,
-          startedAt: prepState.startedAt,
-        };
-        prepLog(
-          pack.fallbackReason
-            ? `Prep finished via Fast fallback (${pack.fallbackReason}).`
-            : `Prep finished (${pack.tailorMode || 'agent'}).`,
-        );
+        prepLog(`Goose agentic workflow: ${request.tools.join(', ')}`, 'meta');
+        const result = await runGoosePipeline({ job, profile, fit, savedAnswers, request, signal,
+          onEvent: (entry) => prepLog(entry.line, entry.stream) });
+        if (result.pack) await attachPrepPath(job, result.pack);
+        prepState.result = { ok: true, ...result, fit, mode: 'agentic', jobId: job.id, startedAt: prepState.startedAt };
         broadcastPrep('done', prepState.result);
-      } catch (err) {
-        const message = err?.message || String(err);
-        prepState.error = message;
-        prepLog(`Prep failed: ${message}`, 'stderr');
-        broadcastPrep('done', {
-          ok: false,
-          error: message,
-          jobId: job.id,
-          startedAt: prepState.startedAt,
-        });
+      } catch (error) {
+        prepState.error = error.message;
+        prepLog(`Goose workflow ${signal.aborted ? 'cancelled' : 'failed'}: ${error.message}`, 'stderr');
+        broadcastPrep('done', { ok: false, error: error.message, jobId: job.id, startedAt: prepState.startedAt });
       } finally {
+        gooseController = null;
         prepState.running = false;
         prepState.stopping = false;
         invalidateJobsCache();
       }
     })();
-
-    return json(res, 202, {
-      ok: true,
-      started: true,
-      mode: 'agent',
-      jobId: job.id,
-      startedAt: prepState.startedAt,
-      stream: '/api/prep/stream',
-    });
-  }
-
-  if (req.method === 'GET' && path === '/api/prep/models') {
-    const settings = await loadCvSettings();
-    const provider = String(
-      new URL(req.url, 'http://localhost').searchParams.get('provider')
-        || settings.agentProvider
-        || 'cursor',
-    );
-    const refresh = new URL(req.url, 'http://localhost').searchParams.get('refresh') === '1';
-    const catalog = await listAgentModels(provider, { refresh });
-    const availability = await agentRunnerAvailable(provider);
-    return json(res, 200, {
-      ...catalog,
-      selected: provider === settings.agentProvider ? settings.agentModel : '',
-      selectedProvider: settings.agentProvider,
-      providers: await listAgentProvidersStatus(),
-      availability,
-      cursorApiKeyPresent: cursorAgentAvailable(),
-    });
+    return json(res, 202, { ok: true, started: true, mode: 'agentic', jobId: job.id,
+      startedAt: prepState.startedAt, stream: '/api/prep/stream' });
   }
 
   // ---- Batch Prep -------------------------------------------------------
@@ -1318,6 +1150,9 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && path === '/api/prep/batch') {
     const body = await readBody(req);
+    if (body.mode === 'fast') return json(res, 400, { error: 'Fast mode was removed. Use Goose.' });
+    const goose = await agentRunnerAvailable();
+    if (!goose.ok) return json(res, 400, { error: goose.detail });
     const ids = Array.isArray(body.ids)
       ? [...new Set(body.ids.map((x) => String(x || '').trim()).filter(Boolean))]
       : [];
@@ -1329,8 +1164,8 @@ async function handleApi(req, res, url) {
     if (prepState.running) {
       return json(res, 409, { error: 'A single Prep run is in progress — wait for it to finish', jobId: prepState.jobId });
     }
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    if (!profile) return json(res, 400, { error: 'profile.json required' });
+    const profile = await loadCandidateProfile();
+    if (!profile) return json(res, 400, { error: 'Complete Memory setup first' });
     const enriched = await enrichJobs();
     const jobsById = new Map(enriched.jobs.map((j) => [j.id, j]));
     const missing = ids.filter((id) => !jobsById.has(id));
@@ -1345,10 +1180,10 @@ async function handleApi(req, res, url) {
     batchState.stopping = false;
     batchState.startedAt = new Date().toISOString();
     batchState.finishedAt = null;
-    batchState.mode = body.mode === 'fast' ? 'fast' : 'agent';
+    batchState.mode = 'agent';
+    batchController = new AbortController();
     batchState.includeCoverLetter = body.includeCoverLetter !== false;
-    batchState.replaceExisting = body.replaceExisting === true;
-    batchState.skipExisting = !batchState.replaceExisting && body.skipExisting !== false;
+    batchState.skipExisting = body.skipExisting !== false;
     batchState.currentId = null;
     batchState.buffer = [];
     batchState.items = ids.map((id) => {
@@ -1375,6 +1210,7 @@ async function handleApi(req, res, url) {
       return json(res, 200, { ok: true, stopped: false, message: 'No batch running', batch: batchSnapshot({ withItems: false }) });
     }
     batchState.stopping = true;
+    batchController?.abort();
     const cancelled = await cancelCvTailorAgent();
     batchLog(
       cancelled
@@ -1406,6 +1242,7 @@ async function handleApi(req, res, url) {
       return json(res, 200, { ok: true, stopped: false, message: 'No prep run in progress' });
     }
     prepState.stopping = true;
+    gooseController?.abort(new Error('Goose workflow cancelled'));
     const cancelled = await cancelCvTailorAgent();
     prepLog(
       cancelled
@@ -1449,154 +1286,6 @@ async function handleApi(req, res, url) {
     return;
   }
 
-  // POST /api/cover-letter { id, mode, extraInstructions }
-  if (req.method === 'POST' && path === '/api/cover-letter') {
-    if (prepState.running) return json(res, 409, { error: 'Preparation is running; wait for it to finish.' });
-    if (batchState.running) {
-      return json(res, 409, { error: 'Batch Prep is running — wait for it to finish or cancel it first' });
-    }
-    const body = await readBody(req);
-    const enriched = await enrichJobs();
-    const job = enriched.jobs.find((j) => j.id === body.id);
-    if (!job) return json(res, 404, { error: 'Job not found in current results' });
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    if (!profile) return json(res, 400, { error: 'profile.json required' });
-    const fit = job.fit || scoreJob(job, profile);
-    const extraInstructions = typeof body.extraInstructions === 'string'
-      ? body.extraInstructions.trim().slice(0, 500)
-      : '';
-    const mode = body.mode === 'fast' ? 'fast' : 'agent';
-    const settings = await loadCvSettings();
-    const dir = prepDir(job.id);
-
-    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
-
-    const packResult = (result) => ({
-      ok: true,
-      letter: result.letter,
-      included: result.included,
-      extraInstructions: result.extraInstructions || extraInstructions || null,
-      tailorMode: result.tailorMode,
-      fallbackReason: result.fallbackReason || null,
-      folder: result.export?.absoluteDir || null,
-      relativeDir: result.export?.relativeDir || null,
-      files: result.export?.files || [],
-      pdfError: result.pdfError || null,
-      needsReview: result.needsReview || false,
-      draftDir: result.draftDir || (result.needsReview ? result.dir : null),
-    });
-
-    if (mode === 'fast') {
-      prepState.running = true;
-      try {
-        const result = await generateCoverLetterPack(job, profile, fit, {
-          prepDir: dir,
-          extraInstructions,
-          tailorMode: 'fast',
-          settings,
-        });
-        invalidateJobsCache();
-        const payload = packResult(result);
-        if (body.open !== false && payload.folder) revealDownloadsFolder(payload.folder);
-        return json(res, 200, payload);
-      } catch (err) {
-        return json(res, 500, { error: err.message || String(err) });
-      } finally { prepState.running = false; }
-    }
-
-    if (prepState.running) {
-      return json(res, 409, {
-        error: 'An agent run is already in progress',
-        jobId: prepState.jobId,
-      });
-    }
-
-    prepState.running = true;
-    prepState.jobId = job.id;
-    prepState.startedAt = new Date().toISOString();
-    prepState.stopping = false;
-    prepState.buffer = [];
-    prepState.result = null;
-    prepState.error = null;
-
-    void (async () => {
-      try {
-        prepLog(`Cover letter agent starting for ${job.title} @ ${job.company}`, 'meta');
-        const result = await generateCoverLetterPack(job, profile, fit, {
-          prepDir: dir,
-          extraInstructions,
-          tailorMode: 'agent',
-          provider: settings.agentProvider,
-          model: settings.agentModel,
-          settings,
-          onEvent: (entry) => {
-            prepState.buffer.push(entry);
-            if (prepState.buffer.length > 800) prepState.buffer.shift();
-            broadcastPrep('log', entry);
-          },
-        });
-        const payload = {
-          ...packResult(result),
-          jobId: job.id,
-          startedAt: prepState.startedAt,
-          mode: result.tailorMode || 'agent',
-        };
-        if (body.open !== false && payload.folder) revealDownloadsFolder(payload.folder);
-        prepState.result = payload;
-        prepLog(
-          result.fallbackReason
-            ? `Cover letter finished via Fast fallback (${result.fallbackReason}).`
-            : `Cover letter finished (${result.tailorMode || 'agent'}).`,
-        );
-        broadcastPrep('done', payload);
-      } catch (err) {
-        const message = err?.message || String(err);
-        prepState.error = message;
-        prepLog(`Cover letter failed: ${message}`, 'stderr');
-        broadcastPrep('done', {
-          ok: false,
-          error: message,
-          jobId: job.id,
-          startedAt: prepState.startedAt,
-        });
-      } finally {
-        prepState.running = false;
-        prepState.stopping = false;
-        invalidateJobsCache();
-      }
-    })();
-
-    return json(res, 202, {
-      ok: true,
-      started: true,
-      mode: 'agent',
-      jobId: job.id,
-      startedAt: prepState.startedAt,
-      stream: '/api/prep/stream',
-    });
-  }
-
-  // POST /api/prep/open-folder { id } — export into project downloads/<Company>/<Role>-<JobID>/ + open Explorer
-  if (req.method === 'POST' && path === '/api/prep/open-folder') {
-    const body = await readBody(req);
-    const enriched = await enrichJobs();
-    const job = enriched.jobs.find((j) => j.id === body.id);
-    if (!job) return json(res, 404, { error: 'Job not found' });
-    const profile = await loadJson(join(ROOT, 'profile.json'), null);
-    const exported = await exportPrepDownloads(job, profile);
-    if (exported?.error) return json(res, 400, { error: exported.error });
-    const openDir = exported.absoluteDir;
-    const revealed = revealDownloadsFolder(openDir);
-    return json(res, 200, {
-      ok: revealed.ok,
-      folder: openDir,
-      relativeDir: exported.relativeDir,
-      files: exported.files || [],
-      error: revealed.error || null,
-    });
-  }
-
-  // GET /api/prep/:id/cv.html|cv.md|…  or  GET /api/prep/:id
   if (req.method === 'GET' && path.startsWith('/api/prep/')) {
     const rest = decodeURIComponent(path.slice('/api/prep/'.length));
     const slash = rest.lastIndexOf('/');
@@ -1607,7 +1296,7 @@ async function handleApi(req, res, url) {
       if (payload == null) return json(res, 404, { error: 'File not found — generate Prep & CV first' });
       const download = url.searchParams.get('download') === '1';
       if (payload.binary) {
-        const profile = await loadJson(join(ROOT, 'profile.json'), null);
+        const profile = await loadCandidateProfile();
         const nice = String(profile?.name || 'Candidate')
           .trim()
           .split(/\s+/)
@@ -1723,35 +1412,12 @@ async function handleApi(req, res, url) {
       }
       config.filters = { ...(config.filters ?? {}), maxAgeDays: Math.round(n) };
     }
-    if (
-      body.cvSource != null
-      || body.overleafPush != null
-      || body.updateMaster != null
-      || body.tailorMode != null
-      || body.agentModel != null
-      || body.agentProvider != null
-    ) {
-      config.cv = { ...(config.cv ?? {}) };
-      if (body.cvSource != null) {
-        const src = String(body.cvSource);
-        if (src !== 'local' && src !== 'overleaf') {
-          return json(res, 400, { error: 'cvSource must be local or overleaf' });
-        }
-        config.cv.source = src;
-      }
-      if (body.overleafPush != null) config.cv.overleafPush = Boolean(body.overleafPush);
-      if (body.updateMaster != null) config.cv.updateMaster = Boolean(body.updateMaster);
-      if (body.tailorMode != null) {
-        const tm = String(body.tailorMode);
-        if (tm !== 'agent' && tm !== 'fast') {
-          return json(res, 400, { error: 'tailorMode must be agent or fast' });
-        }
-        config.cv.tailorMode = tm;
-      }
-      if (body.agentProvider != null || body.agentModel != null) {
-        try { config.cv = updateAgentSelection(config.cv, body); }
-        catch (error) { return json(res, 400, { error: error.message }); }
-      }
+    if (body.agentProvider != null || body.agentModel != null || body.tailorMode != null) {
+      return json(res, 400, { error: 'Configure the provider and model in Goose. Only the Goose workflow is supported.' });
+    }
+    if (body.cvSource != null) {
+      if (!['local', 'overleaf'].includes(body.cvSource)) return json(res, 400, { error: 'cvSource must be local or overleaf' });
+      config.cv = { source: body.cvSource };
     }
     await writeFile(SEARCH_PROFILE, `${JSON.stringify(config, null, 2)}\n`);
     invalidateJobsCache();

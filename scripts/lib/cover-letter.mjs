@@ -1,3 +1,4 @@
+import { withMemorySnapshot, readMemory, candidateProfile } from './memory.mjs';
 /**
  * Tailor cv/cover-letter.md to a posting: keep the core letter, insert optional
  * past-job / project blocks only when the job text mentions their keywords.
@@ -10,21 +11,13 @@ import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
 import { htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { cvFileBaseName, exportCoverLetterDownloads } from './cv-downloads.mjs';
-import {
-  agentRunnerAvailable,
-  currentEvidenceRel,
-  runCvTailorAgent,
-  seedPrepForAgent,
-} from './cv-agent.mjs';
+import { agentRunnerAvailable, currentEvidenceRel, runCvTailorAgent, seedPrepForAgent } from './cv-agent.mjs';
 import { verifyLetterAfterAgent } from './cv-verify.mjs';
 import { generateDocuments } from './prep-state.mjs';
 import { artifactContext } from './artifact-context.mjs';
 import { loadJson } from './common.mjs';
 import { runReviewerPass, loadReviewSummary } from './cv-review.mjs';
-import {
-  Document, Packer, Paragraph, TextRun,
-  convertInchesToTwip,
-} from 'docx';
+import { Document, Packer, Paragraph, TextRun, convertInchesToTwip } from 'docx';
 
 const OPTIONAL_DELIM = /<!--\s*optional-blocks[\s\S]*?-->/;
 const BLOCK_RE = /^:::(\S+)\s+(\S+)[ \t]*([^\n]*)\n([\s\S]*?)^:::/gm;
@@ -488,11 +481,18 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
 }
 
 export async function generateCoverLetterPack(job, profile, fit, options = {}) {
+  return withMemorySnapshot(async () => {
+    const memory = await readMemory();
+    return generateCoverLetterWithMemory(job, memory ? candidateProfile(memory) : profile, fit, options);
+  });
+}
+
+async function generateCoverLetterWithMemory(job, profile, fit, options = {}) {
   if (artifactContext.getStore()) return generateCoverLetterUncached(job, profile, fit, options);
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const settings = { ...config.cv, ...options.settings };
   const result = await generateDocuments({ job, profile, settings,
-    instructions: options.extraInstructions || '', mode: options.tailorMode || 'fast', scopes: ['letter'] },
+    instructions: options.extraInstructions || '', mode: 'agent', scopes: ['letter'] },
   (dir) => generateCoverLetterUncached(job, profile, fit, { ...options, cvSource: settings.source || 'local', prepDir: dir }));
   if (!result.needsReview) result.export = await exportCoverLetterDownloads({
     jobId: job.id, company: job.company, profileName: profile.name, jobTitle: job.title,
@@ -504,7 +504,6 @@ export async function generateCoverLetterPack(job, profile, fit, options = {}) {
 async function generateCoverLetterUncached(job, profile, fit, {
   prepDir: dir,
   extraInstructions = '',
-  tailorMode = 'fast',
   onEvent = null,
   provider = null,
   model = null,
@@ -518,8 +517,6 @@ async function generateCoverLetterUncached(job, profile, fit, {
     : () => {};
 
   let agent = null;
-  let usedMode = 'fast';
-  let fallbackReason = null;
   let instr = String(extraInstructions || '').trim();
   let pdfPath = null;
   let docxPath = null;
@@ -530,67 +527,21 @@ async function generateCoverLetterUncached(job, profile, fit, {
     await writeFile(join(dir, 'cover-letter.md'), letter);
     await writeFile(join(dir, 'cover-letter.draft.md'), letter);
 
-    const wantAgent = tailorMode !== 'fast';
-    if (wantAgent) {
-      await seedPrepForAgent(dir, job, instr);
-      const avail = await agentRunnerAvailable(provider);
-      if (!avail.ok) {
-        fallbackReason = avail.detail;
-        emit({
-          stream: 'stderr',
-          line: `Agent unavailable (${avail.detail}) — using the keyword draft.`,
-          t: Date.now(),
-        });
-      } else {
-        try {
-          emit({
-            stream: 'meta',
-            line: 'Cover letter agent — same evidence and instructions as Prep & CV',
-            t: Date.now(),
-          });
-          agent = await runCvTailorAgent({
-            job,
-            prepDir: dir,
-            profile,
-            extraInstructions: instr,
-            cvSource,
-            overleafPush: false,
-            provider,
-            model,
-            onEvent,
-            task: 'cover-letter',
-          });
-          const edited = await readFile(join(dir, 'cover-letter.md'), 'utf8');
-          if (edited.trim()) {
-            const candidate = polishCoverLetter(edited);
-            const gate = await verifyLetterAfterAgent({
-              prepDir: dir,
-              letter: candidate,
-              job,
-              evidencePath: currentEvidenceRel(),
-              extraInstructions: instr,
-              cvSource,
-              emit: (line, stream = 'meta') => emit({ stream, line, t: Date.now() }),
-            });
-            if (gate.ok) {
-              letter = candidate;
-              usedMode = 'agent';
-            } else {
-              await writeFile(join(dir, 'cover-letter.rejected.md'), candidate);
-              fallbackReason = `quality gate: ${gate.hard[0]}`;
-            }
-          }
-        } catch (err) {
-          fallbackReason = err?.message || String(err);
-          emit({
-            stream: 'stderr',
-            line: `Cover letter agent failed (${fallbackReason}) — using the keyword draft.`,
-            t: Date.now(),
-          });
-        }
-      }
+    await seedPrepForAgent(dir, job, instr);
+    const avail = await agentRunnerAvailable();
+    if (!avail.ok) throw new Error(avail.detail);
+    agent = await runCvTailorAgent({ job, prepDir: dir, profile, extraInstructions: instr,
+      cvSource, provider: 'goose', model, onEvent, task: 'cover-letter' });
+    const candidate = polishCoverLetter(await readFile(join(dir, 'cover-letter.md'), 'utf8'));
+    if (!candidate.trim()) throw new Error('Goose produced an empty letter');
+    const gate = await verifyLetterAfterAgent({ prepDir: dir, letter: candidate, job,
+      evidencePath: currentEvidenceRel(), extraInstructions: instr, cvSource,
+      emit: (line, stream = 'meta') => emit({ stream, line, t: Date.now() }) });
+    if (!gate.ok) {
+      await writeFile(join(dir, 'cover-letter.rejected.md'), candidate);
+      throw new Error(`Letter quality gate: ${gate.hard[0]}`);
     }
-
+    letter = candidate;
     const prepare = async () => {
       letter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
       const artifacts = await writeCoverLetterArtifacts(dir, letter, htmlTitle);
@@ -631,20 +582,16 @@ async function generateCoverLetterUncached(job, profile, fit, {
       } catch {
         /* optional */
       }
-      if (usedMode === 'agent') {
-        const finalGate = await verifyLetterAfterAgent({ prepDir: dir, letter, job,
-          evidencePath: currentEvidenceRel(), extraInstructions: instr, cvSource });
-        if (!finalGate.ok) throw new Error(`Final letter validation failed: ${finalGate.hard.join('; ')}`);
-      }
+      const finalGate = await verifyLetterAfterAgent({ prepDir: dir, letter, job,
+        evidencePath: currentEvidenceRel(), extraInstructions: instr, cvSource });
+      if (!finalGate.ok) throw new Error(`Final letter validation failed: ${finalGate.hard.join('; ')}`);
     };
-    // Persist the selected draft (the agent may have been rejected) before rendering.
+    // Persist the verified draft before rendering and review.
     await writeFile(join(dir, 'cover-letter.md'), letter);
-    if (usedMode === 'agent') {
-      const review = await runReviewerPass({ scope: 'letter', job, prepDir: dir, profile,
-        extraInstructions: instr, cvSource, provider, model, onEvent,
-        letter, polishLetter: polishCoverLetter, prepare });
-      if (review.letter) letter = review.letter;
-    } else await prepare();
+    const review = await runReviewerPass({ scope: 'letter', job, prepDir: dir, profile,
+      extraInstructions: instr, cvSource, provider, model, onEvent,
+      letter, polishLetter: polishCoverLetter, prepare });
+    if (review.letter) letter = review.letter;
   }
 
   const exported = await exportCoverLetterDownloads({
@@ -661,8 +608,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
     letter,
     included: assembled.included,
     extraInstructions: instr || null,
-    tailorMode: usedMode,
-    fallbackReason,
+    tailorMode: 'agent',
     agent,
     review: dir ? await loadReviewSummary(dir) : null,
     pdfError: pdfError || exported?.error || null,

@@ -9,25 +9,7 @@ import {
   buildReviewerPrompt,
   buildRepairBrief,
   inlineReviewContext,
-  codexExecArgs,
-  cliExitMessage,
 } from './cv-agent.mjs';
-
-describe('Codex CLI invocation', () => {
-  it('places approval before exec and keeps model selection and sandbox', () => {
-    assert.deepEqual(codexExecArgs('Tailor CV', 'gpt-5.6-terra'), [
-      '--ask-for-approval', 'never', 'exec', '--sandbox', 'workspace-write',
-      '--model', 'gpt-5.6-terra', '--', 'Tailor CV',
-    ]);
-    assert.equal(codexExecArgs('--prompt text').includes('--model'), false);
-    assert.deepEqual(codexExecArgs('--prompt text').slice(-2), ['--', '--prompt text']);
-  });
-  it('keeps the CLI error in the fallback reason without copying the full log', () => {
-    assert.equal(cliExitMessage('codex', 2, "error: unexpected argument '--ask-for-approval' found\n\nUsage: codex exec"),
-      "codex exited with code 2: error: unexpected argument '--ask-for-approval' found");
-    assert.equal(cliExitMessage('codex', 1, 'unrelated output'), 'codex exited with code 1');
-  });
-});
 
 const base = {
   job: { title: 'Full Stack Engineer', company: 'Acme', url: 'https://example.com/job' },
@@ -36,7 +18,6 @@ const base = {
   instructionsRel: '.workspace/prep/job1/instructions.md',
   briefRel: '.workspace/prep/job1/agent-brief.md',
   evidenceRel: '.cv-workspace/evidence.md',
-  techStackRel: 'cv/tech-stack.md',
   gapsRel: '.workspace/prep/job1/keyword-gaps.md',
   writingRulesRel: '.agents/skills/cv-tailor/references/writing-rules.md',
   overleafRel: '.workspace/overleaf',

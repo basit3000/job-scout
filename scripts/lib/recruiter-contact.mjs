@@ -6,19 +6,10 @@
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { spawn } from 'node:child_process';
-import { Agent, CursorAgentError } from '@cursor/sdk';
 import { ROOT, loadJson, workspaceDir } from './common.mjs';
 import { hydrateJobDescription } from './de-portals.mjs';
-import {
-  agentRunnerAvailable,
-  DEFAULT_AGENT_MODEL,
-  normalizeAgentProvider,
-  resolveAgentModel,
-  resolveProviderBinary,
-} from './cv-agent.mjs';
-import { formatAgentEvent } from './cv-agent-log.mjs';
-import { isAbortError } from './sdk-abort.mjs';
+import { agentRunnerAvailable, resolveAgentModel } from './cv-agent.mjs';
+import { runGoose } from './goose-runtime.mjs';
 import { loadCvSettings } from './prep.mjs';
 import {
   companyKey,
@@ -423,131 +414,13 @@ ${String(postingExcerpt || '').slice(0, 2500)}
 `;
 }
 
-async function withTimeout(promise, ms, onTimeout) {
-  let timer;
-  try {
-    return await Promise.race([
-      promise,
-      new Promise((_, reject) => {
-        timer = setTimeout(() => {
-          try { onTimeout?.(); } catch { /* ignore */ }
-          reject(new Error(`Recruiter agent timed out after ${Math.round(ms / 1000)}s`));
-        }, ms);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function askCursorRecruiter(prompt, modelId, emit) {
-  const apiKey = process.env.CURSOR_API_KEY?.trim();
-  if (!apiKey) throw new Error('CURSOR_API_KEY is missing');
-  const cwd = await mkdtemp(join(tmpdir(), 'js-recruiter-'));
-  let agent;
-  let run;
-  try {
-    agent = await Agent.create({
-      apiKey,
-      model: { id: modelId || DEFAULT_AGENT_MODEL },
-      local: { cwd, settingSources: [] },
-    });
-    run = await agent.send(
-      `${prompt}\n\nUse web search and fetch tools. Keep going through dead ends until you have a public email or are sure it is not published.`,
-    );
-    recruiterRun.cancel = () => run.cancel?.().catch(() => null);
-    const stats = { tools: 0, started: new Set(), usage: null };
-    if (run.supports?.('stream')) {
-      void (async () => {
-        try {
-          for await (const event of run.stream()) {
-            const formatted = formatAgentEvent(event, stats);
-            if (formatted) emit(formatted.line, formatted.stream);
-          }
-        } catch {
-          /* stream ended */
-        }
-      })();
-    }
-    const result = await withTimeout(
-      run.wait(),
-      RECRUITER_AGENT_TIMEOUT_MS,
-      () => { run.cancel?.().catch(() => null); },
-    );
-    if (result?.status === 'error') {
-      throw new Error(result.error?.message || 'Cursor agent error');
-    }
-    return String(result?.result || '');
-  } catch (err) {
-    if (isAbortError(err)) {
-      throw new Error('Cursor recruiter lookup was aborted');
-    }
-    if (err instanceof CursorAgentError) {
-      throw new Error(`Cursor agent error: ${err.message}`);
-    }
-    throw err;
-  } finally {
-    recruiterRun.cancel = null;
-    try {
-      await agent?.[Symbol.asyncDispose]?.();
-    } catch {
-      try { agent?.close?.(); } catch { /* ignore */ }
-    }
-  }
-}
-
-async function askCliRecruiter({ bin, args, emit }) {
-  const cwd = await mkdtemp(join(tmpdir(), 'js-recruiter-'));
-  let child;
-  const stdout = await withTimeout(
-    new Promise((resolve, reject) => {
-      child = spawn(bin, args, {
-        cwd,
-        env: { ...process.env },
-        stdio: ['ignore', 'pipe', 'pipe'],
-        windowsHide: true,
-        shell: false,
-      });
-      recruiterRun.cancel = () => {
-        if (!child?.pid) return;
-        try {
-          if (process.platform === 'win32') {
-            spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
-          } else {
-            child.kill('SIGTERM');
-          }
-        } catch { /* ignore */ }
-      };
-      let out = '';
-      const onChunk = (stream) => (buf) => {
-        const text = buf.toString('utf8');
-        if (stream === 'stdout') out += text;
-        for (const line of text.split(/\r?\n/)) {
-          if (line.trim()) emit(line.slice(0, 240), stream);
-        }
-      };
-      child.stdout.on('data', onChunk('stdout'));
-      child.stderr.on('data', onChunk('stderr'));
-      child.on('error', reject);
-      child.on('close', (code) => {
-        if (code === 0) resolve(out);
-        else reject(new Error((out || `exit ${code}`).slice(0, 400)));
-      });
-    }),
-    RECRUITER_AGENT_TIMEOUT_MS,
-    () => recruiterRun.cancel?.(),
-  );
-  recruiterRun.cancel = null;
-  return stdout;
-}
-
 export async function searchRecruiterWithAgent(job, { emit = () => {}, provider, model } = {}) {
   const settings = await loadCvSettings();
-  const prov = normalizeAgentProvider(provider || settings.agentProvider);
+  const prov = 'goose';
   const modelSel = resolveAgentModel(model || settings.agentModel, prov);
   const avail = await agentRunnerAvailable(prov);
   if (!avail.ok) {
-    throw new Error(avail.detail || 'Agent unavailable — set CURSOR_API_KEY or switch Agent in Prep settings.');
+    throw new Error(avail.detail || 'Goose unavailable — configure Goose before running this task.');
   }
 
   const store = await loadRecruiterStore();
@@ -567,25 +440,14 @@ export async function searchRecruiterWithAgent(job, { emit = () => {}, provider,
   });
   emit(`Agent search (${prov}${modelSel.id ? ` · ${modelSel.id}` : ''})…`);
 
-  let text = '';
-  if (prov === 'cursor') {
-    text = await askCursorRecruiter(prompt, modelSel.id || DEFAULT_AGENT_MODEL, emit);
-  } else if (prov === 'claude-code') {
-    const bin = await resolveProviderBinary('claude-code');
-    if (!bin) throw new Error('Claude Code CLI not found');
-    const args = ['-p', prompt, '--output-format', 'text'];
-    if (modelSel.id) args.push('--model', modelSel.id);
-    text = await askCliRecruiter({ bin, args, emit });
-  } else if (prov === 'codex') {
-    const bin = await resolveProviderBinary('codex');
-    if (!bin) throw new Error('Codex CLI not found');
-    const args = ['exec', '--sandbox', 'workspace-write', '--ask-for-approval', 'never'];
-    if (modelSel.id) args.push('--model', modelSel.id);
-    args.push(prompt);
-    text = await askCliRecruiter({ bin, args, emit });
-  } else {
-    throw new Error(`Unknown agent provider: ${prov}`);
-  }
+  const controller = new AbortController();
+  recruiterRun.cancel = () => controller.abort();
+  let text;
+  try {
+    text = await runGoose({ prompt, model: modelSel.id,
+      cwd: await mkdtemp(join(tmpdir(), 'js-recruiter-')), signal: controller.signal,
+      timeoutMs: RECRUITER_AGENT_TIMEOUT_MS, onEvent: entry => emit(entry.line, entry.stream) });
+  } finally { recruiterRun.cancel = null; }
 
   const parsed = parseRecruiterAgentJson(text);
   if (!parsed) {

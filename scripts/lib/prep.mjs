@@ -1,45 +1,18 @@
+import { withMemorySnapshot, readMemory, candidateProfile, memoryAnswers } from './memory.mjs';
 import { mkdir, writeFile, readFile, access, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { workspaceDir, loadJson, ROOT, prepDir } from './common.mjs';
-import {
-  buildTailoredCvAsync,
-  tailoredCvHtml,
-  tailoredCvMarkdown,
-  tailoredRequirementsMarkdown,
-  cvMarkdownToHtml,
-} from './tailor-cv.mjs';
-import { writeMasterResume } from './resume-md.mjs';
+import { buildTailoredCvAsync, tailoredRequirementsMarkdown, cvMarkdownToHtml } from './tailor-cv.mjs';
+
 import { htmlFileToPdf } from './pdf.mjs';
 import { ensureLocalCvFits } from './cv-html-fit.mjs';
-import {
-  overleafConfigured,
-  overleafStatus,
-  runOverleafTailor,
-  assembleOverleafAfterAgent,
-  pushValidatedOverleaf,
-  readOverleafAts,
-} from './overleaf-cv.mjs';
+import { overleafConfigured, overleafStatus, assembleOverleafAfterAgent, readOverleafAts } from './overleaf-cv.mjs';
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
-import {
-  exportCvDownloads,
-  exportCoverLetterDownloads,
-  cvFileBaseName,
-  clearJobDownloads,
-  revealDownloadsFolder,
-} from './cv-downloads.mjs';
+import { exportCvDownloads, exportCoverLetterDownloads, cvFileBaseName, revealDownloadsFolder } from './cv-downloads.mjs';
 import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
-import {
-  cursorAgentAvailable,
-  agentRunnerAvailable,
-  currentEvidenceRel,
-  runCvTailorAgent,
-  seedPrepForAgent,
-  loadAgentSession,
-  normalizeAgentProvider,
-  resolveAgentModel,
-} from './cv-agent.mjs';
+import { agentRunnerAvailable, currentEvidenceRel, runCvTailorAgent, seedPrepForAgent, loadAgentSession, resolveAgentModel } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
-import { clearReview, loadReviewSummary, runReviewerPass } from './cv-review.mjs';
+import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
 import { generateDocuments, prepStatus } from './prep-state.mjs';
 
@@ -128,15 +101,11 @@ export async function loadCvSettings() {
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const cv = config.cv || {};
   const source = cv.source === 'overleaf' ? 'overleaf' : 'local';
-  const tailorMode = cv.tailorMode === 'fast' ? 'fast' : 'agent';
-  const agentProvider = normalizeAgentProvider(
-    cv.agentProvider || process.env.AGENT_PROVIDER || 'cursor',
-  );
-  const agentModel = resolveAgentModel(cv.agentModel, agentProvider).id;
+  const tailorMode = 'agent';
+  const agentProvider = 'goose';
+  const agentModel = resolveAgentModel().id;
   return {
     source,
-    overleafPush: cv.overleafPush !== false,
-    updateMaster: cv.updateMaster === true,
     tailorMode,
     agentProvider,
     agentModel,
@@ -312,47 +281,6 @@ async function pdfFlags(jobId) {
 }
 
 /** Return existing pack without rebuilding (cache hit). */
-export async function loadCachedPrepPack(jobId, fit = null, job = null, profile = null) {
-  const hasCv = await hasTailoredCv(jobId);
-  const flags = await pdfFlags(jobId);
-  if (!hasCv && !flags.hasPdf) return null;
-
-  let coverLetter = '';
-  try {
-    coverLetter = await readFile(join(prepDir(jobId), 'cover-letter.md'), 'utf8');
-  } catch {
-    /* ignore */
-  }
-
-  const settings = await loadCvSettings();
-  let downloadExport = null;
-  if (job && profile) {
-    downloadExport = await exportPrepDownloads(job, profile);
-  }
-  return {
-    dir: prepDir(jobId),
-    relativeDir: `.workspace/prep/${safeId(jobId)}`,
-    files: [],
-    coverLetter,
-    checklist: fit?.checklist,
-    hasCv,
-    ...flags,
-    pdfNote: 'cached (not recompiled)',
-    cvSource: settings.source,
-    cvContentSource: settings.source === 'overleaf' ? 'overleaf (cached)' : 'cached',
-    overleaf: null,
-    cached: true,
-    applyUrl: job?.url || null,
-    jobId,
-    agent: await loadAgentSession(prepDir(jobId)),
-    review: await loadReviewSummary(prepDir(jobId)),
-    downloadFolder: downloadExport?.relativeDir || null,
-    downloadFolderAbs: downloadExport?.absoluteDir || null,
-    downloadError: downloadExport?.error || null,
-    ...packDownloads(jobId, flags, profile?.name),
-  };
-}
-
 async function finalizePrepPack({
   job,
   profile,
@@ -367,7 +295,6 @@ async function finalizePrepPack({
   requirementsMd,
   overleafResult,
   tailorMode,
-  fallbackReason = null,
   agentMeta = null,
 }) {
   const files = {
@@ -478,7 +405,6 @@ async function finalizePrepPack({
         ? (tailorMode === 'agent' ? 'overleaf/agent' : 'overleaf/ats.tex')
         : model.meta?.source,
     tailorMode,
-    fallbackReason,
     agent: agent || null,
     review: await loadReviewSummary(dir),
     extraInstructions: extraInstructions || null,
@@ -502,77 +428,10 @@ async function finalizePrepPack({
   };
 }
 
-async function writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, options = {}) {
-  const dir = prepDir(job.id);
-  await mkdir(dir, { recursive: true });
-  await clearReview(dir, 'cv');
-
-  const model = await buildTailoredCvAsync(job, profile, fit);
-  if (extraInstructions) {
-    const extra = extraInstructions
-      .toLowerCase()
-      .split(/[^a-z0-9+#.]/i)
-      .filter((w) => w.length >= 3);
-    model.keywords = [...new Set([...(model.keywords || []), ...extra])];
-  }
-
-  let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
-  let cvHtml = tailoredCvHtml(model);
-  const requirementsMd = tailoredRequirementsMarkdown(model);
-
-  if (settings.source === 'local' && settings.updateMaster && model.resumeMarkdown) {
-    await writeMasterResume(model.resumeMarkdown);
-  }
-
-  let overleafResult = null;
-  if (settings.source === 'overleaf') {
-    if (!overleafConfigured()) {
-      throw new Error(
-        'CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty in .env',
-      );
-    }
-    overleafResult = await runOverleafTailor({
-      push: false,
-      keywords: model.keywords || [],
-      job,
-      prepDir: dir,
-      extraInstructions,
-    });
-    const ats = await readOverleafAts();
-    if (ats?.text) {
-      const prepBase = `/api/prep/${encodeURIComponent(job.id)}`;
-      cvHtml = overleafTexToHtml(ats.text, {
-        jobTitle: job.title,
-        company: job.company,
-        prepBase,
-      });
-      cvMd = overleafTexToMarkdown(ats.text);
-    }
-  }
-
-  return finalizePrepPack({
-    job,
-    profile,
-    fit,
-    savedAnswers,
-    dir,
-    settings,
-    extraInstructions,
-    model,
-    cvMd,
-    cvHtml,
-    requirementsMd,
-    overleafResult,
-    tailorMode: 'fast',
-    fallbackReason: options.fallbackReason || null,
-    agentMeta: options.agentMeta || null,
-  });
-}
-
 async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = null) {
   const model = await buildTailoredCvAsync(job, profile, fit);
-  let cvMd = model.resumeMarkdown || tailoredCvMarkdown(model);
-  let cvHtml = tailoredCvHtml(model);
+  let cvMd;
+  let cvHtml;
   const requirementsMd = tailoredRequirementsMarkdown(model);
 
   let overleafResult = null;
@@ -589,6 +448,7 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
       onEvent: onEvent || settings.onEvent || null,
     });
     const ats = await readOverleafAts();
+    if (!ats?.text) throw new Error('Goose did not produce an Overleaf CV source');
     if (ats?.text) {
       const prepBase = `/api/prep/${encodeURIComponent(job.id)}`;
       cvHtml = overleafTexToHtml(ats.text, {
@@ -601,7 +461,8 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
   } else {
     try {
       const agentCv = await readFile(join(dir, 'cv.md'), 'utf8');
-      if (agentCv && agentCv.trim().length > 40 && !/\bYOUR_[A-Z0-9_]+\b/.test(agentCv)) {
+      if (!agentCv || agentCv.trim().length < 40 || /\bYOUR_[A-Z0-9_]+\b/.test(agentCv)) throw new Error('Goose did not produce a complete CV');
+      {
         cvMd = agentCv;
         cvHtml = cvMarkdownToHtml(agentCv, {
           job,
@@ -610,9 +471,7 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
         });
         model.meta = { ...(model.meta || {}), source: 'agent/cv.md' };
       }
-    } catch {
-      /* keep keyword model */
-    }
+    } catch (error) { throw new Error(`Goose CV could not be read: ${error.message}`); }
   }
 
   return { model, cvMd, cvHtml, requirementsMd, overleafResult };
@@ -629,8 +488,7 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     profile,
     extraInstructions,
     cvSource: settings.source,
-    overleafPush: settings.overleafPush !== false,
-    provider: settings.agentProvider || 'cursor',
+    provider: 'goose',
     model: settings.agentModel || null,
     onEvent,
   });
@@ -671,7 +529,7 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     throw new Error('CV content kept changing during final validation');
   };
   await runReviewerPass({ scope: 'cv', job, prepDir: dir, profile, extraInstructions,
-    cvSource: settings.source, provider: settings.agentProvider || 'cursor',
+    cvSource: settings.source, provider: 'goose',
     model: settings.agentModel || null, onEvent, prepare });
   if (!pack) throw new Error('CV could not be rendered for review');
   pack.review = await loadReviewSummary(dir);
@@ -681,34 +539,19 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
 
 /** Write prep files + tailored CV under .workspace/prep/<id>/ */
 export async function writePrepPack(job, profile, fit, savedAnswers = {}, options = {}) {
-  const settings = { ...(await loadCvSettings()), ...options };
-  const mode = settings.tailorMode || 'agent';
-  const includeLetter = options.includeCoverLetter !== false;
-  const state = await prepStatus(job, profile, settings, {
-    cv: true, letter: includeLetter, instructions: options.extraInstructions || '', mode,
+  return withMemorySnapshot(async () => {
+    const memory = await readMemory();
+    return writePrepPackWithMemory(job, memory ? candidateProfile(memory) : profile, fit,
+      memory ? memoryAnswers(memory) : savedAnswers, options);
   });
-  if (!options.replaceExisting && (options.useCache || options.recreate === false) && Object.values(state).every((s) => s === 'current')
-    && await hasCvPdf(job.id)) {
-    return loadCachedPrepPack(job.id, fit, job, profile);
-  }
+}
+
+async function writePrepPackWithMemory(job, profile, fit, savedAnswers = {}, options = {}) {
+  const settings = { ...(await loadCvSettings()), ...options };
   const pack = await generateDocuments({ job, profile, settings,
-    instructions: options.extraInstructions || '', mode, scopes: includeLetter ? ['cv', 'letter'] : ['cv'],
-    replaceExisting: options.replaceExisting === true },
-  () => writePrepPackUncached(job, profile, fit, savedAnswers, { ...options, recreate: true, useCache: false }));
+    instructions: options.extraInstructions || '', mode: 'agent', scopes: ['cv'] },
+  () => writePrepPackUncached(job, profile, fit, savedAnswers, options));
   if (!pack.needsReview) {
-    if (settings.source === 'overleaf' && settings.overleafPush !== false) {
-      try {
-        const pushed = await pushValidatedOverleaf({ job, prepDir: pack.dir });
-        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: pushed.pushed, pushReason: pushed.reason });
-      } catch (error) {
-        if (pack.overleaf) Object.assign(pack.overleaf, { pushed: false, pushReason: error.message });
-        options.onEvent?.({ stream: 'stderr', line: `Overleaf push skipped: ${error.message}` });
-      }
-    }
-    if (options.replaceExisting) {
-      await clearJobDownloads({ jobId: job.id, company: job.company, jobTitle: job.title });
-      options.onEvent?.({ stream: 'meta', line: 'Cleared the previous role folder; exporting fresh documents.' });
-    }
     const exported = await exportPrepDownloads(job, profile);
     pack.downloadFolderAbs = exported.absoluteDir || null;
     pack.downloadFolder = exported.relativeDir || null;
@@ -726,125 +569,13 @@ async function writePrepPackUncached(job, profile, fit, savedAnswers = {}, optio
   const onEvent = typeof options.onEvent === 'function' ? options.onEvent : null;
   settings.onEvent = onEvent;
 
-  const requestedMode = options.tailorMode === 'fast' || settings.tailorMode === 'fast'
-    ? 'fast'
-    : 'agent';
-
-  const includeCoverLetter = options.includeCoverLetter !== false;
-
-  const withLetter = (packPromise) => includeCoverLetter
-    ? packPromise.then((pack) => attachCoverLetterAfterPrep(pack, {
-      job,
-      profile,
-      fit,
-      extraInstructions,
-      settings,
-      onEvent,
-    }))
-    : packPromise;
-
-  if (requestedMode === 'agent') {
-    const avail = await agentRunnerAvailable(settings.agentProvider);
-    if (!avail.ok) {
-      onEvent?.({
-        stream: 'stderr',
-        line: `Agent provider "${avail.provider}" unavailable (${avail.detail}) — falling back to Fast (keyword).`,
-        t: Date.now(),
-      });
-      return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
-        fallbackReason: avail.detail,
-      }));
-    }
-    try {
-      return await withLetter(writePrepPackAgent(
-        job,
-        profile,
-        fit,
-        savedAnswers,
-        settings,
-        extraInstructions,
-        onEvent,
-      ));
-    } catch (err) {
-      const msg = err?.message || String(err);
-      onEvent?.({
-        stream: 'stderr',
-        line: `Agent tailor failed (${msg}) — falling back to Fast (keyword).`,
-        t: Date.now(),
-      });
-      return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions, {
-        fallbackReason: msg,
-      }));
-    }
-  }
-
-  return withLetter(writePrepPackFast(job, profile, fit, savedAnswers, settings, extraInstructions));
-}
-
-async function attachCoverLetterAfterPrep(pack, {
-  job,
-  profile,
-  fit,
-  extraInstructions,
-  settings,
-  onEvent,
-}) {
-  if (!pack || pack.cached) return pack;
-  const dir = pack.dir || prepDir(job.id);
-  const tailorMode = pack.tailorMode === 'fast' ? 'fast' : 'agent';
-  onEvent?.({
-    stream: 'meta',
-    line: 'CV ready — generating cover letter with the same instructions…',
-    t: Date.now(),
-  });
-  try {
-    const letter = await generateCoverLetterPack(job, profile, fit, {
-      prepDir: dir,
-      cvSource: settings.source,
-      extraInstructions,
-      tailorMode,
-      provider: settings.agentProvider,
-      model: settings.agentModel,
-      onEvent,
-    });
-    pack.agent = await loadAgentSession(dir);
-    pack.coverLetter = letter.letter;
-    pack.coverLetterIncluded = letter.included;
-    pack.coverLetterMode = letter.tailorMode;
-    pack.coverLetterFallback = letter.fallbackReason || null;
-    pack.coverLetterPdfError = letter.pdfError || null;
-    pack.review = letter.review || (await loadReviewSummary(dir));
-    if (letter.export?.absoluteDir) {
-      pack.downloadFolderAbs = letter.export.absoluteDir;
-      pack.downloadFolder = letter.export.relativeDir;
-    }
-    onEvent?.({
-      stream: 'ok',
-      line: letter.fallbackReason
-        ? `Cover letter finished via Fast fallback (${letter.fallbackReason}).`
-        : `Cover letter finished (${letter.tailorMode}).`,
-      t: Date.now(),
-    });
-  } catch (err) {
-    pack.coverLetterError = err?.message || String(err);
-    onEvent?.({
-      stream: 'stderr',
-      line: `Cover letter after Prep failed: ${pack.coverLetterError}`,
-      t: Date.now(),
-    });
-  }
+  const avail = await agentRunnerAvailable();
+  if (!avail.ok) throw new Error(avail.detail);
+  const pack = await writePrepPackAgent(job, profile, fit, savedAnswers, settings, extraInstructions, onEvent);
   return pack;
 }
 
-export {
-  cursorAgentAvailable,
-  agentRunnerAvailable,
-  listAgentModels,
-  listAgentProvidersStatus,
-  resolveAgentModel,
-  normalizeAgentProvider,
-  AGENT_PROVIDERS,
-} from './cv-agent.mjs';
+export { agentRunnerAvailable } from './cv-agent.mjs';
 
 export async function readPrepPack(jobId) {
   const dir = prepDir(jobId);

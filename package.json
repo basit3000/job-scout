@@ -18,7 +18,6 @@
     "node": ">=22.13"
   },
   "dependencies": {
-    "@cursor/sdk": "^1.0.26",
     "docx": "^9.7.1",
     "pdfjs-dist": "^4.10.38",
     "playwright-core": "^1.55.0"

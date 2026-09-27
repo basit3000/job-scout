@@ -5,6 +5,7 @@ import { ROOT, loadJson, prepDir, workspaceDir } from './common.mjs';
 import { artifactContext } from './artifact-context.mjs';
 import { extractPdfText } from './pdf-text.mjs';
 import { reviewStatusReason } from './review-documents.mjs';
+import { readMemory, memoryInputs } from './memory.mjs';
 
 const MANIFEST = 'generation.json';
 const activeJobs = new Set();
@@ -26,8 +27,9 @@ export async function loadPrepInputs(settings = {}, root = ROOT) {
     ? (await readdir(join(root, '.workspace', 'overleaf')).catch(() => []))
       .filter((name) => name.endsWith('.tex')).sort().map((name) => `.workspace/overleaf/${name}`)
     : [await exists(join(root, 'cv', 'resume.md')) ? 'cv/resume.md' : 'cv/resume.txt'];
-  const paths = [...sources, 'cv/cover-letter.md', 'cv/cover-letter-notes.md'];
-  return Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))])));
+  const memory = await readMemory(root);
+  const paths = [...sources, 'cv/cover-letter.md'];
+  return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))]))), ...memoryInputs(memory) };
 }
 
 export function prepFingerprint({ job, profile, settings = {}, inputs = {}, scope, instructions = '', mode }) {
@@ -46,7 +48,10 @@ export function assessPrep(manifest, context, { cv = true, letter = true, instru
   for (const scope of ['cv', 'letter']) {
     if (!(scope === 'cv' ? cv : letter)) continue;
     const saved = manifest?.[scope];
-    const fingerprint = prepFingerprint({ ...context, scope,
+    // Coordinator runs use the configured Goose model; keep that fingerprint stable.
+    const settings = saved?.workflow === 'goose'
+      ? { ...context.settings, agentProvider: 'goose', agentModel: '' } : context.settings;
+    const fingerprint = prepFingerprint({ ...context, settings, scope,
       instructions: instructions ?? saved?.instructions ?? '', mode: mode ?? saved?.mode });
     state[scope] = !saved ? 'outdated' : saved.needsReview ? 'needs-review'
       : saved.fingerprint === fingerprint ? 'current' : 'outdated';
@@ -93,7 +98,7 @@ export async function inspectDocuments(dir, scopes) {
  * Failed/overflow drafts remain inspectable in prep-history, never cropped.
  */
 export async function generateDocuments({ job, profile, settings, instructions = '', mode, scopes,
-  root = workspaceDir(), inspect = inspectDocuments, replaceExisting = false }, generate) {
+  root = workspaceDir(), inspect = inspectDocuments }, generate) {
   if (activeJobs.has(job.id)) throw new Error('Preparation is already running for this job');
   const accepted = root === workspaceDir() ? prepDir(job.id) : join(root, 'prep', createHash('sha256').update(job.id).digest('hex'));
   activeJobs.add(job.id);
@@ -104,7 +109,7 @@ export async function generateDocuments({ job, profile, settings, instructions =
     const inputSnapshot = await loadPrepInputs(settings);
     await mkdir(staged, { recursive: true });
     hadAccepted = await exists(accepted);
-    if (hadAccepted && !replaceExisting) await cp(accepted, staged, { recursive: true });
+    if (hadAccepted) await cp(accepted, staged, { recursive: true });
     const reviews = await loadJson(join(staged, 'review-summary.json'), {});
     for (const scope of scopes) delete reviews[scope];
     await writeFile(join(staged, 'review-summary.json'), JSON.stringify(reviews, null, 2));
@@ -114,20 +119,20 @@ export async function generateDocuments({ job, profile, settings, instructions =
       await unlink(join(staged, name)).catch((err) => { if (err.code !== 'ENOENT') throw err; });
     }
     const result = await artifactContext.run({ jobId: job.id, dir: staged }, () => generate(staged));
+    settings.signal?.throwIfAborted();
     const reports = await inspect(staged, scopes);
     if (result.coverLetterError && reports.letter) {
       reports.letter.needsReview = true;
       reports.letter.reasons.push(result.coverLetterError);
     }
-    // Local generation uses the source captured before work starts. Overleaf
-    // (and explicit updateMaster) also updates that source as part of the run.
-    const inputs = settings.source === 'overleaf' || settings.updateMaster
+    // Local generation keeps its input snapshot; Overleaf workers edit the checkout.
+    const inputs = settings.source === 'overleaf'
       ? await loadPrepInputs(settings) : inputSnapshot;
     const manifest = await loadJson(join(staged, MANIFEST), {});
     for (const scope of scopes) manifest[scope] = {
       fingerprint: prepFingerprint({ job, profile, settings, inputs, scope, instructions, mode }),
       sourceFingerprint: prepFingerprint({ job, profile, settings, inputs: inputSnapshot, scope, instructions, mode }),
-      instructions, mode, generatedAt: new Date().toISOString(), ...reports[scope],
+      instructions, mode, workflow: settings.workflow, generatedAt: new Date().toISOString(), ...reports[scope],
     };
     await writeFile(join(staged, MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`);
     const needsReview = Object.values(reports).some((r) => r.needsReview);
@@ -139,6 +144,7 @@ export async function generateDocuments({ job, profile, settings, instructions =
       return { ...result, dir: accepted, needsReview: true, preservedPrevious: true, draftDir: history, documentReports: reports };
     }
     await mkdir(dirname(accepted), { recursive: true });
+    settings.signal?.throwIfAborted();
     if (hadAccepted) await rename(accepted, history);
     try { await rename(staged, accepted); }
     catch (err) { if (hadAccepted) await rename(history, accepted); throw err; }

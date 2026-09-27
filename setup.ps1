@@ -113,7 +113,7 @@ try {
         Write-Host 'Setup complete. Start: .\start.ps1   Check again: .\start.ps1 -Doctor'
         if ($choices.Goose) {
             Write-Host 'Configure your model separately: .\goose.ps1 configure'
-            Write-Host 'Goose is available standalone; the Job Scout UI provider adapter is not implemented yet.'
+            Write-Host 'Goose powers the app workflows. Choose tools and a task from Prepare documents.'
         }
         Write-Host 'Enter your own profile in the app. Credentials stay in your local configuration.'
         if ($choices.Start) { & (Join-Path $PSScriptRoot 'start.ps1') }

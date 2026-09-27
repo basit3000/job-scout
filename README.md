@@ -7,6 +7,8 @@ Docker is required.
 **Version 2 uses Goose for every AI workflow and `state/memory.json` for candidate
 information.** There is no Fast mode, provider selector, or legacy memory syncing.
 Existing users: follow [Upgrading](docs/upgrading.md) before starting this version.
+That guide covers transferring private data, migration, and fresh checkouts after
+the Git history rewrite.
 
 ## Install
 
@@ -121,8 +123,12 @@ npm run privacy
 npm run privacy -- --staged
 ```
 
-Privacy checks report filenames and categories without printing values. They do
-not erase committed history or replace a comprehensive secret scanner.
+Privacy checks report filenames and categories without printing values. They scan
+working files or the Git index, not old commits, pull-request references, forks or
+GitHub caches. Audit those separately when checking past exposure; rewriting a
+branch alone does not remove every public copy. See
+[GitHub's cleanup guidance](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
+The local check does not replace a comprehensive secret scanner.
 
 ## Development
 

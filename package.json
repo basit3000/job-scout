@@ -6,6 +6,7 @@
   "description": "Local multi-country job scout — CLI + web UI",
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "doctor": "node scripts/doctor.mjs",
     "start": "node scripts/setup.mjs --quiet && node web/server.mjs",
     "dev": "npm start",
     "fetch": "node scripts/fetch-jobs.mjs",

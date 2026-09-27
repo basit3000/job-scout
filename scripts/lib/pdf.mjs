@@ -17,7 +17,7 @@ const WIN_BROWSERS = [
   join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
 ];
 
-async function findBrowser() {
+export async function findBrowser() {
   if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) {
     return process.env.CHROME_PATH;
   }

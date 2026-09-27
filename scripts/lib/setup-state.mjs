@@ -2,6 +2,7 @@ import { access, copyFile, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ROOT, loadJson } from './common.mjs';
 import { findPlaceholders, isPlaceholder } from './placeholders.mjs';
+import { readMemory, loadCandidateProfile, updateMemory } from './memory.mjs';
 
 async function exists(p) {
   try {
@@ -13,20 +14,22 @@ async function exists(p) {
 }
 
 const TEMPLATE_COPIES = [
-  ['profile.example.json', 'profile.json'],
   ['search-profile.example.json', 'search-profile.json'],
   ['cv/resume.example.md', 'cv/resume.md'],
   ['cv/cover-letter.example.md', 'cv/cover-letter.md'],
-  ['cv/cover-letter-notes.example.md', 'cv/cover-letter-notes.md'],
   ['.env.example', '.env'],
   ['state/decisions.example.json', 'state/decisions.json'],
-  ['state/saved-answers.example.json', 'state/saved-answers.json'],
 ];
 
 export async function ensureLocalTemplates({ quiet = false } = {}) {
   const log = quiet ? () => {} : console.log;
   let created = 0;
 
+  if (!(await readMemory())) {
+    if (await exists(join(ROOT, 'profile.json'))) throw new Error('Older installation found. Run npm run memory:migrate before starting this version.');
+    const template = JSON.parse(await readFile(join(ROOT, 'state/memory.example.json'), 'utf8'));
+    await updateMemory(() => template);
+  }
   for (const [fromRel, toRel] of TEMPLATE_COPIES) {
     const from = join(ROOT, fromRel);
     const to = join(ROOT, toRel);
@@ -65,8 +68,7 @@ export async function getSetupStatus() {
   let profileParseError = null;
   let profile;
   try {
-    const text = (await readFile(join(ROOT, 'profile.json'), 'utf8')).replace(/^\uFEFF/, '');
-    profile = JSON.parse(text);
+    profile = await loadCandidateProfile();
   } catch (err) {
     profile = null;
     if (err.code !== 'ENOENT') {
@@ -82,7 +84,7 @@ export async function getSetupStatus() {
     resumeHasPlaceholders = /\bYOUR_[A-Z0-9_]+\b/.test(text);
   }
 
-  const profileHits = profile ? findPlaceholders(profile) : [{ path: 'profile.json', value: 'missing' }];
+  const profileHits = profile ? findPlaceholders(profile) : [{ path: 'state/memory.json', value: 'missing' }];
   const criticalPaths = new Set([
     'name',
     'targetRole',
@@ -145,11 +147,9 @@ export async function applySetup(body = {}) {
   if (!titles.length) throw new Error('Add at least one search title');
   if (!market) throw new Error('Market is required');
 
-  const profilePath = join(ROOT, 'profile.json');
-  const existingProfile = (await loadJson(profilePath, null)) || {};
+  const existingProfile = (await loadCandidateProfile()) || {};
   const profile = {
     ...existingProfile,
-    _README: 'Created by Job Scout first-run setup. Local only (gitignored).',
     name,
     headline,
     targetRole,
@@ -177,7 +177,7 @@ export async function applySetup(body = {}) {
             to: 'present',
             bullets: [
               `Looking for ${targetRole} roles in ${market}`,
-              'Update this section in profile.json or cv/resume.md with real experience',
+              'Update Memory with real experience',
             ],
           },
         ],
@@ -263,7 +263,12 @@ export async function applySetup(body = {}) {
     }
   }
 
-  await writeFile(profilePath, `${JSON.stringify(profile, null, 2)}\n`);
+  await updateMemory((current) => {
+    current.facts = { ...profile, background: current.facts.background || {} };
+    if (cities.length) current.answers.citiesOpenTo = cities.join(', ');
+    current.answers.remotePreference = openToRemote ? 'Open to remote' : current.answers.remotePreference || '';
+    return current;
+  });
   await writeFile(searchPath, `${JSON.stringify(searchProfile, null, 2)}\n`);
 
   const resumePath = join(ROOT, 'cv', 'resume.md');
@@ -274,19 +279,6 @@ export async function applySetup(body = {}) {
     await mkdir(join(ROOT, 'cv'), { recursive: true });
     await writeFile(resumePath, resumeText);
   }
-
-  const answersPath = join(ROOT, 'state', 'saved-answers.json');
-  const answersDoc = (await loadJson(answersPath, null)) || { answers: {} };
-  answersDoc.answers = {
-    ...(answersDoc.answers ?? {}),
-    linkedin: linkedin || answersDoc.answers?.linkedin || '',
-    github: github || answersDoc.answers?.github || '',
-    portfolio: portfolio || answersDoc.answers?.portfolio || '',
-    citiesOpenTo: cities.join(', ') || answersDoc.answers?.citiesOpenTo || '',
-    remotePreference: openToRemote ? 'Open to remote' : answersDoc.answers?.remotePreference || '',
-  };
-  answersDoc.updatedAt = new Date().toISOString();
-  await writeFile(answersPath, `${JSON.stringify(answersDoc, null, 2)}\n`);
 
   return getSetupStatus();
 }

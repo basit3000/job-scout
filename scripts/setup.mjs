@@ -17,7 +17,7 @@ async function main() {
 
   if (quiet) {
     if (status.profileParseError) {
-      console.log(`Job Scout: profile.json is invalid JSON (${status.profileParseError}). Fix that file — your data is still there.`);
+      console.log(`Job Scout: candidate memory/profile is invalid (${status.profileParseError}). Fix that file — your data is still there.`);
     } else if (status.needsSetup) {
       console.log('Job Scout: first-run setup needed → open http://localhost:4040 and fill the form.');
     }
@@ -27,7 +27,7 @@ async function main() {
   console.log(`\n${created ? `Created ${created} file(s).` : 'Everything already in place.'}`);
 
   if (status.profileParseError) {
-    console.log(`\nprofile.json is invalid JSON:\n  ${status.profileParseError}\nFix the file (often a trailing comma). Do not run first-time setup — that would overwrite it.\n`);
+    console.log(`\nCandidate memory/profile is invalid:\n  ${status.profileParseError}\nFix the file (often a trailing comma). Your data has not been replaced.\n`);
   } else if (status.needsSetup) {
     console.log(`
 Not configured yet. Easiest path:
@@ -36,7 +36,7 @@ Not configured yet. Easiest path:
   #    (name, role, market, titles — writes your local profile)
 
 Or edit manually:
-  1. profile.json
+  1. Memory in the UI
   2. search-profile.json  → "market"
   3. cv/resume.md
 `);

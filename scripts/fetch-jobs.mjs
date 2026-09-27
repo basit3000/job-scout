@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import { loadCandidateProfile } from './lib/memory.mjs';
 // Country-configurable job fetch. Default: JobSpy (free). Apify only with --allow-paid.
 //
 //   node scripts/fetch-jobs.mjs
@@ -444,15 +444,15 @@ async function main() {
     process.exit(1);
   }
 
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
+  const profile = await loadCandidateProfile();
   if (!profile) {
-    console.error('No profile.json found.');
-    console.error('  cp profile.example.json profile.json');
+    console.error('No candidate memory found.');
+    console.error('  Complete setup or run npm run memory:migrate');
     console.error('Then replace every YOUR_* placeholder with real values for this person.');
     process.exit(1);
   }
 
-  assertNoPlaceholders('profile.json', {
+  assertNoPlaceholders('state/memory.json', {
     name: profile.name,
     targetRole: profile.targetRole,
     search: profile.search,
@@ -648,7 +648,7 @@ async function main() {
 
     console.log(`Wrote ${join(outDir, 'jobs.json')}`);
     console.log(`Wrote ${join(outDir, 'jobs.md')}`);
-    console.log(`Candidate: ${meta.candidate ?? '(no profile.json — filters only)'}`);
+    console.log(`Candidate: ${meta.candidate ?? '(no candidate memory — filters only)'}`);
     console.log(`Strategy: ${meta.strategy}${stopped ? ' (stopped early)' : ''}`);
     if (stopped) {
       console.log(

@@ -1,7 +1,7 @@
 /**
  * Per-job tailored CV — mirrors cv-tailor writing/format rules (see
  * `.agents/skills/cv-tailor/references/writing-rules.md`). Prefers cv/resume.md when present;
- * else profile.json. Reorders true facts only; never invents.
+ * else state/memory.json. Reorders true facts only; never invents.
  *
  * Layout (cv-tailor hard rule): Header → Experience → Education → Projects → Skills
  * No summary paragraph. ATS-friendly single column HTML.
@@ -147,7 +147,7 @@ function fromProfile(job, profile, fit, keywords) {
     contact,
     allSkills,
     highlighted,
-    source: 'profile.json',
+    source: 'state/memory.json',
   };
 }
 

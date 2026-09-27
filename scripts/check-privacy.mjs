@@ -17,7 +17,13 @@ function add(label, value) {
   needles.push({ label, value: text.toLowerCase() });
 }
 const profileText = await optional('profile.json');
-const profile = profileText ? JSON.parse(profileText) : {};
+const memoryText = await optional('state/memory.json');
+const memory = memoryText ? JSON.parse(memoryText) : null;
+const legacyProfile = profileText ? JSON.parse(profileText) : {};
+const profile = memory?.facts || legacyProfile;
+// Keep checking retired source identities as well as current canonical values.
+add('candidate name', legacyProfile.name);
+for (const value of Object.values(legacyProfile.links || {})) add('candidate contact/link', value);
 add('candidate name', profile.name);
 add('candidate handle', profile.githubUsername);
 for (const value of Object.values(profile.links || {})) add('candidate contact/link', value);
@@ -28,6 +34,10 @@ for (const entry of profile.experience || []) {
   add('candidate client', entry.client);
 }
 for (const entry of profile.education || []) add('candidate school', entry.school);
+for (const value of [memory?.facts?.background?.techStack, memory?.facts?.background?.coverLetterNotes,
+  memory?.preferences?.agentRules, memory?.preferences?.writingRules]) {
+  if (value) add('private memory content', value);
+}
 const resume = await optional('cv/resume.md');
 for (const value of resume.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || []) add('candidate email', value);
 for (const value of resume.match(/\+\d[\d ()-]{8,}\d/g) || []) add('candidate phone', value);

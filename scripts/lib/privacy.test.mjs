@@ -32,8 +32,16 @@ test('privacy check blocks personal content in working files and staged snapshot
     await assert.rejects(check(['--staged']),error => /Git index/.test(error.stderr));
     await git(['add','example.md']);
     await mkdir(join(dir,'state'));
-    await writeFile(join(dir,'state','private.json'),'{}');
-    await git(['add','-f','state/private.json']);
+    await rm(join(dir, 'profile.json'));
+    await writeFile(join(dir,'state','memory.json'), JSON.stringify({ facts: { name: 'Another Fictional Candidate Z' } }));
+    await writeFile(join(dir,'example.md'),'Another Fictional Candidate Z\n');
+    await assert.rejects(check([]), error => {
+      assert.match(error.stderr, /example.md: candidate name/);
+      assert.doesNotMatch(error.stderr, /Another Fictional Candidate Z/);
+      return true;
+    });
+    await writeFile(join(dir,'example.md'),'Clean working copy.\n');
+    await git(['add','-f','state/memory.json']);
     await assert.rejects(check(['--staged']),error => /private\/generated file/.test(error.stderr));
   } finally {
     assert.equal(dirname(resolve(dir)),resolve(tmpdir()));

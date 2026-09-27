@@ -1,3 +1,4 @@
+import { readMemorySync, memoryEvidence } from './memory.mjs';
 /**
  * Post-edit quality gate for agent-tailored CVs and cover letters.
  *
@@ -5,7 +6,7 @@
  * this module compares its output with a snapshot taken before the run and with the
  * evidence corpus, then:
  *
- *   HARD failures  → the edit is reverted and Prep falls back to Fast mode.
+ *   HARD failures  → the edit is rejected; previously accepted documents remain intact.
  *                    (employer / title / date changed, a number nobody measured,
  *                     section order broken, Experience bullet dropped, Senior/Lead
  *                     headline, LaTeX that cannot compile, YOUR_ placeholders)
@@ -260,18 +261,8 @@ export async function buildFactCorpus({
   evidencePath = '',
   job = null,
 } = {}) {
-  const texts = [
-    ...beforeTexts,
-    ...extraTexts,
-    evidencePath ? await readIf(evidencePath) : '',
-    await readIf(join(ROOT, 'cv', 'tech-stack.md')),
-    await readIf(join(ROOT, 'cv', 'resume.md')),
-    await readIf(join(ROOT, 'cv', 'cover-letter.md')),
-    await readIf(join(ROOT, 'cv', 'cover-letter-notes.md')),
-    await readIf(join(ROOT, 'profile.json')),
-    await readIf(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'agent-rules.md')),
-    await readIf(join(ROOT, '.agents', 'skills', 'cv-tailor.local', 'references', 'tech-stack.md')),
-  ];
+  const memory = readMemorySync();
+  const texts = [...beforeTexts, ...extraTexts, ...(memory ? [memoryEvidence(memory)] : [])];
   const numbers = new Set();
   let lower = '';
   for (const t of texts) {
@@ -576,7 +567,7 @@ export function formatQualityReport({
   if (cv) {
     const verdict = cv.hard.length ? 'REVERTED' : cv.soft.length ? 'PASS with warnings' : 'PASS';
     lines.push(`## CV — ${verdict}`, '');
-    if (reverted) lines.push(`Agent edit reverted; Prep fell back to Fast mode. ${revertReason}`, '');
+    if (reverted) lines.push(`Agent edit rejected; previous accepted documents preserved. ${revertReason}`, '');
     if (cv.hard.length) {
       lines.push('### Hard failures (edit reverted)', '');
       for (const h of cv.hard) lines.push(`- ${h}`);

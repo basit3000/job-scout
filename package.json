@@ -11,7 +11,8 @@
     "fetch": "node scripts/fetch-jobs.mjs",
     "evidence": "node scripts/build-evidence.mjs",
     "privacy": "node scripts/check-privacy.mjs",
-    "test": "node --test \"scripts/lib/*.test.mjs\""
+    "test": "node --test \"scripts/lib/*.test.mjs\"",
+    "memory:migrate": "node scripts/migrate-memory.mjs"
   },
   "engines": {
     "node": ">=22.13"

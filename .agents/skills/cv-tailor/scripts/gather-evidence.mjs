@@ -4,14 +4,14 @@
 //     with their full text — the blog is usually the richest account of what a
 //     project actually does)
 //   - the public GitHub account (repos, languages, commit activity)
-//   - optionally a Job Scout profile.json (employment, skills, constraints)
+//   - Job Scout candidate memory (employment, skills, constraints)
 //
 // Every fact carries a confidence label so the CV writer can tell the
 // difference between "GitHub says this" and "the portfolio copy claims this".
 //
 // Usage:
 //   node .agents/skills/cv-tailor/scripts/gather-evidence.mjs [--username <login>] [--no-github]
-//     [--portfolio-root /path/to/portfolio] [--out-dir .cv-workspace] [--profile profile.json]
+//     [--portfolio-root /path/to/portfolio] [--out-dir .cv-workspace]
 //
 // Portfolio root: --portfolio-root, then PORTFOLIO_ROOT, then scripts/lib/portfolio.mjs
 // (this repo if it has src/data/projects.js, else sibling ../portfolio).
@@ -23,6 +23,7 @@ import { promisify } from 'node:util';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { looksLikePortfolio, resolvePortfolioRoot as findPortfolioRoot } from '../../../../scripts/lib/portfolio.mjs';
+import { readMemory, candidateProfile } from '../../../../scripts/lib/memory.mjs';
 
 const run = promisify(execFile);
 
@@ -47,7 +48,6 @@ if (!USERNAME && !flag('--no-github')) {
 const USE_GITHUB = !flag('--no-github');
 const PORTFOLIO_ROOT_ARG = value('--portfolio-root', process.env.PORTFOLIO_ROOT || '');
 const OUT_DIR_ARG = value('--out-dir', '');
-const PROFILE_ARG = value('--profile', '');
 const RECENT_REPO_COUNT = 6;
 const COMMIT_SAMPLE = 8;
 const YEARS_BACK = 4;
@@ -216,19 +216,10 @@ async function collectPortfolio(root) {
   };
 }
 
-async function collectProfile(path) {
-  if (!path) return null;
-  const abs = resolve(path);
-  if (!existsSync(abs)) {
-    warnings.push(`Profile ${abs} not found — skipped.`);
-    return null;
-  }
-  try {
-    return JSON.parse(await readFile(abs, 'utf8'));
-  } catch (err) {
-    warnings.push(`Profile ${abs} unreadable: ${String(err.message).split('\n')[0]}`);
-    return null;
-  }
+async function collectProfile() {
+  const memory = await readMemory(await gitRoot());
+  if (!memory) throw new Error('Complete Job Scout Memory setup before collecting evidence.');
+  return { ...candidateProfile(memory), background: memory.facts.background || {} };
 }
 
 async function collectGitHub() {
@@ -399,6 +390,10 @@ function toMarkdown({ generatedAt, portfolio, github, profile, crossRef, warning
 
   if (profile) {
     push('## Candidate profile [candidate-stated]');
+    if (profile.background) {
+      push('Current memory background (candidate-stated; external sources cannot silently override it):');
+      push('```json'); push(JSON.stringify(profile.background, null, 2)); push('```');
+    }
     push();
     if (profile.name) push(`- Name: ${profile.name}`);
     if (profile.headline) push(`- Headline: ${profile.headline}`);
@@ -541,7 +536,7 @@ async function main() {
   await mkdir(outDir, { recursive: true });
 
   const portfolio = await collectPortfolio(portfolioRoot);
-  const profile = await collectProfile(PROFILE_ARG);
+  const profile = await collectProfile();
   const github = USE_GITHUB ? await collectGitHub() : null;
   if (!USE_GITHUB) warnings.push('GitHub collection skipped (--no-github).');
 

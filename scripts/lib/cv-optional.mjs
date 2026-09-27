@@ -1,34 +1,10 @@
-/**
- * Optional CV lines (courses, spoken languages, certificates) that may be
- * restored from a gitignored overlay, dropped when the posting does not
- * need them, or dropped to keep the CV on one page.
- *
- * Experience is never touched. Overlay path:
- *   .agents/skills/cv-tailor.local/references/optional-lines.json
- * Clonees without that file skip restore; drop rules still run on whatever
- * is already in the .tex.
- */
-
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { ROOT } from './common.mjs';
 import { detectGermanRequirement } from './cv-keywords.mjs';
+import { readMemorySync } from './memory.mjs';
 
-export const OPTIONAL_LINES_REL = '.agents/skills/cv-tailor.local/references/optional-lines.json';
 
 const EXPERIENCE_RE = /\\section\*?\{[^}]*(?:Experience|Employment)[^}]*\}[\s\S]*?(?=\\section|\s*\\end\{document\})/i;
 
-export function loadOptionalLines() {
-  const path = join(ROOT, OPTIONAL_LINES_REL);
-  if (!existsSync(path)) return null;
-  try {
-    const data = JSON.parse(readFileSync(path, 'utf8'));
-    if (!data || typeof data !== 'object') return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
+export function loadOptionalLines() { return readMemorySync()?.facts.background?.optionalLines || {}; }
 
 function jobText(job) {
   return `${job?.title || ''}\n${job?.description || ''}`.toLowerCase();

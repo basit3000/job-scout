@@ -1,6 +1,4 @@
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
-import { ROOT, loadJson } from './common.mjs';
+import { readMemory, memoryAnswers, updateMemory } from './memory.mjs';
 
 export const DEFAULT_SAVED_ANSWERS = {
   workAuthorization: '',
@@ -16,19 +14,24 @@ export const DEFAULT_SAVED_ANSWERS = {
   needsSponsorship: '',
 };
 
-export function savedAnswersPath() {
-  return join(ROOT, 'state', 'saved-answers.json');
-}
-
 export async function loadSavedAnswers() {
-  const data = await loadJson(savedAnswersPath(), null);
-  return { ...DEFAULT_SAVED_ANSWERS, ...(data?.answers ?? data ?? {}) };
+  const memory = await readMemory();
+  if (memory) return { ...DEFAULT_SAVED_ANSWERS, ...memoryAnswers(memory) };
+  return { ...DEFAULT_SAVED_ANSWERS };
 }
 
 export async function saveSavedAnswers(answers) {
-  const merged = { ...DEFAULT_SAVED_ANSWERS, ...answers };
-  const path = savedAnswersPath();
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ answers: merged, updatedAt: new Date().toISOString() }, null, 2)}\n`);
-  return merged;
+  if (await readMemory()) {
+    const memory = await updateMemory((current) => {
+      for (const [key, value] of Object.entries(answers)) {
+        if (!(key in DEFAULT_SAVED_ANSWERS) || typeof value !== 'string') throw new Error('Invalid saved answer.');
+        if (['phone', 'linkedin', 'github', 'portfolio'].includes(key)) {
+          current.facts.links ||= {}; current.facts.links[key] = value;
+        } else current.answers[key] = value;
+      }
+      return current;
+    });
+    return { ...DEFAULT_SAVED_ANSWERS, ...memoryAnswers(memory) };
+  }
+  throw new Error('Complete Memory setup first.');
 }

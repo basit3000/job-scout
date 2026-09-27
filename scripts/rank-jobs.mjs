@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+import { loadCandidateProfile } from './lib/memory.mjs';
 // Rank .workspace/jobs.json against profile + CV and write shortlist files.
 //
 //   node scripts/rank-jobs.mjs
@@ -50,9 +50,9 @@ async function main() {
     console.error('No .workspace/jobs.json — run fetch-jobs.mjs first.');
     process.exit(1);
   }
-  const profile = await loadJson(join(ROOT, 'profile.json'), null);
+  const profile = await loadCandidateProfile();
   if (!profile) {
-    console.error('No profile.json');
+    console.error('No candidate memory');
     process.exit(1);
   }
 

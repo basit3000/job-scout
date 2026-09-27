@@ -34,6 +34,6 @@ export function assertNoPlaceholders(label, obj) {
   console.error(`${label} still has unset YOUR_* placeholders:`);
   for (const h of hits.slice(0, 20)) console.error(`  - ${h.path}: ${JSON.stringify(h.value)}`);
   if (hits.length > 20) console.error(`  …and ${hits.length - 20} more`);
-  console.error('Replace them in profile.json / cv/resume.md before running. Ask the user if unknown.');
+  console.error('Replace them in state/memory.json / cv/resume.md before running. Ask the user if unknown.');
   process.exit(1);
 }

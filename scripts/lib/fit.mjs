@@ -1,4 +1,4 @@
-/** Heuristic fit score against profile.json (and optional evidence text). */
+/** Heuristic fit score against state/memory.json (and optional evidence text). */
 import { analyzeKeywordGaps } from './cv-keywords.mjs';
 import { assessRequirements } from './match-requirements.mjs';
 export const FIT_VERDICTS = ['Strong', 'Worth a shot', 'Stretch', 'No'];

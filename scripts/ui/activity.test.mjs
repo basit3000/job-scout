@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { readFile, mkdir } from 'node:fs/promises';
 import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
+import { pdfFixture } from '../test-helpers/pdf-fixture.mjs';
+import { inspectAtsPdf } from '../lib/ats-check.mjs';
 
 // Full UI with synthetic jobs and controlled events: never contacts a job board,
 // candidate store or AI provider. Run with: npm run test:activity
@@ -51,6 +53,10 @@ test('activity remains visible and actionable through search and Prep lifecycles
     else if (path === '/api/ready') data = { jobs, pagination, total: 10 };
     else if (path === '/api/run-history') data = {};
     else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
+    else if (path === '/api/ats-check') {
+      const body = request.postDataJSON();
+      data = await inspectAtsPdf(Buffer.from(body.pdf, 'base64'), body.keywords);
+    }
     else if (path === '/api/fetch') {
       searches++;
       if (failSearch) { code = 500; data = { error: 'Search provider unavailable' }; }
@@ -245,6 +251,24 @@ test('activity remains visible and actionable through search and Prep lifecycles
     assert.equal(await page.locator('#cvMatchHeadline').isChecked(), false);
     assert.equal(await page.locator('#cvPreferredCity').inputValue(), '');
     await page.locator('#prepModalCancel').click();
+  });
+  await t.test('ATS button reads a selected PDF independently of generation', async () => {
+    const before = prepRequests.length;
+    await page.locator('#openAtsCheck').click();
+    await page.locator('#atsPdf').setInputFiles({ name: 'example.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['Example Candidate example@example.com Experience Education Projects Skills Python Docker']) });
+    await page.locator('#atsKeywords').fill('Python, Java');
+    await page.locator('#runAtsCheck').click();
+    await textIs('#atsCheckStatus', '1 page');
+    await textIs('#atsCheckResults', 'Python: found');
+    await textIs('#atsCheckResults', 'Java: not found');
+    await page.locator('#atsCheckResults summary').click();
+    await textIs('#atsCheckResults pre', 'Example Candidate');
+    await page.screenshot({ path: resolve('.workspace/cv-ui/ats-check.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: resolve('.workspace/cv-ui/ats-mobile.png') });
+    await page.locator('#closeAtsCheck').click();
+    assert.equal(prepRequests.length, before);
   });
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpected, []);

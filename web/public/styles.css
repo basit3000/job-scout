@@ -1988,7 +1988,10 @@ body.setup-open .app {
   .activity-drawer-head, .activity-drawer-body { padding: 1rem; }
   .prep-results-dialog { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
 }
-/* Opt-in personal CV choices. */
+/* Standalone PDF inspection and opt-in personal CV choices. */
+.ats-check-dialog { width: min(760px, calc(100vw - 32px)); max-height: 85vh; overflow: auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 24px; }
+.ats-check-dialog::backdrop { background: rgb(15 23 42 / 45%); }
+.ats-check-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
 #personalCvOptions { margin: 16px 0; }
 #personalCvOptions > label { display: block; margin: 8px 0; }
 [hidden] { display: none !important; }

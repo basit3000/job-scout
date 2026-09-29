@@ -19,6 +19,7 @@
           <p class="brand-sub" id="candidateLine">Local shortlist</p>
         </div>
         <div class="run-controls">
+          <button type="button" class="btn" id="openAtsCheck">Check ATS readability</button>
           <button type="button" class="btn primary" id="runBtn">Run search</button>
         </div>
       </header>
@@ -408,6 +409,18 @@
         </div>
       </div>
     </div>
+
+    <dialog id="atsCheckDialog" class="ats-check-dialog" aria-labelledby="atsCheckTitle">
+      <h2 id="atsCheckTitle">Check ATS readability</h2>
+      <p>Choose any CV PDF, including one downloaded from Overleaf. This check runs separately from CV creation and does not edit your document.</p>
+      <form id="atsCheckForm">
+        <label class="prep-modal-field"><span>CV PDF (up to 10 MB, 10 pages)</span><input type="file" id="atsPdf" accept="application/pdf,.pdf" required /></label>
+        <label class="prep-modal-field"><span>Keywords to look for (optional, comma separated)</span><input type="text" id="atsKeywords" maxlength="4000" placeholder="Python, REST API, Docker" /></label>
+        <div class="prep-modal-actions"><button type="button" class="btn ghost" id="closeAtsCheck">Close</button><button type="submit" class="btn primary" id="runAtsCheck">Check PDF</button></div>
+      </form>
+      <p id="atsCheckStatus" role="status" aria-live="polite"></p>
+      <div id="atsCheckResults"></div>
+    </dialog>
 
     <div id="batchModal" class="prep-modal" hidden>
       <div class="prep-modal-card batch-card" role="dialog" aria-labelledby="batchModalTitle" aria-modal="true">

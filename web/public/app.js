@@ -1,4 +1,5 @@
 import { createMemoryEditor } from './memory-editor.js';
+import { mountAtsCheck } from './ats-check.js';
 import { selectedGooseTools, suggestedGoosePrompt, renderGooseTools } from './goose-prep.js';
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
@@ -6,6 +7,7 @@ import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTra
 import { createActivity } from './activity.js';
 
 const $ = (id) => document.getElementById(id);
+mountAtsCheck();
 const activity = createActivity();
 const prepTasks = new Map();
 const prepWatchers = new Map();

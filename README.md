@@ -65,6 +65,12 @@ original source through Memory's preview/confirm flow before enabling this excep
 generation never updates that library. With Overleaf selected, startup does not create
 a separate local CV master.
 
+**Check ATS readability** is a separate button. Select a CV PDF and optionally enter
+keywords to inspect text extraction, headings, contact readability and keyword presence.
+It runs locally without Goose, a job, generation, or publication. Files are inspected in
+memory and not saved. The report is a parsing aid, not an employer ATS score or a
+guarantee of selection.
+
 Batch preparation runs a Goose workflow for each selected posting. Search, ranking,
 rendering, validation and tracking are ordinary code; agent decisions happen inside
 the Goose workflows. The coordinator's MCP bridge enforces tool selection. Document

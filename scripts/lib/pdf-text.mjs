@@ -20,10 +20,14 @@ function pdfjs() {
  * Text of every page, lines rebuilt from glyph positions.
  * @returns {Promise<{ pages: number, text: string, lines: string[] }>}
  */
-export async function extractPdfText(pdfPath) {
+export async function extractPdfText(pdfPath, { maxPages = Infinity } = {}) {
   const { getDocument } = await pdfjs();
-  const data = new Uint8Array(await readFile(pdfPath));
+  const data = new Uint8Array(typeof pdfPath === 'string' ? await readFile(pdfPath) : pdfPath);
   const doc = await getDocument({ data, useSystemFonts: true, disableFontFace: true }).promise;
+  if (doc.numPages > maxPages) {
+    await doc.destroy();
+    throw new Error(`This check accepts PDFs with at most ${maxPages} pages.`);
+  }
   const lines = [];
   for (let p = 1; p <= doc.numPages; p += 1) {
     const page = await doc.getPage(p);

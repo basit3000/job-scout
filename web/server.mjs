@@ -1,5 +1,6 @@
 import { loadCandidateProfile, readMemory } from '../scripts/lib/memory.mjs';
 import { cvPreferences, cvOptionsInstructions } from '../scripts/lib/cv-preferences.mjs';
+import { handleAtsApi } from './ats-routes.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
 //   npm start          → http://localhost:4040
@@ -691,6 +692,7 @@ async function enrichJobs({ force = false } = {}) {
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
+  if (await handleAtsApi(req, res, url, { json, readBody })) return;
   if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 
   if (await handleRecruiterApi(req, res, url, { json, readBody })) return;

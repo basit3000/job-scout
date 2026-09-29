@@ -1,6 +1,6 @@
 import { withMemorySnapshot, readMemory, candidateProfile, memoryAnswers } from './memory.mjs';
 import { mkdir, writeFile, readFile, access, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { workspaceDir, loadJson, ROOT, prepDir } from './common.mjs';
 import { buildTailoredCvAsync, tailoredRequirementsMarkdown, cvMarkdownToHtml } from './tailor-cv.mjs';
 
@@ -15,6 +15,8 @@ import { verifyCvAfterAgent } from './cv-verify.mjs';
 import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
 import { generateDocuments, prepStatus } from './prep-state.mjs';
+import { currentCvTemplate, currentCvTemplateId } from './cv-template-context.mjs';
+import { withJobTemplate } from './cv-template-packs.mjs';
 
 export { prepDir };
 
@@ -62,7 +64,7 @@ export async function loadPrepFlagsIndex() {
       if (!ent.isDirectory()) return;
       let files;
       try {
-        files = await readdir(join(root, ent.name));
+        files = await withJobTemplate(ent.name, null, () => readdir(prepDir(ent.name)));
       } catch {
         return;
       }
@@ -100,7 +102,7 @@ export function prepFlagsForJob(index, jobId) {
 export async function loadCvSettings() {
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const cv = config.cv || {};
-  const source = cv.source === 'overleaf' ? 'overleaf' : 'local';
+  const source = !currentCvTemplate() && cv.source === 'overleaf' ? 'overleaf' : 'local';
   const tailorMode = 'agent';
   const agentProvider = 'goose';
   const agentModel = resolveAgentModel().id;
@@ -236,7 +238,7 @@ ${job.url || '_no url_'}
 function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candidate') {
   const base = `/api/prep/${encodeURIComponent(jobId)}`;
   const nice = cvFileBaseName(profileName);
-  return {
+  const links = {
     downloadCvHtml: `${base}/cv.html`,
     downloadCvMd: `${base}/cv.md`,
     downloadCvPdf: hasPdf ? `${base}/cv.pdf` : null,
@@ -247,6 +249,10 @@ function packDownloads(jobId, { hasPdf, hasAts, hasMain }, profileName = 'Candid
     downloadLabelMain: `${nice} CV Main.pdf`,
     downloadLabelAts: `${nice} CV.pdf`,
   };
+  for (const key of Object.keys(links).filter(k => k.startsWith('downloadCv'))) {
+    if (links[key]) links[key] += `${links[key].includes('?') ? '&' : '?'}template=${currentCvTemplateId()}`;
+  }
+  return { ...links, templateId: currentCvTemplateId(), templateName: currentCvTemplate()?.name || 'Current CV format' };
 }
 
 async function publishDownloads(job, profile, dir, { hasAts, hasMain, hasPdf }) {
@@ -390,7 +396,7 @@ async function finalizePrepPack({
 
   return {
     dir,
-    relativeDir: `.workspace/prep/${safeId(job.id)}`,
+    relativeDir: relative(ROOT, dir).replace(/\\/g, '/'),
     files: [...new Set([...Object.keys(files), ...pdfFiles])],
     coverLetter: files['cover-letter.md'],
     checklist: fit.checklist,
@@ -551,6 +557,7 @@ async function writePrepPackWithMemory(job, profile, fit, savedAnswers = {}, opt
   const pack = await generateDocuments({ job, profile, settings,
     instructions: options.extraInstructions || '', mode: 'agent', scopes: ['cv'] },
   () => writePrepPackUncached(job, profile, fit, savedAnswers, options));
+  pack.relativeDir = relative(ROOT, pack.dir).replace(/\\/g, '/');
   if (!pack.needsReview) {
     const exported = await exportPrepDownloads(job, profile);
     pack.downloadFolderAbs = exported.absoluteDir || null;
@@ -581,7 +588,7 @@ export async function readPrepPack(jobId) {
   const dir = prepDir(jobId);
   try {
     const readme = await readFile(join(dir, 'README.md'), 'utf8');
-    const coverLetter = await readFile(join(dir, 'cover-letter.md'), 'utf8');
+    const coverLetter = await readFile(join(dir, 'cover-letter.md'), 'utf8').catch(error => { if (error.code === 'ENOENT') return ''; throw error; });
     const checklist = await readFile(join(dir, 'checklist.md'), 'utf8');
     const jobPosting = await readFile(join(dir, 'job-posting.md'), 'utf8');
     const hasCv = await hasTailoredCv(jobId);
@@ -596,7 +603,7 @@ export async function readPrepPack(jobId) {
       }
     }
     return {
-      relativeDir: `.workspace/prep/${safeId(jobId)}`,
+      relativeDir: relative(ROOT, dir).replace(/\\/g, '/'),
       readme,
       coverLetter,
       checklist,

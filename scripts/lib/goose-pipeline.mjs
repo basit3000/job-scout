@@ -11,6 +11,9 @@ import { runGoose, withGooseContext } from './goose-runtime.mjs';
 import { cvOptionsInstructions } from './cv-preferences.mjs';
 import { publishRequestedOverleaf } from './overleaf-cv.mjs';
 import { localPromptInstructions } from './prompt-settings.mjs';
+import { resolveCvTemplates, templateInstructions } from './cv-templates.mjs';
+import { withCvTemplate } from './cv-template-context.mjs';
+import { withJobTemplate, saveTemplateSelection } from './cv-template-packs.mjs';
 
 async function readOptional(path) {
   try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
@@ -58,7 +61,9 @@ export async function runGooseCoordinator(options, bridge, run = runGoose) {
 }
 
 async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, request, signal, onEvent = () => {} }) {
-  const { tools, prompt: userPrompt, cvOptions, pushToOverleaf = false } = validateGooseRequest(request);
+  const { tools, prompt: userPrompt, cvOptions, templateIds, pushToOverleaf = false } = validateGooseRequest(request);
+  const templates = tools.includes('prepare_cv') ? resolveCvTemplates(templateIds) : [];
+  if (pushToOverleaf && !templates.some(t => t.id === 'default')) throw new Error('Select Current CV format to push to Overleaf.');
   const selectedInstructions = cvOptionsInstructions(cvOptions, await readMemory());
   const prompt = [localPromptInstructions('coordinator'), userPrompt, selectedInstructions].filter(Boolean).join('\n\n');
   const controller = new AbortController();
@@ -77,6 +82,7 @@ async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, req
     let halted = false;
     let reviewDir = prepDir(job.id);
     const outputs = [];
+    const variants = [];
     const resultFor = (result) => {
       reviewDir = result.draftDir || result.dir || reviewDir;
       if (result.needsReview) halted = true;
@@ -106,28 +112,45 @@ async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, req
       inspect_reviews: async () => ({ reviews: await readOptional(join(reviewDir, 'review-summary.json')),
         documentStatus: await readOptional(join(reviewDir, 'document-status.md')) }),
       prepare_cv: write(async () => {
-        pack = await writePrepPack(job, profile, fit, savedAnswers, { ...settings,
-          extraInstructions: prompt, tailorMode: 'agent', onEvent });
-        const publication = await publishRequestedOverleaf({ requested: pushToOverleaf, source: settings.source, job, pack, signal });
-        if (pack.overleaf) Object.assign(pack.overleaf, { pushRequested: publication.requested, pushed: publication.pushed, pushReason: publication.reason });
-        if (publication.requested) {
-          await writeFile(join(pack.draftDir || pack.dir, 'overleaf-push.json'), JSON.stringify(publication, null, 2));
-          onEvent({ stream: publication.failed ? 'stderr' : 'meta', line: publication.pushed ? 'Pushed the reviewed CV to Overleaf.' : `Overleaf push: ${publication.reason || 'not performed'}`, t: Date.now() });
+        for (const template of templates) {
+          signal.throwIfAborted();
+          onEvent({ stream: 'meta', line: `Preparing CV format: ${template.name}`, t: Date.now() });
+          await withCvTemplate(template.id === 'default' ? null : template, async () => {
+            const variantSettings = { ...settings, ...(template.id === 'default' ? {} : { source: 'local' }) };
+            pack = await writePrepPack(job, profile, fit, savedAnswers, { ...variantSettings,
+              extraInstructions: [prompt, templateInstructions(template)].filter(Boolean).join('\n\n'), tailorMode: 'agent', onEvent });
+            const publication = await publishRequestedOverleaf({ requested: pushToOverleaf && template.id === 'default', source: variantSettings.source, job, pack, signal });
+            if (pack.overleaf) Object.assign(pack.overleaf, { pushRequested: publication.requested, pushed: publication.pushed, pushReason: publication.reason });
+            if (publication.requested) {
+              await writeFile(join(pack.draftDir || pack.dir, 'overleaf-push.json'), JSON.stringify(publication, null, 2));
+              onEvent({ stream: publication.failed ? 'stderr' : 'meta', line: publication.pushed ? 'Pushed the reviewed CV to Overleaf.' : `Overleaf push: ${publication.reason || 'not performed'}`, t: Date.now() });
+            }
+            if (publication.failed) halted = true;
+            variants.push({ ...pack, templateId: template.id, templateName: template.name });
+            resultFor(pack);
+          });
+          if (halted) break;
         }
-        if (publication.failed) halted = true;
-        return resultFor(pack);
+        pack = variants[0] ? { ...variants[0], variants, needsReview: halted } : pack;
+        // Only reviewed generations become the current choice for this job.
+        const acceptedIds = variants.filter(v => !v.needsReview).map(v => v.templateId);
+        if (acceptedIds.length && !halted) {
+          await saveTemplateSelection(job.id, acceptedIds);
+        }
+        return { variants: variants.map(v => ({ templateId: v.templateId, templateName: v.templateName,
+          needsReview: Boolean(v.needsReview), documentDir: v.dir, draftDir: v.draftDir || null })), needsReview: halted };
       }),
-      prepare_letter: write(async () => {
-        const result = await generateCoverLetterPack(job, profile, fit, { settings,
+      prepare_letter: write(() => withJobTemplate(job.id, null, async () => {
+        const result = await generateCoverLetterPack(job, profile, fit, { settings: { ...settings, source: (await loadCvSettings()).source },
           extraInstructions: prompt, provider: 'goose', model: '', onEvent });
-        if (!result.needsReview) pack = await readPrepPack(job.id) || {
+        if (!result.needsReview) pack = { ...(await readPrepPack(job.id) || {
           jobId: job.id, coverLetter: result.letter, review: result.review,
           relativeDir: relative(ROOT, result.dir).replace(/\\/g, '/'),
-        };
+        }), ...(variants.length ? { variants } : {}) };
         return resultFor(result);
-      }),
+      })),
     } });
-    const record = { id, jobId: job.id, tools, prompt, cvOptions, pushToOverleaf, outputs, startedAt: new Date().toISOString(), status: 'running' };
+    const record = { id, jobId: job.id, tools, prompt, cvOptions, templateIds: templates.map(t => t.id), pushToOverleaf, outputs, startedAt: new Date().toISOString(), status: 'running' };
     const save = () => writeFile(join(auditDir, 'run.json'), JSON.stringify({ ...record, calls: bridge.calls }, null, 2));
     try {
       await save();

@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { validateCvOptions } from './cv-preferences.mjs';
+import { validateTemplateIds } from './cv-template-schema.mjs';
 
 const noArgs = { type: 'object', properties: {}, additionalProperties: false };
 export const GOOSE_TOOLS = [
@@ -23,6 +24,7 @@ export function validateGooseRequest(body) {
   if (body.pushToOverleaf !== undefined && typeof body.pushToOverleaf !== 'boolean') throw new Error('Push to Overleaf must be an explicit checkbox choice.');
   if (body.pushToOverleaf && !body.tools.includes('prepare_cv')) throw new Error('Select Prepare CV before enabling Push to Overleaf.');
   return { tools: [...new Set(body.tools)], prompt: body.prompt.trim(),
+    ...(body.templateIds === undefined ? {} : { templateIds: validateTemplateIds(body.templateIds) }),
     ...(body.pushToOverleaf === undefined ? {} : { pushToOverleaf: body.pushToOverleaf }),
     ...(body.cvOptions === undefined ? {} : { cvOptions: validateCvOptions(body.cvOptions) }) };
 }

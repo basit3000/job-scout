@@ -42,7 +42,9 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.ok(begin >= 0 && end > begin);
   const fixture = (text) => pdfFixture(text).toString('base64');
   const renderer = `export async function htmlFileToPdf(htmlPath, pdfPath) {
-    const overflow = await readFile(join(ROOT, '.workspace', 'overflow'), 'utf8').catch(() => '');
+    const requestedOverflow = await readFile(join(ROOT, '.workspace', 'overflow'), 'utf8').catch(() => '');
+    const { currentCvTemplateId } = await import('./cv-template-context.mjs');
+    const overflow = requestedOverflow === '1' || requestedOverflow === currentCvTemplateId();
     await writeFile(pdfPath, Buffer.from(overflow ? '${fixture(['First page', 'Experience on page two'])}' : '${fixture(['Complete test CV'])}', 'base64'));
     return { ok: true, path: pdfPath, via: 'test renderer' };
   }\n`;
@@ -101,8 +103,8 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.equal((await request('/api/jobs')).pagination.total, 2);
   assert.equal((await request('/api/jobs?scope=history')).pagination.total, 3);
   assert.equal((await request('/api/tracker')).total, 1);
-  async function prep(id, tools = ['inspect_job','inspect_cv','prepare_cv','inspect_reviews']) {
-    const started=await request('/api/prep',{id,tools,prompt:'Prepare and review the selected documents using only supported candidate facts.'});
+  async function prep(id, tools = ['inspect_job','inspect_cv','prepare_cv','inspect_reviews'], templateIds) {
+    const started=await request('/api/prep',{id,tools,templateIds,prompt:'Prepare and review the selected documents using only supported candidate facts.'});
     const response=await fetch(`http://127.0.0.1:${port}/api/prep/stream`);
     const reader=response.body.getReader();let text='';
     try {
@@ -147,4 +149,58 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   let batch;
   for(let i=0;i<200;i++) {batch=await request('/api/prep/batch');if(!batch.running)break;await new Promise(r=>setTimeout(r,20));}
   assert.equal(batch.items[0].status,'done',batch.items[0].error);
+  // Multiple formats use real host rendering/review/publication and isolated files.
+  const compact = { id: 'compact', name: 'Compact', sectionOrder: [], maxPages: 1,
+    layout: { widthMm: 210, heightMm: 297, marginTopMm: 10, marginBottomMm: 10, marginLeftMm: 10, marginRightMm: 10,
+      font: 'Arial', color: '282828', bodyPt: 9, namePt: 24, headingPt: 10, contactPt: 10, headerAlign: 'left',
+      headingUppercase: true, headingRule: true, lineHeight: 1.15, paragraphAfterPt: 0, sectionBeforePt: 8, bulletIndentPt: 24 } };
+  await mkdir(join(root, 'prompts'), { recursive: true });
+  await writeFile(join(root, 'prompts/local.json'), JSON.stringify({ templates: [compact] }));
+  assert.equal((await request('/api/goose')).templates.length, 2);
+  const missingSelection = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: job.id, tools: ['prepare_cv'], prompt: 'Create CV' }) });
+  assert.equal(missingSelection.status, 400);
+  const multiple = await prep(job.id, undefined, ['compact', 'default']);
+  assert.equal(multiple.ok, true, multiple.error);
+  assert.equal(multiple.pack.variants.length, 2);
+  const [custom, original] = multiple.pack.variants;
+  assert.equal(custom.needsReview, false);
+  assert.notEqual(custom.dir, original.dir);
+  assert.notEqual(custom.downloadFolderAbs, original.downloadFolderAbs);
+  const customHtml = await (await fetch(`http://127.0.0.1:${port}${custom.downloadCvHtml}`)).text();
+  assert.match(customHtml, /font-size: 24pt/);
+  const originalHtml = await (await fetch(`http://127.0.0.1:${port}${original.downloadCvHtml}`)).text();
+  assert.doesNotMatch(originalHtml, /Selected CV formatting profile/);
+  const reopened = await request(`/api/prep/${encodeURIComponent(job.id)}`);
+  assert.equal(reopened.variants.length, 2);
+  assert.equal(reopened.templateId, 'compact');
+  assert.equal((await request('/api/ready')).total, 2, 'current custom format remains ready after reopening');
+  const snapshot = await readFile(join(custom.dir, 'cv.pdf'));
+  await writeFile(join(root, '.workspace/overflow'), '1');
+  const replacement = await prep(job.id, undefined, ['compact']);
+  assert.equal(replacement.ok, true, replacement.error);
+  assert.equal(replacement.pack.needsReview, true);
+  assert.deepEqual(await readFile(join(custom.dir, 'cv.pdf')), snapshot);
+  assert.deepEqual(await readFile(join(original.dir, 'cv.pdf')), snapshot);
+  await writeFile(join(root, '.workspace/overflow'), '');
+  await request('/api/prep/batch', { ids: ['fixture:2'], templateIds: ['compact'], includeCoverLetter: false, skipExisting: false });
+  for (let i = 0; i < 200; i++) { batch = await request('/api/prep/batch'); if (!batch.running) break; await new Promise(r => setTimeout(r, 20)); }
+  assert.equal(batch.items[0].status, 'done', batch.items[0].error);
+  assert.equal((await request('/api/prep/fixture%3A2')).templateId, 'compact');
+  const letter = await prep('fixture:2', ['prepare_letter']);
+  assert.equal(letter.ok, true, letter.error);
+  assert.equal(letter.pack.templateId, 'compact', 'cover letter uses the selected primary CV');
+  // Reusing already reviewed files must still honor the selected primary format.
+  await request('/api/prep/batch', { ids: ['fixture:2'], templateIds: ['default'], includeCoverLetter: false, skipExisting: true });
+  for (let i = 0; i < 200; i++) { batch = await request('/api/prep/batch'); if (!batch.running) break; await new Promise(r => setTimeout(r, 20)); }
+  assert.equal(batch.items[0].status, 'skipped', batch.items[0].error);
+  assert.equal((await request('/api/prep/fixture%3A2')).templateId, 'default');
+  // A later variant requiring review cannot report the whole request as ready.
+  await writeFile(join(root, '.workspace/overflow'), 'default');
+  const partial = await prep('fixture:2', undefined, ['compact', 'default']);
+  assert.equal(partial.ok, true, partial.error);
+  assert.equal(partial.pack.variants[0].needsReview, false);
+  assert.equal(partial.pack.variants[1].needsReview, true);
+  assert.equal(partial.pack.needsReview, true);
+  assert.equal((await request('/api/prep/fixture%3A2')).templateId, 'default', 'failed multi-format run preserves previous primary selection');
 });

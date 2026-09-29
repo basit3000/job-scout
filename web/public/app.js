@@ -1,6 +1,7 @@
 import { createMemoryEditor } from './memory-editor.js';
 import { mountAtsCheck } from './ats-check.js';
 import { openPrepModal } from './prep-modal.js';
+import { renderCvTemplates, selectedCvTemplates } from './cv-templates.js';
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
@@ -1721,6 +1722,8 @@ function showPrep(data) {
     ? ` · tailor: ${pack.tailorMode}`
     : '';
   els.prepView.innerHTML = `
+    ${(pack.variants || []).length ? `<h3>CV formats</h3><div class="prep-actions">${pack.variants.map(v =>
+      `<span>${escapeHtml(v.templateName)} ${v.needsReview ? '(needs review)' : ''}</span>${v.downloadCvPdf ? `<a class="btn small" href="${escapeAttr(v.downloadCvPdf)}" target="_blank" rel="noopener">View PDF</a>` : ''}${v.downloadCvHtml ? `<a class="btn small" href="${escapeAttr(v.downloadCvHtml)}" target="_blank" rel="noopener">View HTML</a>` : ''}`).join('')}</div>` : ''}
     <h3>${escapeHtml(data.fit?.verdict || '')} · ${escapeHtml(pack.relativeDir || '')}</h3>
     <p>Source: <strong>${escapeHtml(pack.cvSource || 'local')}</strong>
       ${pack.cvContentSource ? `(${escapeHtml(pack.cvContentSource)})` : ''}
@@ -2167,7 +2170,9 @@ async function openBatchSetup() {
     return;
   }
   if (els.batchSetupHint) {
-    const keyOk = Boolean((await api('/api/goose')).status?.ok);
+    const setup = await api('/api/goose');
+    const keyOk = Boolean(setup.status?.ok);
+    renderCvTemplates(setup.templates || [], document.getElementById('batchTemplateChoices'));
     els.batchSetupHint.textContent = `${jobs.length} new posting(s) in Digest. Files go to the company folders; nothing opens. Finished jobs show up under Ready to apply.${
       keyOk ? '' : ' Configure Goose before starting a batch.'
     }`;
@@ -2186,12 +2191,13 @@ async function startBatch() {
   const includeCoverLetter = Boolean(els.batchIncludeLetter?.checked);
   const skipExisting = Boolean(els.batchSkipExisting?.checked);
   const extraInstructions = (els.batchInstructions?.value || '').trim().slice(0, 500);
+  const templateIds = selectedCvTemplates(document.getElementById('batchTemplateChoices'));
   if (els.batchStart) els.batchStart.disabled = true;
   if (els.batchError) els.batchError.hidden = true;
   try {
     const res = await api('/api/prep/batch', {
       method: 'POST',
-      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
+      body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions, templateIds }),
     });
     applyBatchSnapshot(res.batch);
     showBatchModal('progress');

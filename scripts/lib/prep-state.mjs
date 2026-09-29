@@ -7,6 +7,7 @@ import { extractPdfText } from './pdf-text.mjs';
 import { reviewStatusReason } from './review-documents.mjs';
 import { readMemory, memoryInputs } from './memory.mjs';
 import { promptSettings, pageLimit } from './prompt-settings.mjs';
+import { currentCvTemplate } from './cv-template-context.mjs';
 
 const MANIFEST = 'generation.json';
 const activeJobs = new Set();
@@ -31,7 +32,8 @@ export async function loadPrepInputs(settings = {}, root = ROOT) {
   const memory = await readMemory(root);
   const paths = [...sources, 'cv/cover-letter.md'];
   return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))]))),
-    ...memoryInputs(memory), 'prompts/settings': JSON.stringify(promptSettings(root)) };
+    ...memoryInputs(memory), 'prompts/settings': JSON.stringify({ ...promptSettings(root), templates: [] }),
+    'cv-template': JSON.stringify(currentCvTemplate()) };
 }
 
 export function prepFingerprint({ job, profile, settings = {}, inputs = {}, scope, instructions = '', mode }) {

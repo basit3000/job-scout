@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
 import { createHash } from 'node:crypto';
 import { artifactContext } from './artifact-context.mjs';
+import { currentCvTemplateId } from './cv-template-context.mjs';
 
 /** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
 async function safeCopyFile(src, dest) {
@@ -81,7 +82,8 @@ export function downloadsRoot() {
 export function jobDownloadFolder({ company, jobTitle = '', jobId } = {}) {
   if (!jobId) throw new Error('A job ID is required to export application documents');
   const suffix = createHash('sha256').update(String(jobId)).digest('hex').slice(0, 16);
-  return join(safeFolderName(company), `${safeFolderName(jobTitle || 'Role')}-${suffix}`);
+  const base = join(safeFolderName(company), `${safeFolderName(jobTitle || 'Role')}-${suffix}`);
+  return currentCvTemplateId() === 'default' ? base : join(base, currentCvTemplateId());
 }
 
 /**

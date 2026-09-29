@@ -1,5 +1,8 @@
 import { loadCandidateProfile, readMemory } from '../scripts/lib/memory.mjs';
 import { cvPreferences, cvOptionsInstructions } from '../scripts/lib/cv-preferences.mjs';
+import { listCvTemplates, resolveCvTemplates } from '../scripts/lib/cv-templates.mjs';
+import { readTemplatePacks, withJobTemplate, savedTemplateIds, saveTemplateSelection } from '../scripts/lib/cv-template-packs.mjs';
+import { handleCvTemplateApi } from './cv-template-routes.mjs';
 import { handleAtsApi } from './ats-routes.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
@@ -168,8 +171,7 @@ function batchLog(line, stream = 'stdout') {
   broadcastBatch('log', entry);
 }
 
-async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
-  extraInstructions ||= 'Prepare and review the selected documents using only supported candidate facts.';
+async function runPrepBatch(jobsById, profile, saved, { extraInstructions, templateIds }) {
   const total = batchState.items.length;
   batchLog(
     `Batch Prep: ${total} job(s) · ${batchState.mode}${batchState.includeCoverLetter ? ' + cover letter' : ''}${
@@ -200,13 +202,11 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
       batchLog(`[${i + 1}/${total}] ${job.company || '—'} — ${job.title}`, 'meta');
 
       try {
-        if (batchState.skipExisting) {
-          const flags = prepFlagsForJob(await loadPrepFlagsIndex(), job.id);
-          const hasAll = flags.tailoredPdf && (!batchState.includeCoverLetter || flags.coverLetter);
-          const freshness = await prepStatus(job, profile, await loadCvSettings(), {
-            cv: true, letter: batchState.includeCoverLetter, instructions: extraInstructions, mode: batchState.mode,
-          });
-          if (hasAll && Object.values(freshness).every((s) => s === 'current')) {
+        if (batchState.skipExisting && !extraInstructions) {
+          const states = await Promise.all(templateIds.map((id, index) => withJobTemplate(job.id, id, async () =>
+            prepStatus(job, profile, await loadCvSettings(), { cv: true, letter: index === 0 && batchState.includeCoverLetter }))));
+          if (states.every(state => Object.values(state).every(s => s === 'current'))) {
+            await saveTemplateSelection(job.id, templateIds);
             item.status = 'skipped';
             item.note = 'already has files';
             markBatchItemDuration(item);
@@ -217,7 +217,7 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions }) {
         const fit = job.fit || scoreJob(job, profile);
         const result = await runGoosePipeline({ job, profile, fit, savedAnswers: saved,
           signal: batchController.signal,
-          request: { tools: ['inspect_job', 'inspect_cv', 'prepare_cv',
+          request: { templateIds, tools: ['inspect_job', 'inspect_cv', 'prepare_cv',
             ...(batchState.includeCoverLetter ? ['prepare_letter'] : []), 'inspect_reviews'],
             prompt: extraInstructions || 'Prepare and review the selected documents using only supported candidate facts.' },
           onEvent: entry => batchLog(`  ${entry.line}`, entry.stream) });
@@ -628,8 +628,10 @@ async function enrichJobs({ force = false } = {}) {
         const flags = prepFlagsForJob(prepIndex, job.id);
         const manifest = flags.tailoredCv || flags.tailoredPdf || flags.coverLetter
           ? await loadJson(join(prepDir(job.id), 'generation.json'), null) : null;
-        const freshness = assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs },
-          { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter });
+        const freshnessOptions = { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter };
+        const freshness = (flags.tailoredCv || flags.tailoredPdf || flags.coverLetter) && savedTemplateIds(job.id).length
+          ? await withJobTemplate(job.id, null, async () => prepStatus(job, profile, await loadCvSettings(), freshnessOptions))
+          : assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs }, freshnessOptions);
         const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
         const tailoredCv = flags.tailoredCv;
         const recruiter = recruiterStore.contacts[job.id] || null;
@@ -1100,14 +1102,18 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/goose') {
-    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose'), cvSource: (await loadCvSettings()).source, cvPreferences: cvPreferences(await readMemory()) });
+    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose'), cvSource: (await loadCvSettings()).source, cvPreferences: cvPreferences(await readMemory()), templates: listCvTemplates() });
   }
+
+  if (await handleCvTemplateApi(req, res, url, { json, readBody, busy: prepState.running || batchState.running })) return;
 
   if (req.method === 'POST' && path === '/api/prep') {
     if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     const body = await readBody(req);
     let request;
-    try { request = validateGooseRequest(body); cvOptionsInstructions(request.cvOptions, await readMemory()); }
+    try { request = validateGooseRequest(body); cvOptionsInstructions(request.cvOptions, await readMemory());
+      if (request.tools.includes('prepare_cv')) resolveCvTemplates(request.templateIds);
+      if (request.pushToOverleaf && !resolveCvTemplates(request.templateIds).some(t => t.id === 'default')) throw new Error('Select Current CV format to push to Overleaf.'); }
     catch (error) { return json(res, 400, { error: error.message }); }
     if (request.pushToOverleaf && (await loadCvSettings()).source !== 'overleaf') return json(res, 400, { error: 'Select Overleaf as your CV source before requesting a push.' });
     const status = await agentRunnerAvailable('goose');
@@ -1156,6 +1162,9 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'POST' && path === '/api/prep/batch') {
     const body = await readBody(req);
+    let templateIds;
+    try { templateIds = resolveCvTemplates(body.templateIds).map(t => t.id); }
+    catch (error) { return json(res, 400, { error: error.message }); }
     if (body.mode === 'fast') return json(res, 400, { error: 'Fast mode was removed. Use Goose.' });
     const goose = await agentRunnerAvailable();
     if (!goose.ok) return json(res, 400, { error: goose.detail });
@@ -1207,7 +1216,7 @@ async function handleApi(req, res, url) {
       };
     });
 
-    void runPrepBatch(jobsById, profile, saved, { extraInstructions });
+    void runPrepBatch(jobsById, profile, saved, { extraInstructions, templateIds });
     return json(res, 202, { ok: true, started: true, stream: '/api/prep/batch/stream', batch: batchSnapshot() });
   }
 
@@ -1298,7 +1307,9 @@ async function handleApi(req, res, url) {
     if (slash > 0) {
       const id = rest.slice(0, slash);
       const file = rest.slice(slash + 1);
-      const payload = await readPrepFile(id, file);
+      let payload;
+      try { payload = await withJobTemplate(id, url.searchParams.get('template'), () => readPrepFile(id, file)); }
+      catch (error) { return json(res, 400, { error: error.message }); }
       if (payload == null) return json(res, 404, { error: 'File not found — generate Prep & CV first' });
       const download = url.searchParams.get('download') === '1';
       if (payload.binary) {
@@ -1327,7 +1338,7 @@ async function handleApi(req, res, url) {
             const enriched = await enrichJobs();
             const job = enriched.jobs.find((j) => j.id === id);
             if (job) {
-              const exported = await exportPrepDownloads(job, profile);
+              const exported = await withJobTemplate(id, url.searchParams.get('template'), () => exportPrepDownloads(job, profile));
               folderHint = exported?.absoluteDir || '';
               if (url.searchParams.get('open') === '1' && folderHint) {
                 revealDownloadsFolder(folderHint);
@@ -1363,7 +1374,7 @@ async function handleApi(req, res, url) {
       res.writeHead(200, headers);
       return res.end(payload.body);
     }
-    const pack = await readPrepPack(rest);
+    const pack = await readTemplatePacks(rest, readPrepPack);
     if (!pack) return json(res, 404, { error: 'No prep pack yet — generate Prep & CV first' });
     return json(res, 200, pack);
   }

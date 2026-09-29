@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { prepDir } from './common.mjs';
 import { detectAts } from './ats.mjs';
 import { cvFileBaseName, downloadsRoot, jobDownloadFolder } from './cv-downloads.mjs';
+import { withJobTemplate } from './cv-template-packs.mjs';
 
 function unset(value) {
   const s = String(value ?? '').trim();
@@ -107,6 +108,10 @@ export function slimPackForFill(pack) {
 }
 
 export function buildApplyPack({ job = {}, profile = {}, answers = {} } = {}) {
+  return withJobTemplate(job.id || '', null, () => buildSelectedApplyPack({ job, profile, answers }));
+}
+
+function buildSelectedApplyPack({ job, profile, answers }) {
   const names = splitName(profile.name);
   const links = profile.links || {};
   const ats = detectAts(job.url);

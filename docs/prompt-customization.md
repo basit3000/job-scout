@@ -68,3 +68,9 @@ Customization does not make the renderer a general template engine. Overleaf mod
 still uses `main.tex` and `ats.tex`, and structural checks recognize the supported
 LaTeX macros and Markdown headings. Inspect the rendered result after template
 changes. Preserve confirmed facts and keep personal rules out of tracked skills.
+
+## CV formatting profiles
+
+Use the CV / resume formats selector to import Word formatting and choose one or
+several outputs. Profiles are stored under `templates` in `prompts/local.json`.
+See [CV templates](cv-templates.md) for import, preview and storage details.

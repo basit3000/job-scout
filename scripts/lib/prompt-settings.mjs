@@ -2,12 +2,15 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './common.mjs';
+import { validateCvTemplate } from './cv-template-schema.mjs';
+import { currentCvTemplate } from './cv-template-context.mjs';
 
 const snapshots = new AsyncLocalStorage();
 export const PROMPT_SETTINGS_PATH = 'prompts/local.json';
 
 export function defaultPromptSettings() {
   return {
+    templates: [],
     instructions: { all: '', cv: '', letter: '', review: '', repair: '', coordinator: '' },
     format: { sectionOrder: [], cvMaxPages: 1, letterMaxPages: 1,
       letterSubjectPrefix: '', letterSignoff: '', dropOptionalSections: false },
@@ -22,6 +25,12 @@ export function validatePromptSettings(input) {
   const object = value => value && typeof value === 'object' && !Array.isArray(value);
   if (!object(input)) throw new Error('Prompt settings must be an object.');
   for (const [group, values] of Object.entries(input)) {
+    if (group === 'templates') {
+      if (!Array.isArray(values) || values.length > 30) throw new Error('At most 30 CV templates are supported.');
+      result.templates = values.map(validateCvTemplate);
+      if (new Set(result.templates.map(t => t.id)).size !== values.length) throw new Error('Duplicate CV template ID.');
+      continue;
+    }
     if (!Object.hasOwn(result, group) || !object(values)) throw new Error(`Unknown or invalid prompt settings group: ${group}`);
     for (const [key, value] of Object.entries(values)) {
       if (!Object.hasOwn(result[group], key)) throw new Error(`Unknown prompt setting: ${group}.${key}`);
@@ -43,11 +52,13 @@ export function validatePromptSettings(input) {
 }
 
 export function promptSettings(root = ROOT) {
+  const effective = settings => currentCvTemplate() ? { ...settings, format: { ...settings.format,
+    sectionOrder: currentCvTemplate().sectionOrder, cvMaxPages: currentCvTemplate().maxPages } } : settings;
   const snapshot = snapshots.getStore();
-  if (snapshot?.root === root) return structuredClone(snapshot.settings);
-  try { return validatePromptSettings(JSON.parse(readFileSync(join(root, PROMPT_SETTINGS_PATH), 'utf8').replace(/^\uFEFF/, ''))); }
+  if (snapshot?.root === root) return effective(structuredClone(snapshot.settings));
+  try { return effective(validatePromptSettings(JSON.parse(readFileSync(join(root, PROMPT_SETTINGS_PATH), 'utf8').replace(/^\uFEFF/, '')))); }
   catch (error) {
-    if (error.code === 'ENOENT') return defaultPromptSettings();
+    if (error.code === 'ENOENT') return effective(defaultPromptSettings());
     throw new Error(`${PROMPT_SETTINGS_PATH}: ${error.message}`);
   }
 }
@@ -58,6 +69,7 @@ export function withPromptSettings(fn, root = ROOT, settings) {
 }
 
 export function pageLimit(scope) {
+  if (scope === 'cv' && currentCvTemplate()) return currentCvTemplate().maxPages;
   return promptSettings().format[scope === 'letter' ? 'letterMaxPages' : 'cvMaxPages'];
 }
 

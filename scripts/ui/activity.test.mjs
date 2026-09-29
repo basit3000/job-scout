@@ -35,6 +35,7 @@ test('activity remains visible and actionable through search and Prep lifecycles
   let prepStartedAt;
   let searches = 0;
   let personalCvOptions = false;
+  let templates = [{ id: 'default', name: 'Current CV format' }];
   const prepRequests = [];
   const unexpected = [];
   const posts = [];
@@ -52,7 +53,7 @@ test('activity remains visible and actionable through search and Prep lifecycles
     else if (path === '/api/digest') data = { newJobs: jobs, candidates: jobs, pagination, count: 10 };
     else if (path === '/api/ready') data = { jobs, pagination, total: 10 };
     else if (path === '/api/run-history') data = {};
-    else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, cvSource: status.cv.source, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
+    else if (path === '/api/goose') data = { templates, status: { ok: true, detail: 'Ready' }, cvSource: status.cv.source, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
     else if (path === '/api/ats-check') {
       const body = request.postDataJSON();
       data = await inspectAtsPdf(Buffer.from(body.pdf, 'base64'), body.keywords);
@@ -219,6 +220,34 @@ test('activity remains visible and actionable through search and Prep lifecycles
     await textIs('#activityMessage', 'Search and document progress');
   });
   assert.equal(searches, 4);
+  await t.test('every user chooses one or several formats and selection reaches Prep', async () => {
+    templates.push({ id: 'compact', name: 'Compact resume', maxPages: 1, sectionOrder: ['Education', 'Experience'], layout: { font: 'Arial', bodyPt: 9 } });
+    await page.locator('[data-view="results"]').click();
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#cvTemplates').waitFor();
+    assert.equal(await page.locator('#personalCvOptions').isVisible(), false);
+    assert.equal(await page.locator('#prepModalRecreate').isDisabled(), true);
+    await page.locator('#cvTemplateChoices input[value="compact"]').check();
+    assert.equal(await page.locator('#prepModalRecreate').isEnabled(), true);
+    await page.locator('#cvTemplateChoices input[value="default"]').check();
+    await mkdir(resolve('.workspace/cv-ui'), { recursive: true });
+    await page.screenshot({ path: resolve('.workspace/cv-ui/template-selector.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: resolve('.workspace/cv-ui/template-selector-mobile.png') });
+    await page.setViewportSize({ width: 1365, height: 900 });
+    await page.locator('#prepModalRecreate').click();
+    await textIs('#activityTitle', 'Preparing documents');
+    assert.deepEqual(prepRequests.at(-1).templateIds, ['default', 'compact']);
+    status.prepRunning = false;
+    await emit('/api/prep/stream', 'done', { ok: false, cancelled: true, startedAt: prepStartedAt, error: 'Synthetic run stopped' });
+    await textIs('#activityTitle', 'Preparation stopped');
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#cvTemplates').waitFor();
+    assert.equal(await page.locator('#cvTemplateChoices input:checked').count(), 0);
+    await page.locator('#prepModalCancel').click();
+    templates = templates.slice(0, 1);
+  });
   await t.test('personal choices are hidden by default and submitted independently for one application', async () => {
     await page.locator('[data-view="results"]').click();
     await page.locator('#jobList [data-prep]').first().click();
@@ -290,7 +319,7 @@ test('activity remains visible and actionable through search and Prep lifecycles
         const oldRequest = new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; });
         const oldDialog = openPrepModal({ title: 'Previous job' }, { api: () => oldRequest });
         document.getElementById('prepModalCancel').click();
-        const currentState = { cvSource: 'local', status: { ok: true, detail: 'Current job ready' },
+        const currentState = { templates: [{ id: 'default', name: 'Current CV format' }], cvSource: 'local', status: { ok: true, detail: 'Current job ready' },
           tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Current job' }] };
         const currentDialog = openPrepModal({ title: 'Current job' }, { api: async () => currentState });
         await Promise.resolve();

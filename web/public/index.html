@@ -396,6 +396,20 @@
             <legend>Tools Goose may use</legend>
           </fieldset>
           <p class="meta">Goose chooses the steps from your prompt. Document tools include factual checks, PDF rendering, review and one repair attempt.</p>
+          <fieldset id="cvTemplates" class="goose-tools" hidden>
+            <legend>CV / resume formats</legend>
+            <p class="meta">Choose one or several. Each selection produces a separate CV with its own review.</p>
+            <p class="meta">The first selected format in this list is used for cover letters and application attachments.</p>
+            <div id="cvTemplateChoices"></div>
+            <details><summary>Add a Word template</summary>
+              <label class="prep-modal-field">Template name<input id="cvTemplateName" maxlength="100" placeholder="Use the filename" /></label>
+              <label class="prep-modal-field">Word reference<input type="file" id="cvTemplateFile" accept=".docx" /></label>
+              <label class="prep-modal-field">Maximum output pages<input type="number" id="cvTemplatePages" min="1" max="10" value="1" /></label>
+              <button type="button" id="cvTemplateImport" class="btn small">Extract and save formatting</button>
+              <p class="meta">Up to 8 MB. Saved privately on this computer. Sample content is not added to Memory. HTML/PDF previews may approximate complex Word layouts.</p>
+            </details>
+            <p id="cvTemplateStatus" class="meta" role="status"></p>
+          </fieldset>
           <fieldset id="personalCvOptions" class="goose-tools" hidden>
             <legend>My CV choices for this application</legend>
             <label><input type="checkbox" id="cvMatchHeadline" /> Match my CV headline to the posting title where supported</label>
@@ -454,6 +468,7 @@
           <div class="batch-list" id="batchSelectList" role="group" aria-label="Postings to prepare"></div>
           <div class="batch-options">
             <label class="toggle"><input type="checkbox" id="batchIncludeLetter" checked /> Cover letter too</label>
+            <fieldset class="goose-tools"><legend>CV / resume formats</legend><p class="meta">Choose one or several formats for every selected job. Add Word templates from an individual job's Prepare dialog.</p><div id="batchTemplateChoices"></div></fieldset>
             <label class="toggle"><input type="checkbox" id="batchSkipExisting" checked /> Skip jobs that already have files</label>
             <label class="prep-modal-field">
               <span>Extra instructions (optional)</span>

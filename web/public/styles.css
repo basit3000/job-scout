@@ -1997,6 +1997,8 @@ body.setup-open .app {
 .goose-tool small { color: var(--muted); margin-top: .15rem; line-height: 1.4; }
 .goose-result pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 #prepModal .prep-modal-card { width: min(560px, 100%); max-height: calc(100dvh - 2.5rem); overflow-y: auto; }
+#cvTemplateChoices > div { margin: .65rem 0; }
+#cvTemplateChoices small { display: block; margin: .25rem 0 .5rem 1.5rem; color: var(--muted); }
 .memory-editor { padding: 1.2rem; }
 .memory-editor textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
 .memory-editor pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow-y: auto; }

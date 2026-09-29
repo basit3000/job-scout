@@ -15,6 +15,8 @@ import {
 import { scoreText, tokenizeWords } from './tex-bullets.mjs';
 import { escapeHtml } from './common.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
+import { cvTemplateCss } from './cv-template-render.mjs';
+import { currentCvTemplate, currentCvTemplateId } from './cv-template-context.mjs';
 
 function unique(list) {
   return [...new Set(list.filter(Boolean))];
@@ -351,7 +353,11 @@ function renderSectionBody(body) {
     }
     if (inList) html.push('</ul>');
     inList = false;
-    if (/^###\s+/.test(line)) html.push(`<div class="entry-head"><strong>${inline(line.replace(/^###\s+/, ''))}</strong></div>`);
+    if (/^###\s+/.test(line)) {
+      const parts = line.replace(/^###\s+/, '').split(/\s+\|\s+/);
+      const dates = currentCvTemplate() && parts.length > 1 && /\b(?:19|20)\d{2}\b|present|current|heute/i.test(parts.at(-1)) ? parts.pop() : '';
+      html.push(`<div class="entry-head"><strong>${inline(parts.join(' | '))}</strong>${dates ? `<span class="dates">${inline(dates)}</span>` : ''}</div>`);
+    }
     else if (line.trim()) html.push(`<p class="sub">${inline(line)}</p>`);
   }
   if (inList) html.push('</ul>');
@@ -380,8 +386,11 @@ export function tailoredCvHtml(model) {
 </section>`;
     })
     .join('\n');
+  const order = currentCvTemplate()?.sectionOrder || [];
+  const sectionKey = heading => /skills/i.test(heading) ? 'skills' : heading.toLowerCase();
+  const rank = heading => { const n = order.findIndex(x => sectionKey(x) === sectionKey(heading)); return n < 0 ? order.length : n; };
   const body = model.sections
-    ? model.sections.map(section => `<h2>${escapeHtml(section.heading)}</h2>\n${renderSectionBody(section.body)}`).join('\n')
+    ? [...model.sections].sort((a, b) => rank(a.heading) - rank(b.heading)).map(section => `<h2>${escapeHtml(section.heading)}</h2>\n${renderSectionBody(section.body)}`).join('\n')
     : [
       experience.length ? `<h2>Experience</h2>\n${renderEntriesHtml(experience, false)}` : '',
       eduHtml ? `<h2>Education</h2>\n${eduHtml}` : '',
@@ -422,13 +431,14 @@ export function tailoredCvHtml(model) {
       h2 { margin: 0.4rem 0 0.12rem; }
       .entry { margin: 0.18rem 0 0.1rem; }
     }
+    ${cvTemplateCss()}
   </style>
 </head>
 <body>
   <div class="toolbar">
     <button type="button" class="primary" onclick="window.print()">Print / Save as PDF</button>
-    <a href="${prepBase}/cv.md?download=1" download="${escapeHtml(filenameBase)}.md">Download Markdown</a>
-    <a href="${prepBase}/cv.pdf?download=1" download="${escapeHtml(filenameBase)}.pdf">Download PDF</a>
+    <a href="${prepBase}/cv.md?download=1&amp;template=${currentCvTemplateId()}" download="${escapeHtml(filenameBase)}.md">Download Markdown</a>
+    <a href="${prepBase}/cv.pdf?download=1&amp;template=${currentCvTemplateId()}" download="${escapeHtml(filenameBase)}.pdf">Download PDF</a>
     <a href="${prepBase}/requirements.md" target="_blank" rel="noopener">Requirement map</a>
   </div>
   <p class="pack-note">Pack for <strong>${escapeHtml(job.title)}</strong> @ <strong>${escapeHtml(job.company)}</strong> — source <strong>${escapeHtml(meta.source || '')}</strong>. Not printed.</p>

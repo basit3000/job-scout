@@ -1,4 +1,5 @@
 import { pageLimit } from './prompt-settings.mjs';
+import { currentCvTemplate } from './cv-template-context.mjs';
 /**
  * Local Markdown CVs must print as compact ATS HTML. Agent drafts used to be
  * dumped with white-space:pre-wrap and no @page rule, so Chrome turned a
@@ -63,7 +64,7 @@ export async function ensureLocalCvFits({
   await writeFile(htmlPath, nextHtml.endsWith('\n') ? nextHtml : `${nextHtml}\n`);
   let printed = await print(htmlPath, pdfPath);
   let pages = printed?.ok ? await countPages(pdfPath) : null;
-  if (pages > pageLimit('cv')) {
+  if (pages > pageLimit('cv') && !currentCvTemplate()) {
     const tight = tightenCvPrintCss(nextHtml);
     if (tight !== nextHtml) {
       nextHtml = tight;

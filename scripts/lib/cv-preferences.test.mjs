@@ -1,3 +1,4 @@
+import { validatePromptSettings } from './prompt-settings.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cvPreferences, cvOptionsInstructions, validateCvOptions } from './cv-preferences.mjs';
@@ -54,19 +55,21 @@ test('Experience may be omitted only for an opted-in candidate with every origin
   assert.equal(verifyMarkdownCv({ before: beforeMd, after: afterMd, corpus, policy: enabled, memory }).hard.length, 0);
 });
 
-test('optional filler survives validation and fitting only with the personal preference', () => {
+test('filler deletion is opt-in and personal instructions can keep it', () => {
   const after = tex.replace('Build APIs', 'Build robust APIs');
-  const generic = verifyTexEdit({ before: tex, after, corpus });
+  const settings = validatePromptSettings({ style: { filler: ['robust'], scrubFiller: true } });
+  assert.match(verifyTexEdit({ before: tex, after, corpus }).tex, /robust/);
+  const generic = verifyTexEdit({ before: tex, after, corpus, settings });
   assert.doesNotMatch(generic.tex, /robust/);
   const personal = verifyTexEdit({ before: tex, after, corpus, policy: enabled, memory });
   assert.match(personal.tex, /robust/);
   assert.equal(personal.fixes.length, 0);
   assert.equal(applyNextFitPass(after, ['spacing', 'typography'], enabled).changed, false);
-  assert.equal(applyNextFitPass(after, ['spacing', 'typography']).pass, 'wording');
+  assert.equal(applyNextFitPass(after, ['spacing', 'typography'], { settings }).pass, 'wording');
 });
 
-test('writers, reviewers and repairs receive consistent personal exceptions while defaults stay strict', () => {
-  assert.match(buildAgentBrief({ localRules: '' }), /Never drop an Experience bullet/);
+test('writers, reviewers and repairs receive consistent personal exceptions while defaults remain neutral', () => {
+  assert.doesNotMatch(buildAgentBrief({ localRules: '' }), /Never drop an Experience bullet/);
   for (const builder of [buildAgentBrief, buildReviewerBrief, buildRepairBrief]) {
     const brief = builder({ localRules: '', policy: enabled });
     assert.match(brief, /complete original Experience bullet library/);

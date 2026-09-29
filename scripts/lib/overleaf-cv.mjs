@@ -1,3 +1,4 @@
+import { promptSettings, pageLimit } from './prompt-settings.mjs';
 /** Overleaf sync, PDF rendering, integrity checks, and explicit validated publishing. */
 
 import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
@@ -90,7 +91,7 @@ async function fitOneTexToOnePage(dir, name, job = null) {
     await writeFile(path, tex);
   }
 
-  if (job) {
+  if (job && promptSettings().format.dropOptionalSections) {
     const drops = applyJobAwareOptionalDrops(tex, job);
     if (drops.changed) {
       tex = drops.tex;
@@ -103,12 +104,12 @@ async function fitOneTexToOnePage(dir, name, job = null) {
   if (last.pages == null) {
     return { ok: false, skipped: true, reason: last.error, pages: null, applied, actions };
   }
-  if (last.pages === 1) {
-    return { ok: true, pages: 1, applied, already: true, actions };
+  if (last.pages >= 1 && last.pages <= pageLimit('cv')) {
+    return { ok: true, pages: last.pages, applied, already: true, actions };
   }
 
-  while (last.pages > 1) {
-    const next = applyNextFitPass(tex, applied, cvPreferences());
+  while (last.pages > pageLimit('cv')) {
+    const next = applyNextFitPass(tex, applied, { ...cvPreferences(), settings: promptSettings() });
     if (next.changed) {
       if (experienceItemCount(next.tex) < expBefore) break;
       tex = next.tex;
@@ -120,6 +121,7 @@ async function fitOneTexToOnePage(dir, name, job = null) {
       }
       continue;
     }
+    if (!promptSettings().format.dropOptionalSections) break;
     const space = applyNextOptionalSpaceDrop(tex, applied);
     if (!space.changed) break;
     if (experienceItemCount(space.tex) < expBefore) break;
@@ -134,10 +136,10 @@ async function fitOneTexToOnePage(dir, name, job = null) {
   }
 
   return {
-    ok: last.pages === 1,
+    ok: last.pages >= 1 && last.pages <= pageLimit('cv'),
     pages: last.pages,
     applied,
-    overflow: last.pages > 1,
+    overflow: last.pages > pageLimit('cv'),
     actions,
   };
 }
@@ -162,14 +164,14 @@ export async function fitOverleafCvsToOnePage(job = null, { prepDir } = {}) {
   const pages = Object.fromEntries(
     Object.entries(perFile).map(([k, v]) => [k, v.pages]),
   );
-  const ok = targets.length > 0 && targets.every((n) => perFile[n]?.pages === 1);
+  const ok = targets.length > 0 && targets.every((n) => perFile[n]?.ok);
   if (prepDir) {
     try {
-      const lines = ['# Page check', '', 'Never drops Experience. Optional: courses, spoken languages, certificates.', ''];
+      const lines = ['# Page check', '', `Page limit: ${pageLimit('cv')}. Fitting preserves Experience; optional section removal: ${promptSettings().format.dropOptionalSections ? 'enabled' : 'disabled'}.`, ''];
       for (const name of targets) {
         const f = perFile[name];
         lines.push(`## ${name}`, '');
-        lines.push(`Pages after content cuts: ${f.pages ?? '?'}${f.ok ? ' (one page)' : ''}`);
+        lines.push(`Pages after content cuts: ${f.pages ?? '?'}${f.ok ? ' (within configured page limit)' : ''}`);
         for (const a of f.actions || []) lines.push(`- ${a}`);
         if (f.applied?.length) lines.push(`- fit passes: ${f.applied.join(', ')}`);
         if (f.overflow) lines.push('- Needs review: complete PDF preserved; shorten or adjust the layout.');
@@ -285,8 +287,8 @@ export async function compileOverleafPdfs(prepDir) {
     if (!result.ok) {
       result = await compileTexViaHtmlFallback(texName, join(prepDir, destName), prepDir);
     }
-    if (result.ok && (result.pages == null || result.pages > 1)) {
-      result = { ...result, needsReview: true, reviewReason: 'One-page fit could not be verified; complete PDF preserved.' };
+    if (result.ok && (result.pages == null || result.pages > pageLimit('cv'))) {
+      result = { ...result, needsReview: true, reviewReason: 'Configured page limit could not be verified; complete PDF preserved.' };
     }
     return result;
   }
@@ -361,6 +363,8 @@ async function checkPdfTextLayer(pdfPath, texDir) {
     const expect = {};
     try {
       const ats = await readFile(join(texDir, 'ats.tex'), 'utf8');
+      // Verify plain source headings survived extraction, without imposing a template.
+      expect.sectionHeadings = [...ats.matchAll(/\\section\*?\{([^{}\\]+)\}/g)].map(match => match[1].trim());
       const email = ats.match(/mailto:([^}\s]+)/);
       if (email) expect.email = email[1];
       const phone = ats.match(/(\+\d[\d\s]{7,}\d)/);
@@ -389,7 +393,7 @@ export async function assembleOverleafAfterAgent({
   };
   // Do not pull — the agent just edited `.workspace/overleaf`. A pull would
   // stash those edits and waste the tailor pass.
-  emit('Fitting Overleaf CVs to one page…');
+  emit('Fitting Overleaf CVs to the configured page limit…');
   const fit = await fitOverleafCvsToOnePage(job, { prepDir });
   emit('Compiling Overleaf PDFs into the prep pack…');
   const pdf = await compileOverleafPdfs(prepDir);

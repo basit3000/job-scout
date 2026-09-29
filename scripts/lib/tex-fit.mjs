@@ -1,12 +1,13 @@
 /**
- * Fit Overleaf CVs to exactly one page without dropping important facts.
+ * Apply bounded layout passes toward the configured page limit.
  *
  * Order: compile-check → squeeze spacing → typography floors → compress
  * filler wording → drop Interests only. Never delete Experience bullets,
  * Education, or project headlines.
  */
 
-import { FILLER as FILLER_WORDS } from './cv-style.mjs';
+import { scrubFiller } from './cv-style.mjs';
+import { defaultPromptSettings } from './prompt-settings.mjs';
 
 export const FIT_MARKER_START = '% BEGIN job-scout one-page-fit';
 export const FIT_MARKER_END = '% END job-scout one-page-fit';
@@ -29,11 +30,6 @@ const ATS_BLOCK = `${ATS_MARKER_START}
 \\hyphenpenalty=10000 \\exhyphenpenalty=10000 \\tolerance=3000 \\emergencystretch=3em
 ${ATS_MARKER_END}
 `;
-
-const FILLER = new RegExp(
-  `\\b(${[...FILLER_WORDS].sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
-  'gi',
-);
 
 function toInches(n, unit) {
   const u = String(unit || 'in').toLowerCase();
@@ -101,10 +97,10 @@ export function tightenTypography(tex) {
 }
 
 /** Drop filler adjectives inside \\item lines. Facts stay. */
-export function compressFillerWording(tex) {
+export function compressFillerWording(tex, settings = defaultPromptSettings()) {
   let changed = false;
   const next = String(tex ?? '').replace(/(\\item[ \t]*)([^\n]+)/g, (full, lead, rest) => {
-    const cleaned = rest.replace(FILLER, ' ').replace(/[ \t]{2,}/g, ' ').replace(/\s+([.,;:])/g, '$1');
+    const cleaned = scrubFiller(rest, settings.style.filler).text;
     if (cleaned !== rest) changed = true;
     return lead + cleaned;
   });
@@ -138,12 +134,13 @@ const PASSES = [
 /**
  * Apply the next unused fit pass. Returns { tex, changed, pass }.
  */
-export function applyNextFitPass(tex, already = [], { allowFillerWhenUseful = false } = {}) {
+export function applyNextFitPass(tex, already = [], { allowFillerWhenUseful = false, settings = defaultPromptSettings() } = {}) {
   const done = new Set(already);
   for (const pass of PASSES) {
-    if (pass.id === 'wording' && allowFillerWhenUseful) continue;
+    if (pass.id === 'wording' && (allowFillerWhenUseful || !settings.style.scrubFiller)) continue;
+    if (pass.id === 'interests' && !settings.format.dropOptionalSections) continue;
     if (done.has(pass.id)) continue;
-    const r = pass.apply(tex);
+    const r = pass.apply(tex, settings);
     if (r.changed) return { tex: r.tex, changed: true, pass: pass.id };
   }
   return { tex, changed: false, pass: null };

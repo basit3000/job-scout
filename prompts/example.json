@@ -1,0 +1,30 @@
+{
+  "instructions": {
+    "all": "Use clear, direct wording and preserve my preferred language.",
+    "cv": "Keep useful details from the source CV. Emphasize evidence relevant to the posting.",
+    "letter": "Explain my interest and relevant experience without repeating the CV.",
+    "review": "Keep style suggestions optional unless they violate my stated requirements.",
+    "repair": "",
+    "coordinator": ""
+  },
+  "format": {
+    "sectionOrder": [],
+    "cvMaxPages": 1,
+    "letterMaxPages": 1,
+    "letterSubjectPrefix": "",
+    "letterSignoff": "",
+    "dropOptionalSections": false
+  },
+  "style": {
+    "filler": [],
+    "discouragedPhrases": [],
+    "weakOpeners": [],
+    "scrubFiller": false,
+    "avoidDashes": false,
+    "maxBulletChars": 0,
+    "maxHeadlineChars": 0,
+    "minLetterWords": 0,
+    "maxLetterWords": 0,
+    "maxSentenceWords": 0
+  }
+}

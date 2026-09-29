@@ -49,6 +49,7 @@ for (const line of (await optional('.env')).split(/\r?\n/)) {
   }
 }
 const privatePath = file => {
+  if (file === 'prompts/local.json') return true;
   if (/^(?:profile|search-profile)(?:\.[^/]*)?\.json$/.test(file)) return !file.endsWith('.example.json');
   if (/^cv\//.test(file)) return !/^cv\/(?:\.gitkeep|README\.md|(?:resume|cover-letter|cover-letter-notes)\.example\.md)$/.test(file);
   if (/^state\//.test(file)) return !/^state\/[^/]+\.example\.json$/.test(file) && file !== 'state/.gitkeep';

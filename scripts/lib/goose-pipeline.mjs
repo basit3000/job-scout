@@ -10,6 +10,7 @@ import { createGooseToolBridge, validateGooseRequest } from './goose-tools.mjs';
 import { runGoose, withGooseContext } from './goose-runtime.mjs';
 import { cvOptionsInstructions } from './cv-preferences.mjs';
 import { publishRequestedOverleaf } from './overleaf-cv.mjs';
+import { localPromptInstructions } from './prompt-settings.mjs';
 
 async function readOptional(path) {
   try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
@@ -59,7 +60,7 @@ export async function runGooseCoordinator(options, bridge, run = runGoose) {
 async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, request, signal, onEvent = () => {} }) {
   const { tools, prompt: userPrompt, cvOptions, pushToOverleaf = false } = validateGooseRequest(request);
   const selectedInstructions = cvOptionsInstructions(cvOptions, await readMemory());
-  const prompt = [userPrompt, selectedInstructions].filter(Boolean).join('\n\n');
+  const prompt = [localPromptInstructions('coordinator'), userPrompt, selectedInstructions].filter(Boolean).join('\n\n');
   const controller = new AbortController();
   // Bound the whole workflow, including host work left after the coordinator exits.
   signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45 * 60_000), ...(signal ? [signal] : [])]);

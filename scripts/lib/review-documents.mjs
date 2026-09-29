@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractPdfText } from './pdf-text.mjs';
+import { pageLimit } from './prompt-settings.mjs';
 
 export const DOCUMENT_FILES = {
   cv: ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf'],
@@ -23,7 +24,8 @@ export async function stageFinalDocumentText(dir, scope, extract = extractPdfTex
   for (const name of DOCUMENT_FILES[scope].filter((n) => n.endsWith('.pdf'))) {
     try { await readFile(join(dir, name)); } catch (e) { if (e.code === 'ENOENT') continue; throw e; }
     const pdf = await extract(join(dir, name));
-    if (pdf.pages !== 1 || !pdf.text.trim()) throw new Error(`${name}: final PDF must have one page and readable text`);
+    const limit = pageLimit(scope);
+    if (pdf.pages < 1 || pdf.pages > limit || !pdf.text.trim()) throw new Error(`${name}: final PDF must have ${limit === 1 ? 'one page' : `at most ${limit} pages`} and readable text`);
     sections.push(`## ${name} — ${pdf.pages} page\n${pdf.text}`);
   }
   if (!sections.length) throw new Error('No final PDF available for review');

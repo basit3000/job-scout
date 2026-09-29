@@ -1,3 +1,4 @@
+import { validatePromptSettings } from './prompt-settings.mjs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { parsePdfPageCount } from './pdf.mjs';
@@ -72,9 +73,9 @@ test('tightenTypography floors at 10pt and 0.5in', () => {
 });
 
 test('compressFillerWording keeps the same duties', () => {
-  const { tex, changed } = compressFillerWording(SAMPLE);
+  const { tex, changed } = compressFillerWording(SAMPLE, validatePromptSettings({ style: { filler: ['successfully', 'robust'] } }));
   assert.equal(changed, true);
-  assert.match(tex, /built Python REST APIs/);
+  assert.match(tex, /Built Python REST APIs/);
   assert.doesNotMatch(tex, /Successfully/);
   assert.equal(experienceItemCount(tex), experienceItemCount(SAMPLE));
 });

@@ -76,7 +76,7 @@ describe('local CV HTML fit', () => {
     assert.match(printedFrom, /<h1>Jane Doe<\/h1>/);
     assert.match(printedFrom, /@page \{ size: A4;/);
     assert.equal(result.pages, 1);
-    assert.match(notes.join(' '), /one-page print/);
+    assert.match(notes.join(' '), /Rebuilding CV HTML for print/);
     assert.equal(await readFile(htmlPath, 'utf8'), printedFrom.endsWith('\n') ? printedFrom : `${printedFrom}\n`);
   });
 

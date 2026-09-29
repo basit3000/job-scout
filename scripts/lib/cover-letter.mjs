@@ -1,3 +1,4 @@
+import { pageLimit, promptSettings } from './prompt-settings.mjs';
 import { withMemorySnapshot, readMemory, candidateProfile } from './memory.mjs';
 /**
  * Tailor cv/cover-letter.md to a posting: keep the core letter, insert optional
@@ -128,12 +129,12 @@ export function assembleCoverLetter(templateText, job, profile) {
   };
 }
 
-/** Strip em dashes / spaced-hyphen asides and exclamation marks after template or LLM edits. */
+/** Apply punctuation cleanup only when requested in local settings. */
 export function polishCoverLetter(text) {
+  if (!promptSettings().style.avoidDashes) return String(text ?? '');
   let letter = String(text || '');
   letter = letter.replace(/\s*—\s*/g, ', ');
   letter = letter.replace(/\s+[–-]\s+(?=[A-Za-z])/g, ', ');
-  letter = letter.replace(/(?<!<)!+(?!--)/g, '.'); // keep <!-- --> markers intact
   letter = letter.replace(/[ \t]{2,}/g, ' ').replace(/ ,/g, ',');
   return letter.replace(/\n{3,}/g, '\n\n').trim() + '\n';
 }
@@ -161,8 +162,9 @@ export function trimLetterToOnePage(letter, job, opts = {}) {
   const parts = src.split(/\n{2,}/);
   if (parts.length <= 4) return { letter: src, dropped: [] };
 
-  const isSignoff = (p) => /kind regards/i.test(p) || /^(sincerely|best regards)/i.test(p);
-  const isSubject = (p) => /^application for/i.test(p.trim());
+  const signoff = promptSettings().format.letterSignoff.toLowerCase();
+  const isSignoff = p => (signoff && p.trim().toLowerCase().startsWith(signoff)) || /^(kind regards|sincerely|best regards)/i.test(p.trim());
+  const isSubject = isLetterSubject;
   const isGreeting = (p) => /^(dear|hallo|hello)\b/i.test(p.trim());
 
   const head = [];
@@ -209,32 +211,15 @@ export function trimLetterToOnePage(letter, job, opts = {}) {
   return { letter: out, dropped };
 }
 
-function fallbackCoverLetter(job, profile, fit) {
-  const name = profile?.name ?? 'Candidate';
-  const role = profile?.targetRole ?? 'the role';
-  const skills = (fit?.matched?.length ? fit.matched : profile?.skills?.strong ?? []).slice(0, 5);
-  const site = profile?.links?.portfolio || profile?.links?.site || profile?.links?.github || '';
-
-  const stack = skills.length
-    ? `Most of my recent work is in ${skills.slice(0, 3).join(', ')}${skills.length > 3 ? ` and ${skills[3]}` : ''}.`
-    : '';
-  const reason = fit?.reasons?.[0] ? `${String(fit.reasons[0]).replace(/[.!]+$/, '')}.` : '';
-
-  return `Application for ${job.title}
-
-Dear Hiring Team,
-
-I am a ${profile?.headline || role} applying for the ${job.title} role at ${job.company}. ${stack}
-
-${reason}
-
-My CV lists the systems I have built with each of these, with links to the code where it is public. I am available for a call at short notice.
-
-Kind regards,
-${name}
-${profile?.links?.email ?? ''}
-${site}
-`.replace(/\n{3,}/g, '\n\n').trim() + '\n';
+function seedCoverLetter(job, profile) {
+  const format = promptSettings().format;
+  return [
+    `${format.letterSubjectPrefix || 'Application for'} ${job.title || 'the role'}`,
+    'Dear Hiring Team,',
+    `I am applying for ${job.title || 'the role'} at ${job.company || 'your company'}.`,
+    [format.letterSignoff || 'Kind regards,', profile?.name,
+      profile?.links?.email, profile?.links?.portfolio || profile?.links?.site].filter(Boolean).join('\n'),
+  ].join('\n\n') + '\n';
 }
 
 export async function loadCoverLetterTemplate() {
@@ -251,26 +236,22 @@ export async function buildCoverLetter(job, profile, fit) {
     const assembled = assembleCoverLetter(template, job, profile);
     if (assembled.letter) return assembled.letter;
   }
-  return fallbackCoverLetter(job, profile, fit);
+  return seedCoverLetter(job, profile);
 }
 
-/**
- * Render the plain-text letter as a properly formatted HTML page.
- *
- * Expected structure (no sender header or date):
- *   "Application for [Role]"   ← subject line
- *   blank line
- *   Body paragraphs (blank-line separated)
- *   ...
- *   Sign-off block (Kind regards, / name / email / url — each on its own line)
- */
+function isLetterSubject(line) {
+  const prefix = promptSettings().format.letterSubjectPrefix || 'Application for';
+  return line.trim().toLowerCase().startsWith(prefix.toLowerCase());
+}
+
+/** Render paragraphs and an optional configured subject without changing the wording. */
 export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
   const lines = letter.split('\n');
   let i = 0;
 
   while (i < lines.length && !lines[i].trim()) i++;
   let subjectLine = '';
-  if (i < lines.length && /^application for/i.test(lines[i].trim())) {
+  if (i < lines.length && isLetterSubject(lines[i])) {
     subjectLine = lines[i].trim();
     i++;
   }
@@ -355,7 +336,7 @@ export async function coverLetterToDocx(letter) {
   while (i < lines.length && !lines[i].trim()) i++;
 
   let subjectLine = '';
-  if (i < lines.length && /^application for/i.test(lines[i].trim())) {
+  if (i < lines.length && isLetterSubject(lines[i])) {
     subjectLine = lines[i].trim();
     i++;
   }
@@ -510,7 +491,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
   cvSource = 'local',
 } = {}) {
   const assembled = assembleCoverLetter(await loadCoverLetterTemplate(), job, profile);
-  let letter = assembled.letter || fallbackCoverLetter(job, profile, fit);
+  let letter = assembled.letter || seedCoverLetter(job, profile);
   const htmlTitle = `Cover letter — ${job.title || ''} @ ${job.company || ''}`;
   const emit = typeof onEvent === 'function'
     ? onEvent
@@ -551,7 +532,7 @@ async function generateCoverLetterUncached(job, profile, fit, {
 
       const pageNotes = [];
       let pages = pdfPath ? await countPdfPages(pdfPath) : null;
-      if (pages > 1) {
+      if (pages > pageLimit('letter') && promptSettings().format.dropOptionalSections) {
         emit({ stream: 'meta', line: `Cover letter PDF is ${pages} pages — trimming least relevant paragraphs…`, t: Date.now() });
         const trimmed = trimLetterToOnePage(letter, job, { force: true });
         if (trimmed.dropped.length) {
@@ -564,9 +545,9 @@ async function generateCoverLetterUncached(job, profile, fit, {
           pages = pdfPath ? await countPdfPages(pdfPath) : pages;
         }
       }
-      if (pdfPath && (pages == null || pages > 1)) {
+      if (pdfPath && (pages == null || pages > pageLimit('letter'))) {
         pageNotes.push(`Needs review: ${pages ?? 'unknown'} pages; complete PDF preserved`);
-        pdfError = 'Needs review: the complete letter is preserved; one-page fit could not be verified.';
+        pdfError = 'Needs review: the complete letter is preserved; configured page limit could not be verified.';
         emit({ stream: 'stderr', line: pdfError, t: Date.now() });
       }
       try {

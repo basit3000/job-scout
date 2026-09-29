@@ -8,7 +8,7 @@ description: Refresh a staged master CV from new verified or candidate-confirmed
 Follow the candidate-information rules in [AGENTS.md](../../../AGENTS.md).
 Use the supplied memory snapshot for an active run; otherwise read
 `state/memory.json`. If it is missing, complete setup or the one-time migration
-before candidate work. Do not read retired profile, notes or personal skill overlays.
+before candidate work. Use `prompts/local.json` for local wording and format preferences; candidate facts stay in Memory.
 
 Refresh the master CV for the candidate's general target roles. Use the supplied master snapshot, current evidence, newly gathered evidence, and candidate constraints. If the task is only to tailor a document to one posting, route it to the existing tailoring workflow instead.
 

@@ -179,7 +179,7 @@ export function buildPrepIndex(job, fit, {
   if (downloadFolder) pdfLines.push(`- Download folder: \`${downloadFolder}\``);
   const fitPages = overleaf?.fit?.pages || overleaf?.pdf?.pages || {};
   const fitNote = overleaf?.fit
-    ? `- One-page check: ATS ${fitPages['ats.tex'] ?? fitPages.ats ?? '?'}p, Main ${fitPages['main.tex'] ?? fitPages.main ?? '?'}p${overleaf.fit.ok ? ' — both 1 page' : overleaf.fit.ok === false ? ' — still over (kept Experience; squeezed spacing only)' : ''}`
+    ? `- Page check: ATS ${fitPages['ats.tex'] ?? fitPages.ats ?? '?'}p, Main ${fitPages['main.tex'] ?? fitPages.main ?? '?'}p${overleaf.fit.ok ? ' — within configured limit' : overleaf.fit.ok === false ? ' — needs review; complete documents preserved' : ''}`
     : null;
   const olLines = overleaf
     ? [

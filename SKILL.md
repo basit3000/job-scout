@@ -9,6 +9,10 @@ Read AGENTS.md and README.md at the repository root. Candidate facts, preference
 and answers live only in state/memory.json. If an old installation still has only
 profile.json, follow docs/upgrading.md before running the current app.
 
+For reusable prompt wording and document format, use ignored `prompts/local.json`.
+See docs/prompt-customization.md and the neutral prompts/example.json. Keep facts
+and confirmed application answers in Memory, not prompt configuration.
+
 Use the UI for setup and memory preview/confirmation. Ask for missing facts; never
 invent YOUR_* values, dates, qualifications, sponsorship or salary answers.
 

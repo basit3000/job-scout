@@ -1,22 +1,11 @@
 import { readMemorySync, memoryEvidence } from './memory.mjs';
 import { cvPreferences, experienceIsArchived } from './cv-preferences.mjs';
+import { defaultPromptSettings, promptSettings } from './prompt-settings.mjs';
 /**
- * Post-edit quality gate for agent-tailored CVs and cover letters.
- *
- * The agent is trusted to write; it is not trusted to be right. After it finishes,
- * this module compares its output with a snapshot taken before the run and with the
- * evidence corpus, then:
- *
- *   HARD failures  → the edit is rejected; previously accepted documents remain intact.
- *                    (employer / title / date changed, a number nobody measured,
- *                     section order broken, Experience bullet dropped, Senior/Lead
- *                     headline, LaTeX that cannot compile, YOUR_ placeholders)
- *   AUTO fixes     → filler adjectives are deleted in place (facts survive).
- *   SOFT warnings  → generated-sounding phrases, weak openers, over-long bullets,
- *                    main.tex vs ats.tex drift, keywords that only live in Skills.
- *
- * Everything is written to <prep>/quality-report.md so the user sees exactly what
- * was checked before they send anything.
+ * Validate drafts against staged evidence and configured format requirements.
+ * Unsupported claims and document damage block publication. Style checks are
+ * advisory; filler cleanup requires an explicit local setting. Reports and
+ * complete drafts remain available when validation fails.
  */
 
 import { existsSync } from 'node:fs';
@@ -28,8 +17,6 @@ import {
   findStyleIssues,
   scrubFiller,
   wordCount,
-  LETTER_LIMITS,
-  CV_LIMITS,
   SUSPECT_CLAIM_RE,
   WRITING_RULES_GENERIC,
 } from './cv-style.mjs';
@@ -236,6 +223,15 @@ export function extractHeadline(tex) {
   return normText(large ? large[1] : '');
 }
 
+function sectionOrderIssue(headings, configured) {
+  if (!configured.length) return '';
+  const wanted = configured.map(normText);
+  const missing = wanted.filter(name => !headings.includes(name));
+  if (missing.length) return `configured section heading(s) missing: ${missing.join(', ')}`;
+  const actual = headings.filter(name => wanted.includes(name));
+  return actual.join('>') === wanted.join('>') ? '' : `section order differs from configured order: ${configured.join(' > ')}`;
+}
+
 function braceBalance(tex) {
   // `\\}` is a line break followed by a real brace; `\{` is a literal brace.
   const s = stripComments(tex).replace(/\\\\/g, ' ').replace(/\\[{}]/g, '');
@@ -299,7 +295,7 @@ export function newNumbers(text, corpus) {
 /**
  * @returns {{ tex: string, hard: string[], soft: string[], fixes: string[], changedBullets: number }}
  */
-export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', policy = {}, memory = null }) {
+export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', policy = {}, memory = null, settings = defaultPromptSettings() }) {
   const hard = [];
   const soft = [];
   const fixes = [];
@@ -314,20 +310,16 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', poli
   if (bal !== 0) hard.push(`${prefix}unbalanced braces (${bal > 0 ? `${bal} unclosed` : `${-bal} extra closing`})`);
   if (/\bYOUR_[A-Z0-9_]+\b/.test(tex)) hard.push(`${prefix}YOUR_* placeholder left in the document`);
 
-  // Section order
-  const order = texSections(tex).map((s) => s.key).filter(Boolean);
-  const want = ['experience', 'education', 'projects', 'skills'].filter((k) => order.includes(k));
-  const got = order.filter((k) => want.includes(k));
-  if (got.join('>') !== want.join('>')) {
-    hard.push(`${prefix}section order is ${got.join(' → ')} (must be Experience → Education → Projects → Skills)`);
-  }
+  const order = texSections(tex).map(section => normText(section.title));
+  const orderIssue = sectionOrderIssue(order, settings.format.sectionOrder);
+  if (orderIssue) hard.push(`${prefix}${orderIssue}`);
 
   // Headline honesty
   const headline = extractHeadline(tex);
-  if (headline && INFLATED_HEADLINE.test(headline)) {
+  if (headline && INFLATED_HEADLINE.test(headline) && !normText(corpus.text).includes(headline) && headline !== extractHeadline(before || '')) {
     hard.push(`${prefix}headline claims a level the candidate does not hold: "${headline}"`);
   }
-  if (headline.length > CV_LIMITS.maxHeadlineChars) {
+  if (settings.style.maxHeadlineChars && headline.length > settings.style.maxHeadlineChars) {
     soft.push(`${prefix}headline is ${headline.length} chars — keep it to one line`);
   }
 
@@ -373,19 +365,17 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', poli
     // Style is judged on the sentence only (label and link markup excluded).
     const plain = b.prose.replace(/\\href\s*\{[^{}]*\}\s*\{([^{}]*)\}/g, '$1').replace(/\\[a-zA-Z]+\*?|[{}]/g, ' ');
     const issues = findStyleIssues(plain, {
-      context: 'cv',
+      context: 'cv', settings,
       bullet: true,
-      personalProject: b.section === 'projects',
     });
     for (const is of issues) {
-      if (policy.allowFillerWhenUseful && ['filler', 'ai-tell'].includes(is.kind)) continue;
-      if (is.kind === 'filler') continue; // handled by scrub below
+      if (policy.allowFillerWhenUseful && ['filler', 'wording'].includes(is.kind)) continue;
+      if (is.kind === 'filler' && settings.style.scrubFiller) continue; // handled below
       const line = `${prefix}${b.section} bullet — ${is.kind} "${is.phrase}": ${is.excerpt}`;
-      if (is.severity === 'hard' && changed) hard.push(line);
-      else if (changed || is.kind === 'inflation') soft.push(line);
+      if (changed) soft.push(line);
     }
-    if (changed && !policy.allowFillerWhenUseful && !/https?:\/\//.test(b.prose)) {
-      const scrubbed = scrubFiller(b.prose);
+    if (changed && settings.style.scrubFiller && !policy.allowFillerWhenUseful && !/https?:\/\//.test(b.prose)) {
+      const scrubbed = scrubFiller(b.prose, settings.style.filler);
       if (scrubbed.removed.length && tex.includes(b.prose)) {
         tex = tex.replace(b.prose, scrubbed.text);
         fixes.push(`${prefix}removed filler ${scrubbed.removed.map((w) => `"${w}"`).join(', ')} from: ${scrubbed.text.slice(0, 90)}`);
@@ -434,7 +424,7 @@ export function keywordCoverage({ job, tex, evidenceText = '', profile = {} }) {
   return { inBullets, skillsOnly, missing, notEvidenced: analysis.gaps, requirements: analysis.requirements || [] };
 }
 
-export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = null }) {
+export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = null, settings = defaultPromptSettings() }) {
   const hard = [];
   const soft = [];
   const fixes = [];
@@ -444,11 +434,8 @@ export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = 
   if (fresh.length) hard.push(`cv.md: numbers with no source in the evidence: ${fresh.join(', ')}`);
 
   const headings = (md.match(/^##\s+([^\n]+)/gm) || []).map((h) => h.replace(/^##\s+/, '').trim().toLowerCase());
-  const want = ['experience', 'education', 'projects', 'skills'].filter((k) => headings.includes(k));
-  const got = headings.filter((h) => want.includes(h));
-  if (got.join('>') !== want.join('>')) {
-    hard.push(`cv.md: section order is ${got.join(' → ')} (must be Experience → Education → Projects → Skills)`);
-  }
+  const orderIssue = sectionOrderIssue(headings, settings.format.sectionOrder);
+  if (orderIssue) hard.push(`cv.md: ${orderIssue}`);
 
   const beforeHeads = new Set((String(before || '').match(/^###\s+[^\n]+/gm) || []).map((s) => s.toLowerCase().trim()));
   if (beforeHeads.size) {
@@ -485,16 +472,15 @@ export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = 
     if (!b) continue;
     const text = b[1].trim();
     const changed = !beforeBullets.has(text.toLowerCase());
-    const issues = findStyleIssues(text, { context: 'cv', bullet: true, personalProject: section === 'projects' });
+    const issues = findStyleIssues(text, { context: 'cv', bullet: true, settings });
     for (const is of issues) {
-      if (policy.allowFillerWhenUseful && ['filler', 'ai-tell'].includes(is.kind)) continue;
-      if (is.kind === 'filler') continue;
+      if (policy.allowFillerWhenUseful && ['filler', 'wording'].includes(is.kind)) continue;
+      if (is.kind === 'filler' && settings.style.scrubFiller) continue;
       const l = `cv.md ${section} bullet — ${is.kind} "${is.phrase}": ${is.excerpt}`;
-      if (is.severity === 'hard' && changed) hard.push(l);
-      else if (changed || is.kind === 'inflation') soft.push(l);
+      if (changed) soft.push(l);
     }
-    if (changed && !policy.allowFillerWhenUseful) {
-      const s = scrubFiller(text);
+    if (changed && settings.style.scrubFiller && !policy.allowFillerWhenUseful) {
+      const s = scrubFiller(text, settings.style.filler);
       if (s.removed.length) {
         md = md.replace(text, s.text);
         fixes.push(`cv.md: removed filler ${s.removed.map((w) => `"${w}"`).join(', ')} from: ${s.text.slice(0, 90)}`);
@@ -504,48 +490,36 @@ export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = 
   return { md, hard, soft, fixes };
 }
 
-function letterBody(letter) {
+function letterBody(letter, settings) {
   const lines = String(letter ?? '').split('\n');
-  let start = 0;
-  while (start < lines.length && !lines[start].trim()) start += 1;
-  if (/^application for/i.test(lines[start] || '')) start += 1;
-  let end = lines.findIndex((l) => /^kind regards,?$/i.test(l.trim()));
-  if (end < 0) end = lines.length;
-  return lines.slice(start, end).join('\n').trim();
+  let start = lines.findIndex(line => line.trim());
+  if (start < 0) return '';
+  const subject = settings.format.letterSubjectPrefix;
+  if (subject && lines[start].trim().startsWith(subject)) start++;
+  const signoff = settings.format.letterSignoff;
+  const end = signoff ? lines.findIndex(line => line.trim() === signoff) : -1;
+  return lines.slice(start, end < 0 ? lines.length : end).join('\n').trim();
 }
 
-export function verifyLetter({ letter, corpus, job = null }) {
-  const hard = [];
-  const soft = [];
+export function verifyLetter({ letter, corpus, job = null, settings = defaultPromptSettings() }) {
+  const hard = [], soft = [];
   const text = String(letter ?? '');
-  const body = letterBody(text);
-
-  if (!/^\s*application for/i.test(text)) hard.push('letter: must start with "Application for <Role>"');
-  if (!/^kind regards,?\s*$/im.test(text)) hard.push('letter: sign-off must be exactly "Kind regards,"');
-  if (/\bYOUR_[A-Z0-9_]+\b/.test(text)) hard.push('letter: YOUR_* placeholder left in the letter');
-  if (/\[(Company|Role|Date)\]/.test(text)) hard.push('letter: unfilled [Company] / [Role] / [Date] placeholder');
-
+  const body = letterBody(text, settings);
+  const { letterSubjectPrefix, letterSignoff } = settings.format;
+  if (letterSubjectPrefix && !text.trimStart().startsWith(letterSubjectPrefix)) hard.push(`letter: subject must start with configured prefix "${letterSubjectPrefix}"`);
+  if (letterSignoff && !text.split('\n').some(line => line.trim() === letterSignoff)) hard.push(`letter: missing configured sign-off "${letterSignoff}"`);
+  if (/\bYOUR_[A-Z0-9_]+\b/.test(text) || /\[(Company|Role|Date)\]/.test(text)) hard.push('letter: unfilled placeholder');
   const fresh = newNumbers(body, corpus);
   if (fresh.length) hard.push(`letter: numbers with no source in the evidence: ${fresh.join(', ')}`);
-
-  const paragraphs = body.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  const paragraphs = body.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
   const words = wordCount(body);
-  if (words < LETTER_LIMITS.minWords) soft.push(`letter: body is ${words} words (aim for ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords})`);
-  if (words > LETTER_LIMITS.maxWords) soft.push(`letter: body is ${words} words (aim for ${LETTER_LIMITS.minWords}–${LETTER_LIMITS.maxWords})`);
-  if (paragraphs.length < LETTER_LIMITS.minParagraphs || paragraphs.length > LETTER_LIMITS.maxParagraphs) {
-    soft.push(`letter: ${paragraphs.length} body paragraphs (aim for ${LETTER_LIMITS.minParagraphs}–${LETTER_LIMITS.maxParagraphs})`);
+  const style = settings.style;
+  if (style.minLetterWords && words < style.minLetterWords) soft.push(`letter: ${words} words; target at least ${style.minLetterWords}`);
+  if (style.maxLetterWords && words > style.maxLetterWords) soft.push(`letter: ${words} words; target at most ${style.maxLetterWords}`);
+  if (style.maxSentenceWords) for (const sentence of body.split(/(?<=[.!?])\s+/)) {
+    if (wordCount(sentence) > style.maxSentenceWords) soft.push('letter: sentence exceeds configured length target');
   }
-  for (const sentence of body.split(/(?<=[.!?])\s+/)) {
-    const n = wordCount(sentence);
-    if (n > LETTER_LIMITS.maxSentenceWords) soft.push(`letter: ${n}-word sentence — split it: "${sentence.slice(0, 80)}…"`);
-  }
-  if (/^\s*(dear[^\n]*\n\s*)?i am writing to apply/im.test(body)) soft.push('letter: opens with "I am writing to apply" — say what you build instead');
-
-  for (const is of findStyleIssues(body, { context: 'letter' })) {
-    const line = `letter — ${is.kind} "${is.phrase}": ${is.excerpt}`;
-    if (is.severity === 'hard') hard.push(line);
-    else soft.push(line);
-  }
+  for (const issue of findStyleIssues(body, { context: 'letter', settings })) soft.push(`letter: ${issue.kind} "${issue.phrase}"`);
 
   // Employers named in the letter must exist somewhere in the evidence (or be the target company).
   for (const m of body.matchAll(/\b[Aa]t ([A-Z][\w.&'-]+(?: [A-Z][\w.&'-]+){0,2})/g)) {
@@ -610,7 +584,7 @@ export function formatQualityReport({
   }
 
   if (letter) {
-    const verdict = letter.hard.length ? 'REJECTED (keyword draft used)' : letter.soft.length ? 'PASS with warnings' : 'PASS';
+    const verdict = letter.hard.length ? 'REJECTED (draft retained for review)' : letter.soft.length ? 'PASS with warnings' : 'PASS';
     lines.push(`## Cover letter — ${verdict}`, '');
     lines.push(`${letter.words} words, ${letter.paragraphs} paragraphs.`, '');
     if (letter.hard.length) {
@@ -625,7 +599,7 @@ export function formatQualityReport({
     }
   }
 
-  lines.push(`Rules: \`${WRITING_RULES_GENERIC}\`; banned phrases: \`scripts/lib/cv-style.mjs\`.`, '');
+  lines.push(`Rules: \`${WRITING_RULES_GENERIC}\`; optional style checks: \`scripts/lib/cv-style.mjs\`.`, '');
   return lines.join('\n');
 }
 
@@ -699,7 +673,7 @@ export async function verifyCvAfterAgent({
     const results = {};
     for (const n of ['main.tex', 'ats.tex']) {
       if (!after[n]) continue;
-      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n, policy, memory });
+      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n, policy, memory, settings: promptSettings() });
       cv.hard.push(...results[n].hard);
       cv.soft.push(...results[n].soft);
       cv.fixes.push(...results[n].fixes);
@@ -730,7 +704,7 @@ export async function verifyCvAfterAgent({
     const path = join(prepDir, 'cv.md');
     const after = await readIf(path);
     if (after) {
-      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus, policy, memory });
+      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus, policy, memory, settings: promptSettings() });
       cv.hard.push(...r.hard);
       cv.soft.push(...r.soft);
       cv.fixes.push(...r.fixes);
@@ -789,9 +763,9 @@ export async function verifyLetterAfterAgent({
     evidencePath: evidencePath ? join(ROOT, evidencePath) : '',
     job,
   });
-  const result = verifyLetter({ letter, corpus, job });
+  const result = verifyLetter({ letter, corpus, job, settings: promptSettings() });
   if (result.hard.length) {
-    emit(`Quality gate (letter): ${result.hard.length} hard failure(s) — keyword draft used instead`, 'stderr');
+    emit(`Quality gate (letter): ${result.hard.length} hard failure(s) — draft retained for review`, 'stderr');
     for (const h of result.hard.slice(0, 6)) emit(`  ✗ ${h}`, 'stderr');
   } else {
     emit(`Quality gate (letter): pass — ${result.words} words, ${result.soft.length} warning(s)`, 'ok');

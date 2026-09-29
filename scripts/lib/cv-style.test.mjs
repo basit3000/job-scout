@@ -1,90 +1,44 @@
-import { describe, it } from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  findStyleIssues,
-  scrubFiller,
-  styleRulesMarkdown,
-  wordCount,
-  FILLER,
-  AI_TELLS,
-} from './cv-style.mjs';
+import { findStyleIssues, scrubFiller, styleRulesMarkdown, wordCount } from './cv-style.mjs';
+import { validatePromptSettings } from './prompt-settings.mjs';
 
-describe('cv-style', () => {
-  it('flags generated-sounding phrases and filler, case-insensitively', () => {
-    const issues = findStyleIssues('Leveraged a robust, cutting-edge stack to Spearhead delivery.');
-    const kinds = issues.map((i) => `${i.kind}:${i.phrase.toLowerCase()}`);
-    assert.ok(kinds.includes('ai-tell:leveraged'));
-    assert.ok(kinds.includes('ai-tell:spearhead'));
-    assert.ok(kinds.includes('filler:robust'));
-    assert.ok(kinds.includes('filler:cutting-edge'));
-  });
+const settings = validatePromptSettings({ style: { filler: ['robust', 'successfully'],
+  discouragedPhrases: ['leverage'], weakOpeners: ['responsible for'], maxBulletChars: 50, avoidDashes: true } });
 
-  it('does not match inside longer words or hyphenated names', () => {
-    const issues = findStyleIssues('Built the journeyman-tool and the reactive-landscape-viewer.');
-    assert.equal(issues.filter((i) => i.kind === 'ai-tell').length, 0);
-  });
+test('neutral style does not label an author voice or leadership as a failure', () => {
+  assert.deepEqual(findStyleIssues('Successfully led a robust team!'), []);
+  assert.equal(styleRulesMarkdown(), '');
+  assert.equal(scrubFiller('Successfully built the service.').text, 'Successfully built the service.');
+});
 
-  it('treats inflation as hard only on personal projects', () => {
-    const text = 'Led a team of engineers on the service.';
-    assert.equal(findStyleIssues(text, { personalProject: false }).filter((i) => i.kind === 'inflation').length, 0);
-    const proj = findStyleIssues(text, { personalProject: true }).filter((i) => i.kind === 'inflation');
-    assert.ok(proj.length >= 1);
-    assert.ok(proj.every((i) => i.severity === 'hard'));
-  });
+test('configured wording checks are advisory and use complete words', () => {
+  const issues = findStyleIssues('Leverage a robust service.', { settings });
+  assert.deepEqual(issues.map(i => i.kind).sort(), ['filler', 'wording']);
+  assert.ok(issues.every(i => i.severity === 'soft'));
+  assert.deepEqual(findStyleIssues('The robust-tool is complete.', { settings }), []);
+});
 
-  it('reports weak openers and over-long bullets only in bullet mode', () => {
-    const weak = findStyleIssues('Responsible for the API.', { bullet: true });
-    assert.ok(weak.some((i) => i.kind === 'weak-opener'));
-    assert.equal(findStyleIssues('Responsible for the API.').filter((i) => i.kind === 'weak-opener').length, 0);
-    const long = findStyleIssues(`Built ${'x'.repeat(240)}.`, { bullet: true });
-    assert.ok(long.some((i) => i.kind === 'length'));
-  });
+test('configured bullet limits and openers apply only to bullets', () => {
+  const text = 'Responsible for ' + 'long text '.repeat(10);
+  assert.deepEqual(findStyleIssues(text, { settings }), []);
+  assert.deepEqual(findStyleIssues(text, { settings, bullet: true }).map(i => i.kind), ['weak-opener', 'length']);
+});
 
-  it('flags exclamation marks but not HTML comment markers', () => {
-    assert.ok(findStyleIssues('Great fit!').some((i) => i.kind === 'exclamation'));
-    assert.equal(findStyleIssues('<!-- include:past -->').filter((i) => i.kind === 'exclamation').length, 0);
-  });
+test('explicit filler scrubbing preserves non-matching text and never empties content', () => {
+  assert.equal(scrubFiller('Successfully built robust APIs.', settings.style.filler).text, 'Built APIs.');
+  assert.equal(scrubFiller('Robust', settings.style.filler).text, 'Robust');
+  assert.equal(scrubFiller('Advanced Data Systems', settings.style.filler).text, 'Advanced Data Systems');
+});
 
-  it('scrubs filler without touching facts or names', () => {
-    const { text, removed } = scrubFiller('Successfully migrated the robust Flask services to FastAPI.');
-    assert.equal(text, 'Migrated the Flask services to FastAPI.');
-    assert.deepEqual(removed.map((w) => w.toLowerCase()), ['successfully', 'robust']);
-    const untouched = scrubFiller('Courses: Advanced Database Systems; Dynamic IP Updater.');
-    assert.equal(untouched.removed.length, 0);
-    assert.ok(!FILLER.includes('advanced') && !FILLER.includes('dynamic'));
-  });
+test('the style brief uses the same local settings as the checker', () => {
+  const brief = styleRulesMarkdown({ settings });
+  assert.match(brief, /leverage/);
+  assert.match(brief, /robust/);
+  assert.match(brief, /50 characters/);
+  assert.doesNotMatch(brief, /\b(?:native|ChatGPT|Banned)\b/);
+});
 
-  it('never empties a string made only of filler', () => {
-    assert.equal(scrubFiller('Robust').text, 'Robust');
-  });
-
-  it('brief markdown lists the same phrases the verifier checks', () => {
-    const md = styleRulesMarkdown({ context: 'letter' });
-    for (const p of AI_TELLS.slice(0, 5)) assert.ok(md.includes(p), p);
-    assert.match(md, /Body \d+–\d+ words/);
-    assert.match(md, /simple English/i);
-    assert.match(md, /not a native/i);
-    assert.ok(!styleRulesMarkdown({ context: 'cv' }).includes('Body '));
-  });
-
-  it('counts words ignoring LaTeX macros', () => {
-    assert.equal(wordCount('\\item Built the \\textbf{service} in Go.'), 5);
-  });
-
-  it('rejects restating the job as "the role at X is for Y"', () => {
-    const issues = findStyleIssues(
-      'The Full-time Backend Developer (f/m/d) role at VAARHAFT is for Python backend work and a live API.',
-      { context: 'letter' },
-    );
-    const hit = issues.filter((i) => i.kind === 'job-restatement');
-    assert.equal(hit.length, 1);
-    assert.equal(hit[0].severity, 'hard');
-    assert.equal(
-      findStyleIssues(
-        'I am applying for the Backend Developer role at VAARHAFT. I want Python backend work.',
-        { context: 'letter' },
-      ).filter((i) => i.kind === 'job-restatement').length,
-      0,
-    );
-  });
+test('word counting ignores LaTeX commands', () => {
+  assert.equal(wordCount(String.raw`\item Built the \textbf{service} in Go.`), 5);
 });

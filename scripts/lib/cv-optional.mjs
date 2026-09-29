@@ -1,4 +1,3 @@
-import { detectGermanRequirement } from './cv-keywords.mjs';
 import { readMemorySync } from './memory.mjs';
 
 
@@ -68,24 +67,11 @@ function certRelevant(block, text) {
   return false;
 }
 
-export function languagesNeeded(job) {
-  const need = detectGermanRequirement(job);
-  return need === 'required' || need === 'optional';
-}
-
 export function applyJobAwareOptionalDrops(tex, job) {
   const src = String(tex ?? '');
   const actions = [];
   let out = src;
   const text = jobText(job);
-
-  if (job && !languagesNeeded(job) && /\\(?:textbf|cvitem)\{Languages?:/i.test(out)) {
-    const next = dropSpokenLanguages(out);
-    if (next !== out) {
-      out = next;
-      actions.push('dropped spoken-languages line (German not required)');
-    }
-  }
 
   if (job && /Certificates?/i.test(out)) {
     const certBlock = out.match(/\\textbf\{Certificates?:\s*\}[^\\\n]*/i)
@@ -116,9 +102,9 @@ export function applyJobAwareOptionalDrops(tex, job) {
 }
 
 const SPACE_PASSES = [
-  { id: 'courses', apply: dropCourseLines, label: 'dropped course lists to fit one page' },
-  { id: 'certificates', apply: dropCertificates, label: 'dropped certificates to fit one page' },
-  { id: 'languages', apply: dropSpokenLanguages, label: 'dropped spoken-languages line to fit one page' },
+  { id: 'courses', apply: dropCourseLines, label: 'dropped course lists to fit the page limit' },
+  { id: 'certificates', apply: dropCertificates, label: 'dropped certificates to fit the page limit' },
+  { id: 'languages', apply: dropSpokenLanguages, label: 'dropped spoken-languages line to fit the page limit' },
 ];
 
 export function applyNextOptionalSpaceDrop(tex, already = []) {

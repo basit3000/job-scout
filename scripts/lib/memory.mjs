@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { withPromptSettings } from './prompt-settings.mjs';
 
 export const MEMORY_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const memoryPath = (root = MEMORY_ROOT) => join(root, 'state', 'memory.json');
@@ -55,7 +56,7 @@ export function readMemorySync(root = MEMORY_ROOT) {
 export async function readMemory(root = MEMORY_ROOT) { return readMemorySync(root); }
 export async function withMemorySnapshot(fn, root = MEMORY_ROOT) {
   if (snapshots.getStore()?.root === root) return fn();
-  return snapshots.run({ root, memory: readMemorySync(root) }, fn);
+  return withPromptSettings(() => snapshots.run({ root, memory: readMemorySync(root) }, fn), root);
 }
 export function candidateProfile(memory) {
   if (!memory) return null;

@@ -14,6 +14,7 @@ async function exists(p) {
 }
 
 const TEMPLATE_COPIES = [
+  ['prompts/example.json', 'prompts/local.json'],
   ['search-profile.example.json', 'search-profile.json'],
   ['cv/resume.example.md', 'cv/resume.md'],
   ['cv/cover-letter.example.md', 'cv/cover-letter.md'],

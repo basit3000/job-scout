@@ -12,6 +12,7 @@ cv/*
 !cv/resume.example.md
 !cv/cover-letter.example.md
 engineering.md
+prompts/local.json
 state/*
 !state/*.example.json
 !state/.gitkeep

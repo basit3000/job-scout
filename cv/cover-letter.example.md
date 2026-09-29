@@ -6,7 +6,7 @@ Dear Hiring Team,
 
 I am applying for the [Role] position at [Company]. YOUR_ONE_SENTENCE_ON_THE_KIND_OF_WORK_YOU_WANT.
 
-YOUR_PARAGRAPH_ON_CURRENT_JOB, always included. Name the employer, the stack, and what you actually shipped. Do not invent metrics.
+YOUR_PARAGRAPH_ON_RELEVANT_EXPERIENCE. Use confirmed employment, projects or other work. Do not invent metrics.
 
 <!-- include:motive -->
 
@@ -14,7 +14,7 @@ YOUR_PARAGRAPH_ON_CURRENT_JOB, always included. Name the employer, the stack, an
 
 <!-- include:projects -->
 
-YOUR_EDUCATION_AND_LOCATION_LINE. I would welcome the chance to discuss how I can contribute.
+YOUR_OPTIONAL_RELEVANT_BACKGROUND. I would welcome the chance to discuss how I can contribute.
 
 Thank you for considering my application.
 

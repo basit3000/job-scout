@@ -12,6 +12,7 @@ import { resolveGooseBinary, runGoose, cancelGooseRuns } from './goose-runtime.m
 import { readMemorySync, memoryEvidence, withMemorySnapshot } from './memory.mjs';
 import { artifactContext } from './artifact-context.mjs';
 import { cvPreferences } from './cv-preferences.mjs';
+import { promptSettings } from './prompt-settings.mjs';
 import { buildAgentBrief, buildAgentPrompt, buildCoverLetterAgentBrief, buildCoverLetterAgentPrompt,
   buildReviewerBrief, buildReviewerPrompt, buildRepairBrief, inlineReviewContext } from './cv-prompts.mjs';
 
@@ -147,11 +148,12 @@ async function runCvTailorAgentWithMemory({
   );
 
   const policy = cvPreferences(readMemorySync());
-  const brief = repair ? buildRepairBrief({ cvSource, letter: letterTask, policy }) : reviewTask
-    ? buildReviewerBrief({ scope: reviewLetter ? 'letter' : 'cv', policy })
+  const settings = promptSettings();
+  const brief = repair ? buildRepairBrief({ cvSource, letter: letterTask, policy, settings }) : reviewTask
+    ? buildReviewerBrief({ scope: reviewLetter ? 'letter' : 'cv', policy, settings })
     : letterTask
-      ? buildCoverLetterAgentBrief()
-      : buildAgentBrief({ cvSource, policy });
+      ? buildCoverLetterAgentBrief({ settings })
+      : buildAgentBrief({ cvSource, policy, settings });
   await writeFile(join(prepDir, briefName), brief.endsWith('\n') ? brief : `${brief}\n`);
 
   const memory = readMemorySync();

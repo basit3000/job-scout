@@ -6,7 +6,6 @@ import {
   dropCourseLines,
   dropSpokenLanguages,
   ensureOptionalLines,
-  languagesNeeded,
 } from './cv-optional.mjs';
 
 const ATS = String.raw`
@@ -35,15 +34,14 @@ describe('optional CV lines', () => {
     assert.doesNotMatch(noCourses, /Courses:/);
   });
 
-  it('drops the spoken-languages line when German is not required', () => {
+  it('does not remove spoken languages based on a German-only heuristic', () => {
     const r = applyJobAwareOptionalDrops(ATS, {
       title: 'Backend Engineer',
       description: 'Python FastAPI. English is enough.',
     });
-    assert.equal(languagesNeeded({ title: 'Backend Engineer', description: 'Python FastAPI.' }), false);
     assert.match(r.tex, /Built FastAPI APIs/);
-    assert.doesNotMatch(r.tex, /German A2/);
-    assert.ok(r.actions.some((a) => /spoken-languages/.test(a)));
+    assert.match(r.tex, /English C2/);
+    assert.equal(r.actions.some((a) => /spoken-languages/.test(a)), false);
   });
 
   it('keeps the spoken-languages line when German is required', () => {

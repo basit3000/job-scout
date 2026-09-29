@@ -65,8 +65,14 @@ original source through Memory's preview/confirm flow before enabling this excep
 generation never updates that library. With Overleaf selected, startup does not create
 a separate local CV master.
 
+Reusable prompt wording, section order, page limits and optional style checks live
+in ignored `prompts/local.json`. Setup copies the neutral
+[`prompts/example.json`](prompts/example.json) without overwriting your file.
+See [Prompt customization](docs/prompt-customization.md) for the settings and
+precedence rules. Shared prompts and skills contain no candidate-specific layout.
+
 **Check ATS readability** is a separate button. Select a CV PDF and optionally enter
-keywords to inspect text extraction, headings, contact readability and keyword presence.
+keywords to inspect text extraction, contact readability and keyword presence.
 It runs locally without Goose, a job, generation, or publication. Files are inspected in
 memory and not saved. The report is a parsing aid, not an employer ATS score or a
 guarantee of selection.
@@ -135,7 +141,7 @@ it should affect future jobs. The Memory editor is a JSON editor, not a chat age
 ## Configuration and privacy
 
 Personal files, documents, memory history, migration archives, downloads and
-credentials are gitignored. Selected AI providers receive their task inputs;
+credentials, including `prompts/local.json`, are gitignored. Selected AI providers receive their task inputs;
 local storage does not mean offline processing.
 
 See [.env.example](.env.example) for optional settings:

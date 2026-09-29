@@ -6,6 +6,7 @@ import { artifactContext } from './artifact-context.mjs';
 import { extractPdfText } from './pdf-text.mjs';
 import { reviewStatusReason } from './review-documents.mjs';
 import { readMemory, memoryInputs } from './memory.mjs';
+import { promptSettings, pageLimit } from './prompt-settings.mjs';
 
 const MANIFEST = 'generation.json';
 const activeJobs = new Set();
@@ -29,7 +30,8 @@ export async function loadPrepInputs(settings = {}, root = ROOT) {
     : [await exists(join(root, 'cv', 'resume.md')) ? 'cv/resume.md' : 'cv/resume.txt'];
   const memory = await readMemory(root);
   const paths = [...sources, 'cv/cover-letter.md'];
-  return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))]))), ...memoryInputs(memory) };
+  return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))]))),
+    ...memoryInputs(memory), 'prompts/settings': JSON.stringify(promptSettings(root)) };
 }
 
 export function prepFingerprint({ job, profile, settings = {}, inputs = {}, scope, instructions = '', mode }) {
@@ -81,7 +83,7 @@ export async function inspectDocuments(dir, scopes) {
     for (const name of pdfs) {
       try {
         const pdf = await extractPdfText(join(dir, name));
-        if (pdf.pages !== 1) reasons.push(`${name}: ${pdf.pages} pages; complete document preserved`);
+        if (pdf.pages < 1 || pdf.pages > pageLimit(scope)) reasons.push(`${name}: ${pdf.pages} pages; limit ${pageLimit(scope)}; complete document preserved`);
         if (!pdf.text.trim()) reasons.push(`${name}: no readable text`);
       } catch {
         reasons.push(`${name}: could not verify PDF pages and text`);

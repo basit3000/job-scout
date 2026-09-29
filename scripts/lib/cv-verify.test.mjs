@@ -1,3 +1,4 @@
+import { validatePromptSettings } from './prompt-settings.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -141,7 +142,7 @@ describe('cv-verify: tex gate', () => {
       .replace('\\section*{Education}', '\\section*{TMP}')
       .replace('\\section*{Projects}', '\\section*{Education}')
       .replace('\\section*{TMP}', '\\section*{Projects}');
-    assert.match(verifyTexEdit({ before: ATS, after: reordered, corpus }).hard.join('\n'), /section order/);
+    assert.match(verifyTexEdit({ before: ATS, after: reordered, corpus, settings: validatePromptSettings({ format: { sectionOrder: ['Experience', 'Education', 'Projects', 'Skills'] } }) }).hard.join('\n'), /section order/);
   });
 
   it('scrubs filler from changed bullets and reports AI tells softly', () => {
@@ -150,18 +151,18 @@ describe('cv-verify: tex gate', () => {
       'Review REST API contracts for the React front-end.',
       'Successfully leveraged robust REST API contracts for the React front-end.',
     );
-    const r = verifyTexEdit({ before: ATS, after: puffed, corpus, fileName: 'ats.tex' });
+    const r = verifyTexEdit({ before: ATS, after: puffed, corpus, fileName: 'ats.tex', settings: validatePromptSettings({ style: { filler: ['successfully', 'robust'], discouragedPhrases: ['leveraged'], scrubFiller: true } }) });
     assert.deepEqual(r.hard, []);
     assert.ok(r.tex.includes('Leveraged REST API contracts for the React front-end.'));
     assert.ok(r.fixes.some((f) => /Successfully/.test(f)));
-    assert.ok(r.soft.some((s) => /ai-tell "leveraged"/i.test(s)));
+    assert.ok(r.soft.some((s) => /wording "leveraged"/i.test(s)));
   });
 
-  it('flags inflation on a personal project as hard', () => {
-    const corpus = corpusFor(ATS, MAIN);
-    const inflated = ATS.replace('CLI in Go that syncs 82 repos.', 'Led a team of engineers on a CLI in Go that syncs 82 repos.');
-    const r = verifyTexEdit({ before: ATS, after: inflated, corpus, fileName: 'ats.tex' });
-    assert.match(r.hard.join('\n'), /inflation/);
+  it('allows supported seniority and leadership without a universal project word ban', () => {
+    const after = ATS.replace('Software Developer -- Python, Docker', 'Senior Software Developer -- Python, Docker')
+      .replace('CLI in Go that syncs 82 repos.', 'Led a team of engineers on a CLI in Go that syncs 82 repos.');
+    const corpus = corpusFor(ATS, 'Senior Software Developer -- Python, Docker. Led a team of engineers on the CLI project.');
+    assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus }).hard, []);
   });
 
   it('compares main.tex and ats.tex by bullet body', () => {
@@ -204,12 +205,11 @@ describe('cv-verify: markdown + letter gates', () => {
     assert.deepEqual(ok.hard, []);
 
     const bad = 'Dear Team,\n\nI am writing to apply! I bring 7 years of experience and a proven track record at Globex.\n\nBest regards,\nJane\n';
-    const r = verifyLetter({ letter: bad, corpus, job: { company: 'Acme GmbH' } });
+    const r = verifyLetter({ letter: bad, corpus, job: { company: 'Acme GmbH' }, settings: validatePromptSettings({ format: { letterSubjectPrefix: 'Application for', letterSignoff: 'Kind regards,' }, style: { discouragedPhrases: ['proven track record'] } }) });
     const joined = r.hard.join('\n');
     assert.match(joined, /Application for/);
     assert.match(joined, /Kind regards/);
     assert.match(joined, /7 years/);
-    assert.match(joined, /exclamation/);
     assert.ok(r.soft.some((s) => /proven track record/.test(s)));
     assert.ok(r.soft.some((s) => /Globex/.test(s)));
   });

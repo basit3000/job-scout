@@ -1,13 +1,19 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { polishCoverLetter, assembleCoverLetter, trimLetterToOnePage } from './cover-letter.mjs';
+import { withPromptSettings } from './prompt-settings.mjs';
+import { ROOT } from './common.mjs';
 
 describe('polishCoverLetter', () => {
   it('removes em dashes and spaced hyphen asides', () => {
-    const out = polishCoverLetter('That mix — production APIs - is the work');
+    const out = withPromptSettings(() => polishCoverLetter('That mix — production APIs - is the work'), ROOT, { style: { avoidDashes: true } });
     assert.doesNotMatch(out, /—/);
     assert.doesNotMatch(out, / - /);
     assert.match(out, /That mix, production APIs, is the work/);
+  });
+  it('preserves punctuation without a local preference', () => {
+    const text = 'That mix — production APIs - is the work!';
+    assert.equal(withPromptSettings(() => polishCoverLetter(text), ROOT, {}), text);
   });
 });
 

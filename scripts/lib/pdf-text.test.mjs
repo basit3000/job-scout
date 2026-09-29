@@ -27,7 +27,7 @@ test('kerning splits, private-use glyphs and missing headings are problems', () 
     .replace('Software Developer, Acme', 'W orking Student, Acme')
     .replace('Skills', 'Skil\uE001s')
     .replace('jane@example.com', 'jane@ example.com');
-  const r = checkAtsText(broken, { email: 'jane@example.com' });
+  const r = checkAtsText(broken, { email: 'jane@example.com', sectionHeadings: ['Skills'] });
   assert.equal(r.ok, false);
   assert.ok(r.problems.some((p) => /W orking/.test(p)));
   assert.ok(r.problems.some((p) => /unmapped glyph/.test(p)));
@@ -46,4 +46,11 @@ test('an empty text layer is the worst case', () => {
   const r = checkAtsText('');
   assert.equal(r.ok, false);
   assert.match(r.problems[0], /image-only/);
+});
+
+test('headings come from the source or explicit expectations, not a universal layout', () => {
+  const text = 'Jane Doe\nTraining\nEmployment (selected)\nPublications\n';
+  assert.equal(checkAtsText(text).ok, true);
+  assert.equal(checkAtsText(text, { sectionHeadings: ['Employment (selected)', 'Training'] }).ok, true);
+  assert.match(checkAtsText(text, { sectionHeadings: ['Awards'] }).problems.join(), /Awards/);
 });

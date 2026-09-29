@@ -93,6 +93,7 @@ export function parseResumeMarkdown(text) {
     }
     sections.push({
       heading,
+      body: bodyLines.join('\n').trim(),
       ...parseSectionBody(heading, bodyLines.join('\n').trim()),
     });
   }
@@ -178,7 +179,7 @@ function isPersonalOrg(org) {
 }
 
 /**
- * Reorder a parsed resume for a job (cv-tailor: Experience first).
+ * Build relevance metadata from the conventional example sections.
  * Does not invent content — only reorders and re-weights bullets/skills.
  */
 export function tailorParsedResume(parsed, keywords, profile = {}) {

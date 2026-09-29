@@ -3,8 +3,7 @@
  * `.agents/skills/cv-tailor/references/writing-rules.md`). Prefers cv/resume.md when present;
  * else state/memory.json. Reorders true facts only; never invents.
  *
- * Layout (cv-tailor hard rule): Header → Experience → Education → Projects → Skills
- * No summary paragraph. ATS-friendly single column HTML.
+ * The rendered draft preserves its section labels, order and content.
  */
 
 import {
@@ -337,6 +336,28 @@ function renderEntriesHtml(entries, asProjects) {
     .join('\n');
 }
 
+/** Render the supported Markdown lines without selecting or reordering content. */
+function renderSectionBody(body) {
+  const inline = text => escapeHtml(text).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  const html = [];
+  let inList = false;
+  for (const line of String(body || '').replace(/<!--[\s\S]*?-->/g, '').split('\n')) {
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/);
+    if (bullet) {
+      if (!inList) html.push('<ul>');
+      inList = true;
+      html.push(`<li>${inline(bullet[1])}</li>`);
+      continue;
+    }
+    if (inList) html.push('</ul>');
+    inList = false;
+    if (/^###\s+/.test(line)) html.push(`<div class="entry-head"><strong>${inline(line.replace(/^###\s+/, ''))}</strong></div>`);
+    else if (line.trim()) html.push(`<p class="sub">${inline(line)}</p>`);
+  }
+  if (inList) html.push('</ul>');
+  return html.join('\n');
+}
+
 export function tailoredCvHtml(model) {
   const { profile = {}, headline, skillLine = [], projects = [], experience = [], education = [], contact, meta = {}, job = {} } = model;
   const displayName = model.name || profile.name || 'CV';
@@ -359,6 +380,14 @@ export function tailoredCvHtml(model) {
 </section>`;
     })
     .join('\n');
+  const body = model.sections
+    ? model.sections.map(section => `<h2>${escapeHtml(section.heading)}</h2>\n${renderSectionBody(section.body)}`).join('\n')
+    : [
+      experience.length ? `<h2>Experience</h2>\n${renderEntriesHtml(experience, false)}` : '',
+      eduHtml ? `<h2>Education</h2>\n${eduHtml}` : '',
+      projects.length ? `<h2>Projects</h2>\n${renderEntriesHtml(projects, true)}` : '',
+      skillLine.length ? `<h2>Skills</h2>\n<p>${skillLine.map(escapeHtml).join(' · ')}</p>` : '',
+    ].join('\n');
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -409,10 +438,7 @@ export function tailoredCvHtml(model) {
   <p class="contact">${contactList.map(escapeHtml).join(' · ')}</p>
   ${(model.notes || []).map((n) => `<p class="notes">${escapeHtml(n)}</p>`).join('\n')}
 
-  ${experience.length ? `<h2>Experience</h2>\n${renderEntriesHtml(experience, false)}` : ''}
-  ${eduHtml ? `<h2>Education</h2>\n${eduHtml}` : ''}
-  ${projects.length ? `<h2>Projects</h2>\n${renderEntriesHtml(projects, true)}` : ''}
-  ${skillLine.length ? `<h2>Skills</h2>\n<p>${skillLine.map(escapeHtml).join(' · ')}</p>` : ''}
+  ${body}
 
   <p class="foot">Generated ${escapeHtml(String(meta.generatedAt || '').slice(0, 10))} from ${escapeHtml(meta.source || 'profile')}. No invented metrics. Submit applications yourself.</p>
 </body>
@@ -432,6 +458,7 @@ export function cvModelFromMarkdown(markdown, { job = {}, profile = {}, meta = {
       ? String(parsed.contact).split(/\s*[·|]\s*/).filter(Boolean)
       : [],
     notes: parsed.notes || [],
+    sections: parsed.sections,
     experience: by.experience?.entries || [],
     projects: by.projects?.entries || [],
     education: (by.education?.entries || []).map((ed) => ({

@@ -83,26 +83,8 @@ else
   note "no email address found in the text layer."
 fi
 
-for host in linkedin github; do
-  if printf '%s' "$TXT" | grep -qi "$host\..*/"; then
-    pass "$host appears as a URL."
-  else
-    note "$host does not appear as a full URL — a parser sees no link, only an icon or a bare username."
-  fi
-done
-
-# --- 3. standard section headings ----------------------------------------
-for heading in Experience Education Skills; do
-  if printf '%s' "$TXT" | grep -qE "^[[:space:]]*${heading}[[:space:]]*$"; then
-    pass "section heading '$heading' is on its own line."
-  else
-    note "section heading '$heading' missing or not on its own line."
-  fi
-done
-
-if printf '%s' "$TXT" | grep -qiE '^[[:space:]]*(Professional Experience|Technical Skills)'; then
-  note "non-standard heading in use — prefer 'Experience' and 'Skills'."
-fi
+# Section names and profile links depend on the candidate's source document.
+# Inspect their extraction below; no particular headings or accounts are required.
 
 # --- 4. labels separated from their values -------------------------------
 # A line that is nothing but a label means the value was typeset in another column and the
@@ -149,5 +131,5 @@ if [[ "$PROBLEMS" -eq 0 ]]; then
 fi
 
 echo "$PROBLEMS problem(s) found in $(basename "$PDF_PATH")." >&2
-echo "A photo-and-columns CV will always fail some of these; that is why ats.tex exists." >&2
+echo "Compare these findings with the source document before changing its layout." >&2
 exit 1

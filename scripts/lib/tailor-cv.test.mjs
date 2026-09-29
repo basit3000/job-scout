@@ -46,6 +46,15 @@ Delivery: Docker, Jenkins, AWS EC2
 `;
 
 describe('cvMarkdownToHtml', () => {
+  it('preserves custom sections, summary paragraphs and source order', () => {
+    const source = '# Example Candidate\nexample@example.com\nEngineer\n\n## Profile\nFirst paragraph.\nSecond line.\n\n## Publications\n### Paper\nJournal detail.\n- Research result.\n\n## Education\nSchool detail.\n\n## Employment\n### Engineer\n- Built APIs.\n- Literal <script> text.\n';
+    const html = cvMarkdownToHtml(source);
+    const headings = [...html.matchAll(/<h2>(.*?)<\/h2>/g)].map(match => match[1]);
+    assert.deepEqual(headings, ['Profile', 'Publications', 'Education', 'Employment']);
+    for (const text of ['First paragraph.', 'Second line.', 'Journal detail.', 'Research result.', 'School detail.', 'Built APIs.']) assert.ok(html.includes(text));
+    assert.ok(html.includes('Literal &lt;script&gt; text.'));
+    assert.doesNotMatch(html, /<script>/);
+  });
   it('keeps agent wording and prints compact ATS HTML instead of preformatted markdown', () => {
     const parsed = parseResumeMarkdown(md);
     assert.equal(parsed.headline, 'Software Engineer, Platform - TypeScript, Node.js, REST API');

@@ -1,11 +1,7 @@
 /**
- * Read the text layer of a PDF the way an applicant-tracking parser does, and
- * check it for the failures that silently kill a CV at the first screen:
- * words split by kerning ("W orking"), ligature glyphs with no Unicode mapping
- * ("speciﬁc" → "specic"), an unreadable e-mail address, missing section names.
- *
- * pdf.js is what many ATS vendors and browser previews use, so what it sees is
- * a fair proxy for what they see. Pure Node, no poppler needed.
+ * Extract PDF text with pdf.js and report common readability problems.
+ * Source-specific contacts and headings are checked only when supplied.
+ * This is a local parsing aid, not a guarantee about any employer's ATS.
  */
 
 import { readFile } from 'node:fs/promises';
@@ -67,12 +63,10 @@ export async function extractPdfText(pdfPath, { maxPages = Infinity } = {}) {
   return { pages: doc.numPages, text: lines.join('\n'), lines };
 }
 
-const HEADINGS = ['Experience', 'Education', 'Projects', 'Skills'];
-
 /**
  * ATS parse checks on extracted text.
  * @param {string} text
- * @param {{ email?: string, name?: string, phone?: string, expectWords?: string[] }} expect
+ * @param {{ email?: string, name?: string, phone?: string, expectWords?: string[], sectionHeadings?: string[] }} expect
  * @returns {{ ok: boolean, problems: string[], warnings: string[] }}
  */
 export function checkAtsText(text, expect = {}) {
@@ -113,7 +107,10 @@ export function checkAtsText(text, expect = {}) {
     if (!flat.replace(/\D/g, '').includes(digits)) problems.push('phone number digits are not readable in order');
   }
 
-  const missing = HEADINGS.filter((h) => !new RegExp(`(^|\\n|\\s)${h}(\\s|$)`, 'i').test(src));
+  const missing = (expect.sectionHeadings || []).filter(heading => {
+    const literal = heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return !new RegExp(`(^|\\s)${literal}(\\s|$)`, 'i').test(src);
+  });
   if (missing.length) problems.push(`section heading(s) not found as plain text: ${missing.join(', ')}`);
 
   for (const w of expect.expectWords || []) {

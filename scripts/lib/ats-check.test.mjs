@@ -25,6 +25,12 @@ test('ATS check rejects invalid or excessive input and exposes missing text', as
   assert.match(twoPages.text, /Skills/);
 });
 
+test('standalone ATS inspection accepts other section names and order', async () => {
+  const report = await inspectAtsPdf(pdfFixture(['example@example.com Skills Employment Education Publications']));
+  assert.equal(report.status, 'clear');
+  assert.deepEqual(report.warnings, []);
+});
+
 test('ATS route operates without a job, memory or Goose and rejects cross-origin requests', async () => {
   const req = { method: 'POST', headers: { host: 'localhost:4040' } };
   let output;

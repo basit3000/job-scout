@@ -19,8 +19,6 @@
           <p class="brand-sub" id="candidateLine">Local shortlist</p>
         </div>
         <div class="run-controls">
-          <span class="chip" id="statusChip" data-state="idle">Idle</span>
-          <button type="button" class="btn danger" id="stopBtn" hidden>Stop</button>
           <button type="button" class="btn primary" id="runBtn">Run search</button>
         </div>
       </header>
@@ -38,6 +36,20 @@
         <button type="button" class="tab" data-view="memory" role="tab">Memory</button>
         <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
       </div>
+
+      <section class="activity-strip" id="activityStrip" aria-label="Current activity">
+        <span class="activity-indicator" aria-hidden="true"></span>
+        <div class="activity-copy">
+          <div class="activity-heading"><strong id="activityTitle">Activity</strong><span id="activityTime" class="activity-time"></span></div>
+          <p id="activityMessage">Search and document progress appears here.</p>
+          <span id="activityCount" class="activity-count"></span>
+        </div>
+        <div class="activity-controls">
+          <div id="activityActions" class="activity-item-actions"></div>
+          <button type="button" class="btn small" id="activityOpenBtn" aria-haspopup="dialog" aria-controls="activityDrawer" aria-expanded="false">View activity</button>
+        </div>
+      </section>
+      <span id="activityAnnouncement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span>
 
       <section class="toolbar" id="searchToolbar" aria-label="Search settings">
         <div class="toolbar-row">
@@ -96,21 +108,6 @@
       </section>
 
       <div id="alerts" class="alerts"></div>
-
-      <div id="batchBar" class="batch-bar" hidden role="status" aria-live="polite">
-        <div class="batch-bar-main">
-          <div class="batch-bar-text">
-            <strong id="batchBarTitle">Batch Prep</strong>
-            <span id="batchBarText"></span>
-          </div>
-          <div class="batch-track" aria-hidden="true"><div class="batch-fill" id="batchBarFill"></div></div>
-        </div>
-        <div class="batch-bar-actions">
-          <button type="button" class="btn small" id="batchBarDetails">Details</button>
-          <button type="button" class="btn small danger" id="batchBarCancel">Cancel</button>
-          <button type="button" class="btn small" id="batchBarDismiss" hidden>Dismiss</button>
-        </div>
-      </div>
 
       <main class="layout" id="layout" tabindex="-1">
         <section class="jobs-panel" id="viewResults" aria-label="Job results">
@@ -309,34 +306,28 @@
           </div>
         </section>
 
-        <aside class="log-panel" id="logPanel" aria-label="Run log and prep">
-          <div class="panel-head">
-            <h2 id="sideTitle">Run log</h2>
-            <div class="panel-head-actions">
-              <button type="button" class="btn ghost" id="stopPrepBtn" hidden>Stop agent</button>
-              <button type="button" class="btn ghost" id="clearLogBtn">Clear</button>
-              <button
-                type="button"
-                class="btn ghost"
-                id="toggleLogBtn"
-                aria-expanded="true"
-                aria-controls="logBody"
-              >
-                Minimize
-              </button>
-            </div>
-          </div>
-          <div id="logBody" class="log-body">
-            <pre id="logView" class="log-view" aria-live="polite"></pre>
-            <div id="prepView" class="prep-view" hidden></div>
-            <p class="tip" id="apifyTip">
-              Searches are <strong>free</strong> with JobSpy unless you enable Allow paid.
-              Paid mode uses <strong>Apify first</strong> (JobSpy fallback), capped by Max paid / <code>maxApifyRuns</code>.
-            </p>
-          </div>
-        </aside>
       </main>
     </div>
+
+    <dialog id="activityDrawer" class="activity-drawer" aria-labelledby="activityDrawerTitle">
+      <div class="activity-drawer-head">
+        <div><p class="eyebrow">SEARCH &amp; DOCUMENTS</p><h2 id="activityDrawerTitle">Activity</h2></div>
+        <button type="button" class="btn ghost" id="closeActivityBtn">Close activity</button>
+      </div>
+      <div class="activity-drawer-body">
+        <p id="activityEmpty" class="meta">No recent activity. Start a search or prepare documents from a job.</p>
+        <div id="activityItems"></div>
+        <details class="technical-logs" id="technicalLogs">
+          <summary>Technical logs</summary>
+          <div class="technical-log-head"><p class="meta">Detailed output from searches and workflows.</p><button type="button" class="btn small ghost" id="clearLogBtn">Clear logs</button></div>
+          <pre id="logView" class="log-view" tabindex="0" aria-label="Technical logs"></pre>
+        </details>
+      </div>
+    </dialog>
+    <dialog id="prepResultsDialog" class="prep-results-dialog" aria-labelledby="prepResultsTitle">
+      <div class="activity-drawer-head"><h2 id="prepResultsTitle">Preparation results</h2><button type="button" class="btn ghost" id="closePrepResultsBtn">Close results</button></div>
+      <div id="prepView" class="prep-view"></div>
+    </dialog>
 
     <div id="setupOverlay" class="setup-overlay" hidden>
       <form id="setupForm" class="setup-card">

@@ -14,6 +14,7 @@
     "memory:migrate": "node scripts/migrate-memory.mjs",
     "privacy": "node scripts/check-privacy.mjs",
     "test": "node --test \"scripts/lib/*.test.mjs\"",
+    "test:activity": "node --test scripts/ui/activity.test.mjs",
     "preversion": "npm test && npm run privacy"
   },
   "engines": {

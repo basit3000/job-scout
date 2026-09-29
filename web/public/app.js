@@ -3,8 +3,19 @@ import { selectedGooseTools, suggestedGoosePrompt, renderGooseTools } from './go
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
+import { createActivity } from './activity.js';
 
 const $ = (id) => document.getElementById(id);
+const activity = createActivity();
+const prepTasks = new Map();
+const prepWatchers = new Map();
+
+function openPrepResults(result) {
+  showGooseResult(result);
+  activity.close();
+  if (!$('prepResultsDialog').open) $('prepResultsDialog').showModal();
+}
+$('closePrepResultsBtn').addEventListener('click', () => $('prepResultsDialog').close());
 
 const els = {
   marketSelect: $('marketSelect'),
@@ -17,9 +28,7 @@ const els = {
   cvSource: $('cvSource'),
   planHint: $('planHint'),
   runBtn: $('runBtn'),
-  stopBtn: $('stopBtn'),
   emptyRunBtn: $('emptyRunBtn'),
-  statusChip: $('statusChip'),
   candidateLine: $('candidateLine'),
   jobsMeta: $('jobsMeta'),
   jobList: $('jobList'),
@@ -44,11 +53,8 @@ const els = {
   prevPage: $('prevPage'),
   nextPage: $('nextPage'),
   layout: $('layout'),
-  logPanel: $('logPanel'),
   logView: $('logView'),
   clearLogBtn: $('clearLogBtn'),
-  toggleLogBtn: $('toggleLogBtn'),
-  apifyTip: $('apifyTip'),
   alerts: $('alerts'),
   digestBadge: $('digestBadge'),
   viewResults: $('viewResults'),
@@ -87,13 +93,6 @@ const els = {
   readySearch: $('readySearch'),
   readyList: $('readyList'),
   readyEmpty: $('readyEmpty'),
-  batchBar: $('batchBar'),
-  batchBarTitle: $('batchBarTitle'),
-  batchBarText: $('batchBarText'),
-  batchBarFill: $('batchBarFill'),
-  batchBarDetails: $('batchBarDetails'),
-  batchBarCancel: $('batchBarCancel'),
-  batchBarDismiss: $('batchBarDismiss'),
   batchModal: $('batchModal'),
   batchModalTitle: $('batchModalTitle'),
   batchSetup: $('batchSetup'),
@@ -122,7 +121,6 @@ const els = {
   batchHistoryBox: $('batchHistoryBox'),
   batchHistoryList: $('batchHistoryList'),
   prepView: $('prepView'),
-  sideTitle: $('sideTitle'),
   setupOverlay: $('setupOverlay'),
   setupForm: $('setupForm'),
   setupMarket: $('setupMarket'),
@@ -205,7 +203,6 @@ const LS_SORT = 'jobScout.sort';
 const LS_TRACKER_SORT = 'jobScout.trackerSort';
 const LS_TRACKER_PAGE_SIZE = 'jobScout.trackerPageSize';
 const LS_LANG = 'jobScout.langFilter';
-const LS_LOG_MINIMIZED = 'jobScout.logMinimized';
 const SORT_VALUES = ['fit', 'newest', 'oldest'];
 const TRACKER_SORT_VALUES = ['newest', 'oldest'];
 const TRACKER_PAGE_SIZES = [10, 20, 50];
@@ -252,8 +249,6 @@ let state = {
   digestJobs: [],
   /** Last batch snapshot from the server */
   batch: null,
-  batchDismissed: false,
-  batchSeenRunning: false,
   fetchStartedAt: null,
 };
 
@@ -590,30 +585,7 @@ function renderHistoryList(el, rows, formatLine) {
     .join('');
 }
 
-let fetchClock = null;
 let batchClock = null;
-
-function stopFetchClock() {
-  if (fetchClock) {
-    clearInterval(fetchClock);
-    fetchClock = null;
-  }
-}
-
-function startFetchClock(startedAt) {
-  stopFetchClock();
-  const start = startedAt || state.fetchStartedAt;
-  if (!start) {
-    setChip('running', 'Running');
-    return;
-  }
-  state.fetchStartedAt = start;
-  const tick = () => {
-    setChip('running', `Running · ${formatDuration(liveElapsedMs(start))}`);
-  };
-  tick();
-  fetchClock = setInterval(tick, 1000);
-}
 
 function stopBatchClock() {
   if (batchClock) {
@@ -627,7 +599,6 @@ function tickBatchClock() {
     stopBatchClock();
     return;
   }
-  renderBatchBar(state.batch);
   if (els.batchProgressLine && els.batchModal && !els.batchModal.hidden && els.batchProgress && !els.batchProgress.hidden) {
     els.batchProgressLine.textContent = batchSummaryText(state.batch);
   }
@@ -644,57 +615,28 @@ function ensureBatchClock(snap) {
 function setFetchUi(running, startedAt) {
   els.runBtn.disabled = running;
   if (els.emptyRunBtn) els.emptyRunBtn.disabled = running;
-  if (els.stopBtn) {
-    els.stopBtn.hidden = !running;
-    els.stopBtn.disabled = false;
-  }
-  if (running) startFetchClock(startedAt || state.fetchStartedAt || state.status?.fetchStartedAt);
-  else stopFetchClock();
-}
-
-function setChip(stateName, label) {
-  els.statusChip.dataset.state = stateName;
-  els.statusChip.textContent = label;
-}
-
-function loadLogMinimized() {
-  try {
-    return localStorage.getItem(LS_LOG_MINIMIZED) !== '0';
-  } catch {
-    return false;
+  if (running) {
+    const start = startedAt || state.fetchStartedAt || state.status?.fetchStartedAt;
+    state.fetchStartedAt = start;
+    const previous = activity.get('search');
+    activity.update('search', {
+      startedAt: start, status: 'running', title: 'Searching job boards',
+      message: previous?.startedAt === start && previous.stopping ? 'Stop requested. Saving jobs already found…' : 'You can keep browsing while the search runs.',
+      stopping: previous?.startedAt === start && previous.stopping,
+      stop: stopSearch,
+    });
   }
 }
 
-function saveLogMinimized(minimized) {
-  try {
-    localStorage.setItem(LS_LOG_MINIMIZED, minimized ? '1' : '0');
-  } catch {
-    /* ignore */
-  }
-}
-
-function applyLogMinimized(minimized) {
-  els.layout?.classList.toggle('log-minimized', minimized);
-  els.logPanel?.classList.toggle('is-minimized', minimized);
-  if (els.toggleLogBtn) {
-    els.toggleLogBtn.textContent = minimized ? 'Show activity' : 'Hide activity';
-    els.toggleLogBtn.setAttribute('aria-expanded', minimized ? 'false' : 'true');
-  }
-}
-
-function toggleLogMinimized() {
-  const next = !els.logPanel?.classList.contains('is-minimized');
-  applyLogMinimized(next);
-  saveLogMinimized(next);
-}
-
-function appendLog(line, stream = 'stdout') {
+function appendLog(line, stream = 'stdout', notify = true) {
   const span = document.createElement('span');
   const cls = { stderr: 'err', err: 'err', tool: 'tool', meta: 'meta', ok: 'ok' }[stream];
   if (cls) span.className = cls;
   span.textContent = `${line}\n`;
+  const follow = els.logView.scrollHeight - els.logView.scrollTop - els.logView.clientHeight < 60;
   els.logView.appendChild(span);
-  els.logView.scrollTop = els.logView.scrollHeight;
+  if (follow) els.logView.scrollTop = els.logView.scrollHeight;
+  if (notify && (stream === 'stderr' || stream === 'err')) activity.report(line);
 }
 
 function escapeHtml(s) {
@@ -917,30 +859,45 @@ function connectStream() {
   const es = new EventSource('/api/fetch/stream');
   es.addEventListener('log', (ev) => {
     const data = JSON.parse(ev.data);
-    appendLog(data.line, data.stream);
+    appendLog(data.line, data.stream, false);
   });
   es.addEventListener('done', async (ev) => {
     const data = JSON.parse(ev.data);
     setFetchUi(false);
-    const took = data.durationMs != null ? ` · ${formatDuration(data.durationMs)}` : '';
+    finishSearchActivity(data);
     if (data.stopped) {
-      setChip('idle', `Stopped${took}`);
       appendLog('Search stopped. Jobs found before stop were saved into the archive.');
-    } else {
-      setChip(
-        data.code === 0 ? 'idle' : 'error',
-        data.code === 0 ? `Done${took}` : `Exit ${data.code}${took}`,
-      );
     }
     await refreshAll();
+    if (data.code === 0 && !data.stopped) finishSearchActivity(data, state.status?.digestNewCount);
   });
   es.addEventListener('status', (ev) => {
     const data = JSON.parse(ev.data);
     if (data.running) {
       setFetchUi(true, data.startedAt);
+    } else if (data.startedAt && (!activity.get('search') || activity.get('search').status === 'running')) {
+      setFetchUi(false);
+      finishSearchActivity({ code: data.lastCode, stopped: data.lastCode == null, startedAt: data.startedAt, durationMs: data.lastDurationMs });
+      void refreshAll();
     }
   });
+  es.onerror = () => {
+    if (activity.get('search')?.status === 'running') activity.update('search', { message: 'Connection interrupted. Reconnecting to check search progress…' });
+  };
   return es;
+}
+
+function finishSearchActivity(data, count) {
+  const failed = !data.stopped && data.code !== 0;
+  const duration = data.durationMs != null ? ` Took ${formatDuration(data.durationMs)}.` : '';
+  activity.update('search', {
+    startedAt: data.startedAt || activity.get('search')?.startedAt,
+    status: data.stopped ? 'stopped' : failed ? 'error' : 'success',
+    title: data.stopped ? 'Search stopped' : failed ? 'Search failed' : 'Search complete',
+    message: (data.stopped ? 'Jobs saved before the stop are available in Find jobs.' : failed ? 'The search could not finish. Check Technical logs for details, then run the search again.' : Number.isFinite(count) ? `${count} new matches available.` : 'Your results are ready to browse.') + duration,
+    actionLabel: data.stopped ? 'View jobs' : failed ? 'View details' : 'View matches',
+    action: failed ? () => { activity.open(); $('technicalLogs').open = true; } : () => setView(data.stopped ? 'results' : 'digest'),
+  });
 }
 
 function loadSort() {
@@ -1037,6 +994,7 @@ function queryString() {
 function renderJob(job, { compact = false } = {}) {
   const el = document.createElement('article');
   el.className = 'job';
+  el.dataset.prepJob = job.id;
   const decision = job.decision?.decision;
   const fit = job.fit;
   const facts = [
@@ -1117,6 +1075,7 @@ function renderJob(job, { compact = false } = {}) {
           : ''
       }
     </div>
+    <p class="job-prep-status" data-prep-status hidden></p>
     <div class="job-fit" hidden></div>
     <div class="job-desc" hidden></div>`
     }
@@ -1230,6 +1189,7 @@ function renderJob(job, { compact = false } = {}) {
     });
   }
 
+  updateJobPrepStatus(el, job.id);
   return el;
 }
 
@@ -1546,33 +1506,21 @@ function openStatusModal(job) {
   });
 }
 
-/** @param {string} startedAt ISO timestamp from POST /api/prep */
-function waitForPrepDone(startedAt) {
+/** Reconnects to the server's buffered events without starting another workflow. */
+function waitForPrepDone(startedAt, job) {
   return new Promise((resolve, reject) => {
-    const stopButton = $('stopPrepBtn');
-    stopButton.hidden = false; stopButton.disabled = false;
-    const stop = async () => {
-      stopButton.disabled = true;
-      try {
-        await api('/api/prep/stop', { method: 'POST', body: '{}' });
-        appendLog('Stop requested. Waiting for the current step to finish cancelling…');
-      } catch (error) { stopButton.disabled = false; appendLog(error.message, 'stderr'); }
-    };
-    stopButton.addEventListener('click', stop);
     const es = new EventSource('/api/prep/stream');
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
       settled = true;
-      stopButton.hidden = true;
-      stopButton.removeEventListener('click', stop);
       es.close();
       fn(value);
     };
     es.addEventListener('log', (ev) => {
       try {
         const entry = JSON.parse(ev.data);
-        appendLog(entry.line || '', entry.stream || 'stdout');
+        appendLog(entry.line || '', entry.stream || 'stdout', false);
       } catch {
         /* ignore */
       }
@@ -1587,8 +1535,17 @@ function waitForPrepDone(startedAt) {
         finish(reject, err);
       }
     });
+    es.addEventListener('status', (ev) => {
+      const snapshot = JSON.parse(ev.data);
+      if (snapshot.startedAt !== startedAt) {
+        finish(reject, new Error('This run is no longer available. Check the job’s documents before preparing again.'));
+      } else if (snapshot.running) {
+        updatePrepTask(job, { message: 'Preparing documents. You can keep browsing.' });
+      }
+    });
     es.onerror = () => {
       if (settled) return;
+      updatePrepTask(job, { message: 'Connection interrupted. Reconnecting to check preparation progress…' });
       if (es.readyState === EventSource.CLOSED) {
         finish(reject, new Error('Prep stream closed before completion'));
       }
@@ -1661,38 +1618,86 @@ function logSheetsPull(pull) {
 }
 
 function showLogView() {
-  if (els.prepView) els.prepView.hidden = true;
-  if (els.logView) els.logView.hidden = false;
-  if (els.sideTitle) els.sideTitle.textContent = 'Run log';
+  $('prepResultsDialog').close();
+  activity.open();
 }
 
 async function runPrepFlow(job, opts = {}) {
+  $('prepResultsDialog').close();
   const choice = await openPrepModal(job, opts);
   if (!choice) return;
-  showLogView(); applyLogMinimized(false);
+  updatePrepTask(job, { status: 'running', title: 'Starting preparation', message: 'Starting the document workflow…', startedAt: new Date().toISOString(), stopping: false, starting: true });
   try {
     appendLog(`Starting Goose workflow for ${job.title}…`);
     const started = await api('/api/prep', {
       method: 'POST', body: JSON.stringify({ id: job.id, ...choice }),
     });
-    setChip('busy', 'Goose…');
-    const result = await waitForPrepDone(started.startedAt);
-    if (!result?.ok) throw new Error(result?.error || 'Goose workflow failed');
-    showGooseResult(result);
-    await refreshJobs();
-  } catch (error) { appendLog(`Prep failed: ${error.message}`, 'stderr'); }
-  finally { setChip('idle', 'Idle'); }
+    await watchPrep(job, started.startedAt);
+  } catch (error) { failPrep(job, error); }
+}
+
+function updatePrepTask(job, patch) {
+  const id = `prep:${job.id}`;
+  const task = activity.update(id, {
+    ...patch,
+    jobId: job.id,
+    title: `${patch.title || 'Preparing documents'} · ${job.company ? `${job.company} — ` : ''}${job.title}`,
+    stop: patch.starting ? null : async () => {
+      activity.update(id, { stopping: true, message: 'Stop requested. Waiting for the current step to cancel…' });
+      try { await api('/api/prep/stop', { method: 'POST', body: '{}' }); }
+      catch (error) { activity.update(id, { stopping: false, message: `Could not stop: ${error.message}` }); }
+    },
+  });
+  prepTasks.set(job.id, task);
+  document.querySelectorAll('[data-prep-job]').forEach((card) => updateJobPrepStatus(card, card.dataset.prepJob));
+  return task;
+}
+
+function updateJobPrepStatus(card, id) {
+  const task = prepTasks.get(id);
+  const status = card.querySelector('[data-prep-status]');
+  if (!status) return;
+  status.hidden = !task;
+  if (task) {
+    status.dataset.state = task.status;
+    status.textContent = `${task.status === 'running' ? 'Preparing documents' : task.status === 'error' ? 'Preparation failed' : task.status === 'stopped' ? 'Preparation stopped' : 'Preparation complete'} · ${task.message}`;
+  }
+  const trigger = card.querySelector('[data-prep]');
+  if (trigger) trigger.disabled = task?.status === 'running';
+}
+
+function failPrep(job, error) {
+  appendLog(`Prep failed: ${error.message}`, 'stderr', false);
+  updatePrepTask(job, { status: 'error', title: 'Preparation failed', message: error.message, actionLabel: 'Try Prep again', action: () => runPrepFlow(job) });
+}
+
+function watchPrep(job, startedAt) {
+  if (prepWatchers.has(startedAt)) return prepWatchers.get(startedAt);
+  updatePrepTask(job, { status: 'running', title: 'Preparing documents', message: 'The document workflow is running. You can keep browsing.', startedAt, stopping: false });
+  const watch = (async () => {
+    try {
+      const result = await waitForPrepDone(startedAt, job);
+      if (result.cancelled) {
+        updatePrepTask(job, { status: 'stopped', title: 'Preparation stopped', message: 'The workflow was cancelled. Previously accepted documents are preserved.', actionLabel: 'Prepare again', action: () => runPrepFlow(job) });
+      } else {
+        if (!result?.ok) throw new Error(result?.error || 'Document preparation failed');
+        const status = result.workflow?.status;
+        const incomplete = status && status !== 'completed';
+        updatePrepTask(job, { status: incomplete ? 'error' : 'success', title: incomplete ? 'Preparation needs attention' : 'Preparation complete', message: incomplete ? 'Some preparation steps need review. Open results to see the findings.' : result.pack ? 'Preparation results are available. Open them to see documents and review findings.' : 'The workflow finished. Open results to read its findings.', actionLabel: 'View results', action: () => openPrepResults(result) });
+      }
+      await refreshAll();
+    } catch (error) { failPrep(job, error); }
+    finally { prepWatchers.delete(startedAt); }
+  })();
+  prepWatchers.set(startedAt, watch);
+  return watch;
 }
 
 function showGooseResult(result) {
-  applyLogMinimized(false);
-  els.sideTitle.textContent = 'Goose workflow';
   const workflow = result.workflow;
-  if (result.pack) showPrep(result, { reveal: true });
+  if (result.pack) showPrep(result);
   else {
     els.prepView.replaceChildren();
-    els.logView.hidden = true;
-    els.prepView.hidden = false;
   }
   const section = document.createElement('section');
   section.className = 'goose-result';
@@ -1709,7 +1714,7 @@ function showGooseResult(result) {
   section.append(title, steps, summary, audit); els.prepView.prepend(section);
   if (!result.pack) {
     const back = document.createElement('button'); back.className = 'btn ghost';
-    back.textContent = 'Back to log'; back.addEventListener('click', showLogView); section.append(back);
+    back.textContent = 'View activity'; back.addEventListener('click', showLogView); section.append(back);
   }
   appendLog(`Goose workflow ${workflow.status}. ${workflow.auditPath}`);
 }
@@ -1753,14 +1758,7 @@ function reviewPanel(review, jobId) {
   </div>`;
 }
 
-function showPrep(data, { reveal = true } = {}) {
-  if (reveal) {
-    els.sideTitle.textContent = 'Prep';
-    els.logView.hidden = true;
-    els.prepView.hidden = false;
-  } else {
-    showLogView();
-  }
+function showPrep(data) {
   const pack = data.pack;
   const cvHtml = pack.downloadCvHtml || '';
   const cvMd = pack.downloadCvMd || '';
@@ -1808,7 +1806,7 @@ function showPrep(data, { reveal = true } = {}) {
     <p class="meta">PDFs go to <code>job-scout\\downloads\\&lt;Company&gt;\\</code> (not Windows Downloads). Files: <code>&lt;Your Name&gt; CV.pdf</code> (ATS) + <code>&lt;Your Name&gt; CV Main.pdf</code> (from your master CV). Cover letter: <code>&lt;Your Name&gt; Cover Letter.pdf</code>.</p>
     <p>Cover letter draft:</p>
     <pre>${escapeHtml(pack.coverLetter || '')}</pre>
-    <button type="button" class="btn ghost" id="backToLog">Back to log</button>
+    <button type="button" class="btn ghost" id="backToLog">View activity</button>
   `;
 
   async function saveAndOpenCompanyFolder() {
@@ -1855,6 +1853,7 @@ function showPrep(data, { reveal = true } = {}) {
   });
   $('fillApplyForm')?.addEventListener('click', async () => {
     try {
+      $('prepResultsDialog').close();
       await fillApply(prepJobRef());
     } catch (err) {
       appendLog(`Fill failed: ${err.message}`, 'stderr');
@@ -1932,8 +1931,7 @@ const BATCH_STATUS_LABEL = {
 function batchPercent(snap) {
   if (!snap?.total) return 0;
   const finished = Number(snap.finished) || 0;
-  const running = snap.counts?.running ? 0.5 : 0;
-  return Math.min(100, Math.round(((finished + running) / snap.total) * 100));
+  return Math.min(100, Math.round((finished / snap.total) * 100));
 }
 
 function withLiveBatchTiming(snap) {
@@ -1966,29 +1964,6 @@ function batchSummaryText(snap) {
   }
   if (live.running && live.stopping) bits.push('stopping…');
   return bits.join(' · ');
-}
-
-function renderBatchBar(snap) {
-  if (!els.batchBar) return;
-  // Show while running; after it ends, only if this tab watched it run (not a stale result on reload).
-  const show = Boolean(snap && snap.total && (snap.running || (state.batchSeenRunning && !state.batchDismissed)));
-  els.batchBar.hidden = !show;
-  if (!show) return;
-  els.batchBar.classList.toggle('is-running', Boolean(snap.running));
-  els.batchBar.classList.toggle('has-failed', Boolean(snap.counts?.failed));
-  if (els.batchBarTitle) {
-    els.batchBarTitle.textContent = snap.running
-      ? `Batch Prep (${'Goose'})`
-      : 'Batch Prep finished';
-  }
-  if (els.batchBarText) els.batchBarText.textContent = batchSummaryText(snap);
-  if (els.batchBarFill) els.batchBarFill.style.width = `${batchPercent(snap)}%`;
-  if (els.batchBarCancel) {
-    els.batchBarCancel.hidden = !snap.running;
-    els.batchBarCancel.disabled = Boolean(snap.stopping);
-    els.batchBarCancel.textContent = snap.stopping ? 'Stopping…' : 'Cancel';
-  }
-  if (els.batchBarDismiss) els.batchBarDismiss.hidden = Boolean(snap.running);
 }
 
 function renderBatchProgress(snap) {
@@ -2034,13 +2009,34 @@ function renderBatchProgress(snap) {
 
 function applyBatchSnapshot(snap) {
   if (!snap) return;
-  if (snap.running) {
-    state.batchDismissed = false;
-    state.batchSeenRunning = true;
-  }
   state.batch = snap;
+  if (snap.total) {
+    const failed = Boolean(snap.counts?.failed);
+    activity.update('batch', {
+      startedAt: snap.startedAt, status: snap.running ? 'running' : failed ? 'error' : snap.counts?.cancelled ? 'stopped' : 'success',
+      title: snap.running ? 'Preparing documents in batch' : failed ? 'Batch preparation needs attention' : snap.counts?.cancelled ? 'Batch preparation stopped' : 'Batch preparation complete',
+      message: [
+        `${snap.finished || 0} of ${snap.total} jobs processed`,
+        snap.running && snap.current ? `Working on ${snap.current.company || ''} ${snap.current.title || ''}`.trim() : '',
+        snap.counts?.failed ? `${snap.counts.failed} failed` : '',
+        snap.counts?.skipped ? `${snap.counts.skipped} skipped` : '',
+        snap.stopping ? 'Stopping…' : '',
+      ].filter(Boolean).join(' · '), stopping: snap.stopping, stop: stopBatch,
+      details: () => showBatchModal('progress'),
+      actionLabel: failed ? 'Review batch' : 'View prepared jobs',
+      action: failed ? () => showBatchModal('progress') : () => setView('ready'),
+    });
+    for (const item of snap.items || []) {
+      if (Date.parse(prepTasks.get(item.id)?.startedAt) > Date.parse(snap.startedAt)) continue;
+      prepTasks.set(item.id, {
+        startedAt: snap.startedAt,
+        status: ['pending', 'running'].includes(item.status) ? 'running' : item.status === 'failed' ? 'error' : item.status === 'cancelled' ? 'stopped' : 'success',
+        message: item.error || item.note || BATCH_STATUS_LABEL[item.status] || item.status,
+      });
+    }
+    document.querySelectorAll('[data-prep-job]').forEach((card) => updateJobPrepStatus(card, card.dataset.prepJob));
+  }
   ensureBatchClock(snap);
-  renderBatchBar(snap);
   if (els.batchModal && !els.batchModal.hidden && els.batchProgress && !els.batchProgress.hidden) {
     renderBatchProgress(snap);
   }
@@ -2081,7 +2077,7 @@ function connectBatchStream() {
   es.addEventListener('log', (ev) => {
     try {
       const entry = JSON.parse(ev.data);
-      appendLog(entry.line || '', entry.stream || 'stdout');
+      appendLog(entry.line || '', entry.stream || 'stdout', false);
     } catch {
       /* ignore */
     }
@@ -2251,10 +2247,8 @@ async function startBatch() {
       method: 'POST',
       body: JSON.stringify({ ids, mode, includeCoverLetter, skipExisting, extraInstructions }),
     });
-    state.batchDismissed = false;
     applyBatchSnapshot(res.batch);
     showBatchModal('progress');
-    showLogView();
     appendLog(`Batch Prep started: ${ids.length} job(s), ${mode}${includeCoverLetter ? ' + cover letter' : ''}.`);
     connectBatchStream();
   } catch (err) {
@@ -2272,12 +2266,6 @@ els.batchCancelSetup?.addEventListener('click', hideBatchModal);
 els.batchClose?.addEventListener('click', hideBatchModal);
 els.batchStart?.addEventListener('click', startBatch);
 els.batchStop?.addEventListener('click', stopBatch);
-els.batchBarCancel?.addEventListener('click', stopBatch);
-els.batchBarDetails?.addEventListener('click', () => showBatchModal('progress'));
-els.batchBarDismiss?.addEventListener('click', () => {
-  state.batchDismissed = true;
-  renderBatchBar(state.batch);
-});
 els.batchGoReady?.addEventListener('click', () => {
   hideBatchModal();
   setView('ready');
@@ -2427,7 +2415,6 @@ async function refreshStatus() {
   updatePlanHint(s);
   updateSheetsUi(s.sheets);
   showSetup(Boolean(s.setup?.needsSetup) && !s.setup?.profileParseError);
-  els.apifyTip.hidden = false;
 
   const alerts = [];
   if (s.setup?.profileParseError) {
@@ -2443,8 +2430,15 @@ async function refreshStatus() {
   if (s.readyCount != null) setReadyBadge(s.readyCount);
   if (s.batch) {
     // Items come over the stream; keep the ones we already have.
-    applyBatchSnapshot({ ...s.batch, items: state.batch?.items || [] });
+    applyBatchSnapshot({ ...s.batch, items: state.batch?.startedAt === s.batch.startedAt ? state.batch.items || [] : [] });
     if (s.batch.running) connectBatchStream();
+  }
+  if (s.prepRunning && s.prepStartedAt && !prepWatchers.has(s.prepStartedAt)) {
+    const existing = prepTasks.get(s.prepJobId);
+    if (!existing || existing.startedAt !== s.prepStartedAt) {
+      const job = state.jobs?.find((item) => item.id === s.prepJobId) || { id: s.prepJobId, title: 'Current job' };
+      void watchPrep(job, s.prepStartedAt);
+    }
   }
   els.alerts.innerHTML = alerts.map((a) => `<div class="alert">${escapeHtml(a)}</div>`).join('');
 
@@ -2452,12 +2446,6 @@ async function refreshStatus() {
     setFetchUi(true, s.fetchStartedAt);
   } else {
     setFetchUi(false);
-    if (!els.runBtn.disabled) {
-      setChip(
-        s.lastFetchCode && s.lastFetchCode !== 0 ? 'error' : 'idle',
-        s.lastFetchCode && s.lastFetchCode !== 0 ? `Exit ${s.lastFetchCode}` : 'Idle',
-      );
-    }
   }
 }
 
@@ -2895,7 +2883,6 @@ function setView(view) {
   els.viewPortals.hidden = view !== 'portals';
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
-  els.layout?.classList.toggle('tracker-wide', view === 'tracker');
   if (view === 'results') refreshJobs();
   if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
   if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
@@ -2906,6 +2893,7 @@ function setView(view) {
 }
 
 async function runSearch() {
+  if (els.runBtn.disabled) return;
   const market = els.marketSelect.value;
   const allowPaid = els.allowPaid.checked;
   const replace = Boolean(els.replaceResults?.checked);
@@ -2936,13 +2924,11 @@ async function runSearch() {
     }
   }
   try {
+    setFetchUi(true, new Date().toISOString());
+    activity.update('search', { title: 'Starting search', message: 'Saving search options…', stop: null });
     if (market && state.status?.marketId !== market) {
       await api('/api/market', { method: 'PATCH', body: JSON.stringify({ market }) });
     }
-    els.prepView.hidden = true;
-    els.logView.hidden = false;
-    els.sideTitle.textContent = 'Run log';
-    els.logView.textContent = '';
     try {
       await saveSettings({
         ...(limit > 0 ? { limitPerQuery: limit } : {}),
@@ -2966,10 +2952,8 @@ async function runSearch() {
         .filter(Boolean)
         .join(' · '),
     );
-    setChip('running', 'Starting…');
-    setFetchUi(true, new Date().toISOString());
     state.page = 1;
-    await api('/api/fetch', {
+    const started = await api('/api/fetch', {
       method: 'POST',
       body: JSON.stringify({
         market,
@@ -2981,22 +2965,24 @@ async function runSearch() {
         ...(maxAgeDays > 0 ? { maxAgeDays } : {}),
       }),
     });
+    if (activity.get('search')?.status === 'running') setFetchUi(true, started.startedAt);
   } catch (err) {
-    appendLog(err.message, 'stderr');
-    setChip('error', 'Error');
+    appendLog(err.message, 'stderr', false);
+    activity.update('search', { status: 'error', title: 'Search could not start', message: err.message, actionLabel: 'Try search again', action: runSearch });
     setFetchUi(false);
   }
 }
 
 async function stopSearch() {
-  if (!els.stopBtn || els.stopBtn.disabled) return;
-  els.stopBtn.disabled = true;
-  appendLog('Stopping search…', 'stderr');
+  const search = activity.get('search');
+  if (search?.status !== 'running' || search.stopping || !search.stop) return;
+  appendLog('Stopping search…');
+  activity.update('search', { stopping: true, message: 'Stop requested. Saving jobs already found…' });
   try {
     await api('/api/fetch/stop', { method: 'POST', body: '{}' });
   } catch (err) {
-    appendLog(err.message, 'stderr');
-    els.stopBtn.disabled = false;
+    appendLog(err.message, 'stderr', false);
+    activity.update('search', { stopping: false, message: `Could not stop: ${err.message}` });
   }
 }
 
@@ -3011,7 +2997,6 @@ els.runBtn.addEventListener('click', () => {
   runSearch();
 });
 els.emptyRunBtn.addEventListener('click', runSearch);
-els.stopBtn?.addEventListener('click', stopSearch);
 els.searchInput.addEventListener('input', () => {
   state.page = 1;
   clearTimeout(searchDebounce);
@@ -3077,10 +3062,6 @@ els.nextPage.addEventListener('click', () => {
 els.clearLogBtn.addEventListener('click', () => {
   els.logView.textContent = '';
 });
-els.toggleLogBtn?.addEventListener('click', () => {
-  toggleLogMinimized();
-});
-applyLogMinimized(loadLogMinimized());
 els.sheetsSyncBtn?.addEventListener('click', async () => {
   if (!els.sheetsSyncBtn || els.sheetsSyncBtn.disabled) return;
   els.sheetsSyncBtn.disabled = true;

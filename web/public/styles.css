@@ -415,56 +415,7 @@ a.btn.primary-link:hover {
   font-size: 0.88rem;
 }
 
-/* Batch Prep progress strip (visible on every tab) ------------------------ */
-
-.batch-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem 1rem;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.6rem 0.9rem;
-  margin-bottom: 0.75rem;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
-  border-radius: var(--radius);
-}
-
-.batch-bar.has-failed {
-  border-left-color: var(--warn);
-}
-
-.batch-bar:not(.is-running) {
-  border-left-color: #9aa5b1;
-}
-
-.batch-bar-main {
-  flex: 1 1 18rem;
-  min-width: 0;
-  display: grid;
-  gap: 0.4rem;
-}
-
-.batch-bar-text {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 0.6rem;
-  align-items: baseline;
-  font-size: 0.86rem;
-  color: var(--ink-soft);
-}
-
-.batch-bar-text strong {
-  color: var(--ink);
-}
-
-.batch-bar-actions {
-  display: flex;
-  gap: 0.35rem;
-  align-items: center;
-}
-
+/* Batch Prep progress inside the details dialog. */
 .batch-track {
   height: 6px;
   border-radius: 3px;
@@ -713,8 +664,7 @@ a.btn.primary-link:hover {
   align-items: start;
 }
 
-.jobs-panel,
-.log-panel {
+.jobs-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -1391,42 +1341,11 @@ a.btn.primary-link:hover {
 
 /* Log / prep panel -------------------------------------------------------- */
 
-.log-panel .panel-head {
-  align-items: center;
-}
-
 .panel-head-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
-}
-
-.layout.log-minimized,
-.layout.tracker-wide {
-  grid-template-columns: 1fr;
-}
-
-.layout.tracker-wide .log-panel {
-  display: none;
-}
-
-.log-panel.is-minimized {
-  min-height: 0;
-  order: -1;
-  position: sticky;
-  top: 0.5rem;
-  z-index: 8;
-}
-
-.log-panel.is-minimized .panel-head {
-  border-bottom: none;
-  padding: 0.55rem 1rem;
-}
-
-.log-panel.is-minimized .log-body,
-.log-panel.is-minimized #clearLogBtn {
-  display: none;
 }
 
 .log-view {
@@ -1841,7 +1760,6 @@ body.setup-open .app {
 .job-facts { gap: .4rem .7rem; margin-top: .85rem; line-height: 1.7; }
 .job-actions { padding-top: .65rem; gap: .45rem; }
 .job-actions .btn { min-height: 34px; }
-.layout.log-minimized .log-panel { order: 2; position: static; }
 .tracker-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .8rem; padding: 0 1.3rem 1.2rem; }
 .summary-card { font: inherit; text-align: left; padding: 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--ink); cursor: pointer; display: grid; gap: .35rem; }
 .summary-card > span { font-size: .85rem; font-weight: 600; }
@@ -1902,8 +1820,6 @@ body.setup-open .app {
   .toolbar-row > .field { flex: 1 1 7rem; min-width: 0; }
   .toolbar-row select { max-width: 100%; }
   .job-actions .btn { min-height: 40px; }
-  .batch-bar { flex-wrap: wrap; }
-  .batch-bar-main { min-width: 0; }
 }
 
 /* Full application records and submitted-document archive. */
@@ -1951,7 +1867,6 @@ body.setup-open .app {
 .top { justify-content: flex-start; gap: 1rem 2rem; padding-bottom: 1rem; }
 .panel-head { justify-content: flex-start; }
 .layout { grid-template-columns: minmax(0, 1fr); }
-.log-panel { position: static; }
 .jobs-panel > .panel-head { padding: 1rem 1.2rem; gap: .75rem; }
 .jobs-panel h2 { font-size: 1.25rem; }
 .panel-head .meta { margin-top: .25rem; }
@@ -2026,3 +1941,50 @@ body.setup-open .app {
 .memory-editor textarea { width: 100%; font-family: ui-monospace, monospace; font-size: .85rem; }
 .memory-editor pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 28rem; overflow-y: auto; }
 .memory-editor details, .memory-editor .prep-modal-field, #memoryPreview { margin: 1rem 0; }
+
+/* Activity stays available throughout the workspace. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.activity-strip { position: sticky; top: .5rem; z-index: 25; display: flex; align-items: center; gap: .85rem; margin: 0 0 1rem; padding: .85rem 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); }
+.activity-copy { flex: 1; min-width: 0; }
+.activity-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: .65rem; }
+.activity-copy p { margin: .15rem 0 0; color: var(--ink-soft); overflow-wrap: anywhere; }
+.activity-copy p { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.activity-count { display: block; font-size: .78rem; color: var(--muted); }
+.activity-count:empty { display: none; }
+.activity-time { color: var(--muted); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.activity-indicator { width: .65rem; height: .65rem; flex: 0 0 auto; border-radius: 50%; background: var(--muted); }
+.activity-strip[data-state="running"] { border-color: var(--accent); }
+.activity-strip[data-state="running"] .activity-indicator { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.activity-strip[data-state="success"] .activity-indicator { background: var(--accent); }
+.activity-strip[data-state="error"] { border-color: var(--danger); }
+.activity-strip[data-state="error"] .activity-indicator { background: var(--danger); }
+.activity-controls, .activity-item-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.activity-drawer, .prep-results-dialog { padding: 0; color: var(--ink); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow); }
+.activity-drawer { position: fixed; inset: 0 0 0 auto; margin: 0; width: min(520px, 100%); max-width: 100%; height: 100dvh; max-height: 100dvh; border-radius: 12px 0 0 12px; }
+.activity-drawer::backdrop, .prep-results-dialog::backdrop { background: rgba(31, 41, 51, .22); }
+.activity-drawer-head { position: sticky; top: 0; z-index: 1; background: var(--panel); display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); }
+.activity-drawer-head h2 { margin: 0; font-size: 1.25rem; }
+.activity-drawer-head .eyebrow { margin: 0 0 .3rem; }
+.activity-drawer-body { padding: 1.2rem; }
+.activity-item { padding: 1rem; margin-bottom: .8rem; background: var(--panel-alt); border: 1px solid var(--line); border-radius: 8px; overflow-wrap: anywhere; }
+.activity-item[data-state="error"] { border-color: var(--danger); }
+.activity-item h3 { margin: .4rem 0; font-size: 1rem; }
+.activity-item p { margin: .4rem 0 .85rem; color: var(--ink-soft); white-space: pre-wrap; }
+.activity-state { font-size: .78rem; font-weight: 650; margin-right: .6rem; color: var(--muted); }
+.activity-item[data-state="error"] .activity-state { color: var(--danger); }
+.activity-item[data-state="running"] .activity-state, .activity-item[data-state="success"] .activity-state { color: var(--accent-ink); }
+.technical-logs { border-top: 1px solid var(--line); padding-top: 1rem; }
+.technical-logs summary { cursor: pointer; font-weight: 600; padding: .4rem 0; }
+.technical-log-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.technical-logs .log-view { max-height: 50dvh; min-height: 8rem; border-radius: 8px; overflow-wrap: anywhere; }
+.prep-results-dialog { width: min(800px, calc(100% - 2rem)); max-width: 100%; max-height: calc(100dvh - 2rem); border-radius: 12px; }
+.job-prep-status { padding: .65rem .8rem; margin: .7rem 0 0; border-radius: 6px; color: var(--accent-ink); background: var(--accent-soft); overflow-wrap: anywhere; }
+.job-prep-status[data-state="error"] { background: var(--danger-soft); color: var(--danger); }
+@media (max-width: 600px) {
+  .activity-strip { gap: .6rem; padding: .75rem; flex-wrap: wrap; }
+  .activity-copy { flex-basis: calc(100% - 2rem); }
+  .activity-controls { margin-left: 1.25rem; }
+  .activity-drawer { border-radius: 0; width: 100%; }
+  .activity-drawer-head, .activity-drawer-body { padding: 1rem; }
+  .prep-results-dialog { width: 100%; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; }
+}

@@ -1131,7 +1131,8 @@ async function handleApi(req, res, url) {
       } catch (error) {
         prepState.error = error.message;
         prepLog(`Goose workflow ${signal.aborted ? 'cancelled' : 'failed'}: ${error.message}`, 'stderr');
-        broadcastPrep('done', { ok: false, error: error.message, jobId: job.id, startedAt: prepState.startedAt });
+        prepState.result = { ok: false, cancelled: signal.aborted, error: error.message, jobId: job.id, startedAt: prepState.startedAt };
+        broadcastPrep('done', prepState.result);
       } finally {
         gooseController = null;
         prepState.running = false;

@@ -164,9 +164,9 @@ tests and the privacy check; npm updates both version files, creates a one-line
 release commit, and adds the tag. Push the branch and that specific tag together:
 
 ```bash
-git push --atomic origin main v2.0.1
+git push --atomic origin main v2.1.0
 ```
 
-Use the version tag npm just created in place of `v2.0.1`. Tags preserve release
+Use the version tag npm just created in place of `v2.1.0`. Tags preserve release
 history; only the current release is maintained. Local memory and credentials are
 never part of a release.

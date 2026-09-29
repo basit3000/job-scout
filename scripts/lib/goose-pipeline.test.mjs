@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createGooseToolBridge, validateGooseRequest } from './goose-tools.mjs';
 import { runGoose } from './goose-runtime.mjs';
+import { runGooseCoordinator } from './goose-pipeline.mjs';
 import { assessPrep, prepFingerprint, generateDocuments } from './prep-state.mjs';
 import { suggestedGoosePrompt } from '../../web/public/goose-prep.js';
 
@@ -87,6 +88,51 @@ test('tool call budget prevents unlimited agent loops', async (t) => {
   await rpc(bridge, 'tools/call', { name: 'inspect_job' });
   assert.equal((await rpc(bridge, 'tools/call', { name: 'inspect_job' })).body.result.isError, true);
 });
+
+for (const outcome of ['ready', 'needs-review', 'failed', 'cancelled']) {
+  test(`coordinator exit waits for active host work: ${outcome}`, async (t) => {
+    const controller = new AbortController();
+    const started = Promise.withResolvers();
+    const work = Promise.withResolvers();
+    const waiting = Promise.withResolvers();
+    const bridge = await createGooseToolBridge({ tools: ['prepare_cv', 'inspect_reviews'],
+      signal: controller.signal, handlers: {
+        prepare_cv: async () => {
+          started.resolve();
+          await work.promise;
+          if (outcome === 'failed') throw new Error('Host review failed');
+          return { needsReview: outcome === 'needs-review' };
+        },
+        inspect_reviews: async () => ({}),
+      } });
+    t.after(async () => { work.resolve(); await bridge.close(); });
+    let request, settled = false;
+    const session = runGooseCoordinator({ signal: controller.signal,
+      onEvent: () => waiting.resolve() }, bridge, async () => {
+      request = rpc(bridge, 'tools/call', { name: 'prepare_cv' });
+      await started.promise;
+      return 'Coordinator has exited';
+    });
+    session.then(() => { settled = true; }, () => { settled = true; });
+    await waiting.promise;
+    assert.equal(bridge.calls[0].status, 'running');
+    const lateCall = await rpc(bridge, 'tools/call', { name: 'inspect_reviews' });
+    assert.equal(lateCall.body.result.isError, true);
+    assert.equal(bridge.calls.length, 1);
+    assert.equal(settled, false);
+    assert.equal(controller.signal.aborted, false);
+    if (outcome === 'cancelled') controller.abort(new Error('User cancelled'));
+    work.resolve();
+    if (outcome === 'failed') await assert.rejects(session, /prepare_cv failed: Host review failed/);
+    else if (outcome === 'cancelled') await assert.rejects(session, /User cancelled/);
+    else assert.equal(await session, 'Coordinator has exited');
+    const response = await request;
+    assert.equal(bridge.calls[0].status, ['failed', 'cancelled'].includes(outcome) ? 'failed' : 'done');
+    if (outcome === 'needs-review') {
+      assert.equal(JSON.parse(response.body.result.content[0].text).needsReview, true);
+    }
+  });
+}
 
 function fakeGoose(source, capture = () => {}) {
   return (bin, args, options) => {

@@ -39,10 +39,25 @@ export async function runGoosePipeline(options) {
   });
 }
 
+export async function runGooseCoordinator(options, bridge, run = runGoose) {
+  const summary = await run(options);
+  options.signal?.throwIfAborted();
+  if (bridge.calls.some((call) => call.status === 'running')) {
+    options.onEvent?.({ stream: 'meta', line: 'Goose coordinator finished; waiting for active host preparation and review…', t: Date.now() });
+  }
+  await bridge.finish();
+  options.signal?.throwIfAborted();
+  if (!bridge.calls.length) throw new Error('Goose did not call any selected tools. Check your Goose provider supports MCP extensions.');
+  const failed = bridge.calls.find((call) => call.status !== 'done');
+  if (failed) throw new Error(`Goose tool ${failed.tool} failed: ${failed.error || failed.status}`);
+  return summary;
+}
+
 async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, request, signal, onEvent = () => {} }) {
   const { tools, prompt } = validateGooseRequest(request);
   const controller = new AbortController();
-  signal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
+  // Bound the whole workflow, including host work left after the coordinator exits.
+  signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45 * 60_000), ...(signal ? [signal] : [])]);
   return withGooseContext(signal, async () => {
     const id = randomUUID();
     const auditDir = join(ROOT, '.workspace', 'goose-runs', id);
@@ -102,12 +117,8 @@ async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, req
     const save = () => writeFile(join(auditDir, 'run.json'), JSON.stringify({ ...record, calls: bridge.calls }, null, 2));
     try {
       await save();
-      const summary = await runGoose({ prompt: buildGoosePlanPrompt({ tools, prompt }), cwd,
-        extensionUrl: bridge.url, signal, onEvent, maxTurns: 16, timeoutMs: 45 * 60_000 });
-      signal?.throwIfAborted();
-      if (!bridge.calls.length) throw new Error('Goose did not call any selected tools. Check your Goose provider supports MCP extensions.');
-      const failed = bridge.calls.find((call) => call.status !== 'done');
-      if (failed) throw new Error(`Goose tool ${failed.tool} failed: ${failed.error || failed.status}`);
+      const summary = await runGooseCoordinator({ prompt: buildGoosePlanPrompt({ tools, prompt }), cwd,
+        extensionUrl: bridge.url, signal, onEvent, maxTurns: 16, timeoutMs: 45 * 60_000 }, bridge);
       record.status = halted ? 'needs-review' : 'completed';
       record.summary = summary || 'Selected tools finished. See the tool history for details.';
       return { pack, workflow: { ...record, calls: bridge.calls,

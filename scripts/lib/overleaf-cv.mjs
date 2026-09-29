@@ -419,7 +419,7 @@ export async function assembleOverleafAfterAgent({
   // stash those edits and waste the tailor pass.
   emit('Fitting Overleaf CVs to one page…');
   const fit = await fitOverleafCvsToOnePage(job, { prepDir });
-  emit('Compiling Overleaf PDFs into the prep pack?');
+  emit('Compiling Overleaf PDFs into the prep pack…');
   const pdf = await compileOverleafPdfs(prepDir);
   await recordOverleafSources(prepDir);
   const pushResult = push ? await pushValidatedOverleaf({ job, prepDir }) : { pushed: false, reason: 'deferred until final validation' };

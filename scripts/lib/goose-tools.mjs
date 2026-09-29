@@ -31,8 +31,10 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
   const completedWrites = new Map();
   const pending = new Set();
   let busy = false;
+  let accepting = true;
   const callTool = async (name, args = {}) => {
     signal?.throwIfAborted();
+    if (!accepting) throw new Error('Goose tool session has finished accepting calls');
     const tool = selected.find((t) => t.name === name);
     if (!tool || typeof handlers[name] !== 'function') throw new Error('Tool is not enabled for this run');
     if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length) throw new Error('This tool takes no arguments');
@@ -93,7 +95,13 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
   });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
   return { url: `http://127.0.0.1:${server.address().port}${secretPath}`, calls,
+    async finish() {
+      // A disconnected MCP client does not mean its host work has finished.
+      accepting = false;
+      await Promise.allSettled([...pending]);
+    },
     async close() {
+      accepting = false;
       const closed = new Promise((resolve) => server.close(resolve));
       await Promise.allSettled([...pending]);
       server.closeAllConnections(); await closed;

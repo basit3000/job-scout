@@ -52,7 +52,7 @@ test('activity remains visible and actionable through search and Prep lifecycles
     else if (path === '/api/digest') data = { newJobs: jobs, candidates: jobs, pagination, count: 10 };
     else if (path === '/api/ready') data = { jobs, pagination, total: 10 };
     else if (path === '/api/run-history') data = {};
-    else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
+    else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, cvSource: status.cv.source, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
     else if (path === '/api/ats-check') {
       const body = request.postDataJSON();
       data = await inspectAtsPdf(Buffer.from(body.pdf, 'base64'), body.keywords);
@@ -224,6 +224,7 @@ test('activity remains visible and actionable through search and Prep lifecycles
     await page.locator('#jobList [data-prep]').first().click();
     await page.waitForFunction(() => document.getElementById('gooseOptions').dataset.ready === 'true');
     assert.equal(await page.locator('#personalCvOptions').isVisible(), false);
+    assert.equal(await page.locator('#overleafPushOptions').isVisible(), false);
     await page.locator('#prepModalCancel').click();
     personalCvOptions = true;
     await page.locator('#jobList [data-prep]').first().click();
@@ -250,6 +251,34 @@ test('activity remains visible and actionable through search and Prep lifecycles
     await page.locator('#personalCvOptions').waitFor();
     assert.equal(await page.locator('#cvMatchHeadline').isChecked(), false);
     assert.equal(await page.locator('#cvPreferredCity').inputValue(), '');
+    await page.locator('#prepModalCancel').click();
+  });
+  await t.test('Overleaf recreation submits an explicit push choice and resets it each time', async () => {
+    status.cv.source = 'overleaf';
+    status.prepStartedAt = null;
+    status.batch = null;
+    jobs[0].tailoredCv = true;
+    await page.reload();
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#overleafPushOptions').waitFor();
+    await textIs('#prepModalRecreate', 'Recreate CV');
+    assert.equal(await page.locator('#pushToOverleaf').isChecked(), false);
+    await page.locator('#pushToOverleaf').check();
+    await page.locator('#gooseTools input[value="prepare_cv"]').uncheck();
+    assert.equal(await page.locator('#overleafPushOptions').isVisible(), false);
+    await page.locator('#gooseTools input[value="prepare_cv"]').check();
+    assert.equal(await page.locator('#pushToOverleaf').isChecked(), false);
+    await page.locator('#pushToOverleaf').check();
+    await page.screenshot({ path: resolve('.workspace/cv-ui/overleaf-recreate.png') });
+    await page.locator('#prepModalRecreate').click();
+    await textIs('#activityTitle', 'Preparing documents');
+    assert.equal(prepRequests.at(-1).pushToOverleaf, true);
+    status.prepRunning = false;
+    await emit('/api/prep/stream', 'done', { ok: false, cancelled: true, startedAt: prepStartedAt, error: 'Synthetic run stopped' });
+    await textIs('#activityTitle', 'Preparation stopped');
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#overleafPushOptions').waitFor();
+    assert.equal(await page.locator('#pushToOverleaf').isChecked(), false);
     await page.locator('#prepModalCancel').click();
   });
   await t.test('ATS button reads a selected PDF independently of generation', async () => {

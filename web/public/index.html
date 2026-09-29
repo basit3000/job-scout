@@ -396,12 +396,17 @@
             <p class="meta">City is shown as “Preferred location”. Your home address stays unchanged. These choices apply only to this application.</p>
             <p class="meta" id="personalCvPolicy"></p>
           </fieldset>
+          <fieldset id="overleafPushOptions" class="goose-tools" hidden>
+            <legend>Overleaf</legend>
+            <label><input type="checkbox" id="pushToOverleaf" /> Push to Overleaf after review</label>
+            <p class="meta">Recreates this job's CV from your online project. Selecting push replaces the project's main.tex and ats.tex with the reviewed CV.</p>
+          </fieldset>
           <label class="prep-modal-field">
             <span>Your task for Goose</span>
             <textarea id="goosePrompt" rows="4" maxlength="4000" placeholder="Compare my CV with this job, explain the gaps, then prepare a CV using only supported facts."></textarea>
           </label>
           <button type="button" class="btn small" id="gooseSuggestPrompt">Build prompt from selected tools</button>
-          <p class="meta">Uses your Goose login and configured model. Runs only for this job. No application submission or Overleaf push.</p>
+          <p class="meta">Uses your Goose login and configured model. Runs only for this job. Does not submit an application.</p>
         </div>
         <div class="prep-modal-actions">
           <button type="button" class="btn ghost" id="prepModalCancel">Cancel</button>

@@ -199,6 +199,8 @@ test('Overleaf publishes only matching sources and validated reviewed PDFs', asy
   await writeFile(join(dir, 'overleaf-source.json'), JSON.stringify({ fingerprint: 'same' }));
   let pushed = 0;
   const opts = { job, prepDir: dir, sourceFingerprint: async () => 'same', push: async () => { pushed++; return { pushed: true }; } };
+  await assert.rejects(pushValidatedOverleaf(opts), /not been reviewed/);
+  assert.equal(pushed, 0);
   await writeFile(join(dir, 'review-summary.json'), JSON.stringify({ cv: { verdict: 'not_reviewed' } }));
   await assert.rejects(pushValidatedOverleaf(opts), /Not reviewed/);
   assert.equal(pushed, 0);

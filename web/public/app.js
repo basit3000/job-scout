@@ -1052,7 +1052,7 @@ function renderJob(job, { compact = false } = {}) {
         ? ''
         : `
     <div class="job-actions">
-      <button type="button" class="btn small ok" data-prep>Prepare documents</button>
+      <button type="button" class="btn small ok" data-prep>${job.tailoredCv || job.tailoredPdf ? 'Recreate CV' : 'Create CV'}</button>
       <button type="button" class="btn small ${
         decision ? `active${NEGATIVE_DECISIONS.has(decision) ? ' danger' : ''}` : ''
       }" data-status title="Change status" aria-haspopup="dialog">${
@@ -1414,12 +1414,20 @@ function closeStatusModal() {
 }
 
 function syncPrepModalActions() {
+  const preparesCv = selectedGooseTools().includes('prepare_cv');
+  $('overleafPushOptions').hidden = $('gooseOptions').dataset.cvSource !== 'overleaf' || !preparesCv;
+  if ($('overleafPushOptions').hidden) $('pushToOverleaf').checked = false;
+  els.prepModalRecreate.textContent = preparesCv ? (els.prepModal.dataset.hasCv === 'true' ? 'Recreate CV' : 'Create CV') : 'Run Goose';
   els.prepModalRecreate.disabled = $('gooseOptions').dataset.ready !== 'true'
     || !selectedGooseTools().length || !$('goosePrompt').value.trim();
 }
 function openPrepModal(job, opts = {}) {
   return new Promise(resolve => {
     $('personalCvOptions').hidden = true;
+    $('overleafPushOptions').hidden = true;
+    $('pushToOverleaf').checked = false;
+    $('gooseOptions').dataset.cvSource = '';
+    els.prepModal.dataset.hasCv = String(Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv));
     for (const id of ['cvMatchHeadline', 'cvMatchKeywords', 'cvEquivalentRole']) $(id).checked = false;
     $('cvPreferredCity').value = '';
     $('cvUseJobCity').onclick = () => { $('cvPreferredCity').value = String(job.location || '').split(',')[0].trim().slice(0, 100); };
@@ -1439,6 +1447,7 @@ function openPrepModal(job, opts = {}) {
     };
     const cancel = () => finish(null);
     const run = () => finish({ tools: selectedGooseTools(), prompt: $('goosePrompt').value.trim(),
+      ...($('overleafPushOptions').hidden ? {} : { pushToOverleaf: $('pushToOverleaf').checked }),
       ...($('personalCvOptions').hidden ? {} : { cvOptions: { matchHeadline: $('cvMatchHeadline').checked,
         matchKeywords: $('cvMatchKeywords').checked, equivalentRoleTitle: $('cvEquivalentRole').checked,
         city: $('cvPreferredCity').value.trim() } }) });
@@ -1453,8 +1462,9 @@ function openPrepModal(job, opts = {}) {
     els.prepModal.addEventListener('click', backdrop);
     document.addEventListener('keydown', key);
     syncPrepModalActions();
-    api('/api/goose').then(({ tools, status, cvPreferences = {} }) => {
+    api('/api/goose').then(({ tools, status, cvSource, cvPreferences = {} }) => {
       if (els.prepModal.hidden) return;
+      $('gooseOptions').dataset.cvSource = cvSource || 'local';
       $('personalCvOptions').hidden = !cvPreferences.enabled;
       $('personalCvPolicy').textContent = [
         cvPreferences.allowExperienceSelection ? 'Your complete Experience library stays in Memory; this CV may select relevant bullets.' : '',

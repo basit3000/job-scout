@@ -507,12 +507,12 @@ async function refreshEvidence({ emit }) {
   return path;
 }
 
-async function stageOverleaf(emit) {
+async function stageOverleaf(emit, signal) {
   if (!overleafConfigured()) {
     throw new Error('CV source is Overleaf but OVERLEAF_GIT_TOKEN / OVERLEAF_PROJECT_ID are empty');
   }
-  emit('Pulling Overleaf clone…', 'meta');
-  const sync = await syncOverleaf();
+  emit('Reading the current online Overleaf master; archiving the previous working checkout…', 'meta');
+  const sync = await syncOverleaf({ fresh: true, signal });
   emit(`Overleaf ${sync.action} — .workspace/overleaf`, 'meta');
   return sync;
 }
@@ -553,6 +553,7 @@ async function runCvTailorAgentWithMemory({
   repair = false,
   repairChecks = [],
   finalTextRel = '',
+  signal,
 } = {}) {
   const letterTask = task === 'cover-letter';
   const reviewCv = task === 'review-cv';
@@ -597,7 +598,7 @@ async function runCvTailorAgentWithMemory({
   const evidenceRel = relToRoot(await refreshEvidence({ emit }));
 
   if (flags.overleaf && cvSource === 'overleaf') {
-    await stageOverleaf(emit);
+    await stageOverleaf(emit, signal);
   }
   if (flags.snapshot) {
     const saved = await snapshotCvSources({ prepDir, cvSource });

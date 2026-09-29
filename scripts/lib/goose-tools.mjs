@@ -20,7 +20,10 @@ export function validateGooseRequest(body) {
   if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 4000) {
     throw new Error('Enter a prompt of 1–4000 characters.');
   }
+  if (body.pushToOverleaf !== undefined && typeof body.pushToOverleaf !== 'boolean') throw new Error('Push to Overleaf must be an explicit checkbox choice.');
+  if (body.pushToOverleaf && !body.tools.includes('prepare_cv')) throw new Error('Select Prepare CV before enabling Push to Overleaf.');
   return { tools: [...new Set(body.tools)], prompt: body.prompt.trim(),
+    ...(body.pushToOverleaf === undefined ? {} : { pushToOverleaf: body.pushToOverleaf }),
     ...(body.cvOptions === undefined ? {} : { cvOptions: validateCvOptions(body.cvOptions) }) };
 }
 

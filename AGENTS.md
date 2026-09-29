@@ -40,7 +40,9 @@ candidate-neutral. Privacy output identifies files without printing private valu
   use Goose workers; rendering, quality gates and publication remain host code.
 - Failed generation preserves prior accepted documents and complete drafts.
   Never fall back to keyword generation or publish an unreviewed document.
-- Document workflows do not submit applications, push Overleaf or change the master.
+- Document workflows do not submit applications. Overleaf publication is host-controlled
+  and allowed only when the user selects Push to Overleaf for that job, after final
+  PDF validation and review. Otherwise the online master remains unchanged.
 - **Fill** submits LinkedIn Easy Apply only when the user clicks it. Other boards
   remain on-screen for the user to submit.
 - Paid Apify requires explicit Allow paid / `--allow-paid` and a configured token.

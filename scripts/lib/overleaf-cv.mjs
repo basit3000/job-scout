@@ -1,6 +1,6 @@
 /** Overleaf sync, PDF rendering, integrity checks, and explicit validated publishing. */
 
-import { mkdir, readFile, writeFile, copyFile, readdir, rm, unlink } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
@@ -17,6 +17,7 @@ import {
 } from './cv-optional.mjs';
 import { checkAtsText, extractPdfText } from './pdf-text.mjs';
 import { cvPreferences } from './cv-preferences.mjs';
+import { refreshOverleafCheckout } from './overleaf-refresh.mjs';
 
 loadDotEnv();
 
@@ -50,12 +51,13 @@ function gitUrl() {
   return `https://git:${token}@git.overleaf.com/${id}`;
 }
 
-export async function syncOverleaf() {
+export async function syncOverleaf({ fresh = false, signal } = {}) {
   if (!overleafConfigured()) {
     throw new Error(
       'Overleaf not configured. Add OVERLEAF_GIT_TOKEN and OVERLEAF_PROJECT_ID to .env',
     );
   }
+  if (fresh) return refreshOverleafCheckout({ remote: gitUrl(), workspace: workspaceDir(), signal });
   const dest = overleafDir();
   await mkdir(workspaceDir(), { recursive: true });
   if (existsSync(join(dest, '.git'))) {
@@ -207,17 +209,6 @@ export async function fitOverleafCvsToOnePage(job = null, { prepDir } = {}) {
   return { ok, files: perFile, pages, targets };
 }
 
-async function cleanOverleafArtifacts(dir) {
-  await rm(join(dir, '.cv-build'), { recursive: true, force: true });
-  for (const n of ['main.pdf', 'ats.pdf', 'cv.pdf', 'resume.pdf']) {
-    try {
-      await unlink(join(dir, n));
-    } catch {
-      /* missing is fine */
-    }
-  }
-}
-
 export async function readOverleafAts() {
   const dir = overleafDir();
   for (const name of ['ats.tex', 'main.tex', 'cv.tex', 'resume.tex']) {
@@ -230,22 +221,29 @@ export async function readOverleafAts() {
   return null;
 }
 
-export async function pushOverleaf(message) {
-  const dir = overleafDir();
-  await cleanOverleafArtifacts(dir);
-  const { stdout: status } = await run('git', ['-C', dir, 'status', '--porcelain']);
+export async function pushOverleaf(message, { dir = overleafDir(), signal } = {}) {
+  signal?.throwIfAborted();
+  const files = ['main.tex', 'ats.tex'];
+  const { stdout: status } = await run('git', ['-C', dir, 'diff', '--name-only', 'HEAD', '--', ...files]);
   if (!String(status || '').trim()) {
     return { pushed: false, reason: 'no changes' };
   }
-  await run('git', ['-C', dir, 'add', '-A']);
   await run('git', [
     '-C',
     dir,
     'commit',
+    '--only',
     '-m',
     message || 'Tailor CV via Job Scout',
+    '--', ...files,
   ]);
-  await run('git', ['-C', dir, 'push'], { timeout: 120000 });
+  signal?.throwIfAborted();
+  try {
+    await run('git', ['-C', dir, 'push'], { timeout: 120000, signal, windowsHide: true,
+      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+  } catch {
+    throw new Error('Overleaf push did not complete. The reviewed CV is saved locally. Check the connection, credentials and whether the online project changed before recreating.');
+  }
   return { pushed: true };
 }
 
@@ -453,14 +451,29 @@ async function recordOverleafSources(prepDir) {
   await writeFile(join(prepDir, 'overleaf-source.json'), JSON.stringify({ fingerprint: await overleafSourceFingerprint() }));
 }
 
-export async function pushValidatedOverleaf({ job, prepDir, push = pushOverleaf,
+export async function pushValidatedOverleaf({ job, prepDir, signal, push = pushOverleaf,
   stageText = stageFinalDocumentText, sourceFingerprint = overleafSourceFingerprint }) {
   // Do not publish a different job's working tree or an unvalidated final PDF.
   const receipt = JSON.parse(await readFile(join(prepDir, 'overleaf-source.json'), 'utf8'));
   if (receipt.fingerprint !== await sourceFingerprint()) throw new Error('Overleaf sources changed since PDF generation');
   await stageText(prepDir, 'cv');
   const summary = JSON.parse(await readFile(join(prepDir, 'review-summary.json'), 'utf8').catch(() => '{}'));
+  if (!summary.cv) throw new Error('CV has not been reviewed.');
   const reason = await reviewStatusReason(prepDir, 'cv', summary.cv);
   if (reason) throw new Error(reason);
-  return push(`Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'}`);
+  signal?.throwIfAborted();
+  return push(`Tailor CV for ${job.title || 'role'} @ ${job.company || 'company'}`, { signal });
+}
+
+export async function publishRequestedOverleaf({ requested, source, job, pack, signal }, publish = pushValidatedOverleaf) {
+  if (!requested) return { requested: false, pushed: false, reason: 'not requested' };
+  if (source !== 'overleaf') throw new Error('Push to Overleaf requires Overleaf CV mode.');
+  if (pack.needsReview) return { requested: true, pushed: false, reason: 'document needs review' };
+  signal?.throwIfAborted();
+  try {
+    const result = await publish({ job, prepDir: pack.dir, signal });
+    return { ...result, requested: true };
+  } catch (error) {
+    return { requested: true, pushed: false, failed: true, reason: error.message };
+  }
 }

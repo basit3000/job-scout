@@ -9,7 +9,7 @@ import { readMemory, memoryInputs } from './memory.mjs';
 
 const MANIFEST = 'generation.json';
 const activeJobs = new Set();
-const CV_FILES = ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf', 'instructions.md', 'review.md', 'cv-final-text.md'];
+const CV_FILES = ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf', 'instructions.md', 'review.md', 'cv-final-text.md', 'overleaf-source.json', 'overleaf-push.json'];
 const LETTER_FILES = ['cover-letter.md', 'cover-letter.html', 'cover-letter.pdf', 'cover-letter.docx', 'cover-letter-review.md', 'letter-final-text.md'];
 const readText = (path) => readFile(path, 'utf8').catch(() => '');
 const exists = (path) => access(path).then(() => true, () => false);

@@ -25,6 +25,12 @@ test('workflow validation rejects empty/unknown tools and invalid prompts', () =
     { tools: ['inspect_job'], prompt: 'Review' });
 });
 
+test('Overleaf publication requires a boolean choice and the CV tool', () => {
+  assert.throws(() => validateGooseRequest({ tools: ['prepare_cv'], prompt: 'Create CV', pushToOverleaf: 'true' }), /checkbox/);
+  assert.throws(() => validateGooseRequest({ tools: ['inspect_cv'], prompt: 'Read CV', pushToOverleaf: true }), /Prepare CV/);
+  assert.equal(validateGooseRequest({ tools: ['prepare_cv'], prompt: 'Create CV', pushToOverleaf: true }).pushToOverleaf, true);
+});
+
 test('MCP exposes only selected tools and rejects disabled tools and arguments', async (t) => {
   let calls = 0;
   const bridge = await createGooseToolBridge({ tools: ['inspect_job'], handlers: {

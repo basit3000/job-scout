@@ -490,6 +490,7 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     cvSource: settings.source,
     provider: 'goose',
     model: settings.agentModel || null,
+    signal: settings.signal,
     onEvent,
   });
 
@@ -586,6 +587,7 @@ export async function readPrepPack(jobId) {
     const jobPosting = await readFile(join(dir, 'job-posting.md'), 'utf8');
     const hasCv = await hasTailoredCv(jobId);
     const flags = await pdfFlags(jobId);
+    const publication = JSON.parse(await readFile(join(dir, 'overleaf-push.json'), 'utf8').catch(() => 'null'));
     let cvMd = null;
     if (hasCv) {
       try {
@@ -601,6 +603,8 @@ export async function readPrepPack(jobId) {
       checklist,
       jobPosting,
       hasCv,
+      ...(publication ? { cvSource: 'overleaf', overleaf: { pushRequested: publication.requested,
+        pushed: publication.pushed, pushReason: publication.reason } } : {}),
       ...flags,
       cvMd,
       review: await loadReviewSummary(dir),

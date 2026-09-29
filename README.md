@@ -141,8 +141,12 @@ local storage does not mean offline processing.
 See [.env.example](.env.example) for optional settings:
 
 - `GOOSE_BIN` / `GOOSE_MODEL`: executable or model override; normally Goose config suffices.
-- `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID`: Overleaf CV source. Workflows prepare
-  local drafts and do not push or overwrite the master.
+- `OVERLEAF_GIT_TOKEN` / `OVERLEAF_PROJECT_ID`: Overleaf CV source. For a job, open
+  Prep and choose Create/Recreate CV. Each run starts from the online project and
+  archives the previous local checkout. Optionally select **Push to Overleaf after
+  review** to publish the validated CV to the project's `main.tex` and `ats.tex`.
+  Push is off by default and must be selected again for each run. Failed validation
+  or review leaves the online project and previously accepted documents intact.
 - `APIFY_TOKEN`: paid boards, only with explicit Allow paid / `--allow-paid`.
 - `GOOGLE_SHEETS_*`: optional service-account tracker sync; credentials in `secrets/`.
 - `PORT`, `NO_OPEN`, `CHROME_PATH`, `JOB_SCOUT_PYTHON`: local runtime overrides.

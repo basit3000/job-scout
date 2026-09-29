@@ -1100,7 +1100,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/goose') {
-    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose'), cvPreferences: cvPreferences(await readMemory()) });
+    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose'), cvSource: (await loadCvSettings()).source, cvPreferences: cvPreferences(await readMemory()) });
   }
 
   if (req.method === 'POST' && path === '/api/prep') {
@@ -1109,6 +1109,7 @@ async function handleApi(req, res, url) {
     let request;
     try { request = validateGooseRequest(body); cvOptionsInstructions(request.cvOptions, await readMemory()); }
     catch (error) { return json(res, 400, { error: error.message }); }
+    if (request.pushToOverleaf && (await loadCvSettings()).source !== 'overleaf') return json(res, 400, { error: 'Select Overleaf as your CV source before requesting a push.' });
     const status = await agentRunnerAvailable('goose');
     if (!status.ok) return json(res, 400, { error: status.detail });
     const enriched = await enrichJobs();

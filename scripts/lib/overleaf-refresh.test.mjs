@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, writeFile, rm, readdir } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { ROOT, run } from './common.mjs';
+import { refreshOverleafCheckout } from './overleaf-refresh.mjs';
+
+test('recreation uses the remote master and archives dirty/untracked local drafts', async t => {
+  const parent = join(ROOT, '.workspace', 'tests');
+  await mkdir(parent, { recursive: true });
+  const root = await mkdtemp(join(parent, 'overleaf-refresh-'));
+  t.after(async () => { assert.equal(dirname(root), parent); await rm(root, { recursive: true, force: true }); });
+  const remote = join(root, 'remote');
+  const workspace = join(root, 'workspace');
+  await mkdir(remote);
+  await run('git', ['init', '--quiet', remote]);
+  for (const name of ['main.tex', 'ats.tex']) await writeFile(join(remote, name), 'Online master v1');
+  const commit = async () => {
+    await run('git', ['-C', remote, 'add', '.']);
+    await run('git', ['-C', remote, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-qm', 'Update master']);
+  };
+  await commit();
+  const initial = await refreshOverleafCheckout({ remote, workspace });
+  assert.equal(initial.backup, null);
+  await writeFile(join(initial.dest, 'main.tex'), 'Previous tailored draft');
+  await writeFile(join(initial.dest, 'notes.md'), 'Untracked notes');
+  await writeFile(join(remote, 'main.tex'), 'Online master v2');
+  await commit();
+  const recreated = await refreshOverleafCheckout({ remote, workspace });
+  assert.equal(await readFile(join(recreated.dest, 'main.tex'), 'utf8'), 'Online master v2');
+  assert.equal(await readFile(join(recreated.backup, 'main.tex'), 'utf8'), 'Previous tailored draft');
+  assert.equal(await readFile(join(recreated.backup, 'notes.md'), 'utf8'), 'Untracked notes');
+  assert.equal(await readFile(join(remote, 'main.tex'), 'utf8'), 'Online master v2');
+  await assert.rejects(refreshOverleafCheckout({ remote: join(root, 'missing'), workspace }), /previous checkout is unchanged/);
+  assert.equal(await readFile(join(recreated.dest, 'main.tex'), 'utf8'), 'Online master v2');
+  await rm(join(remote, 'ats.tex'));
+  await commit();
+  await assert.rejects(refreshOverleafCheckout({ remote, workspace }), /missing ats.tex/);
+  assert.equal(await readFile(join(recreated.dest, 'main.tex'), 'utf8'), 'Online master v2');
+  assert.equal((await readdir(join(workspace, 'overleaf-history'))).length, 1);
+});

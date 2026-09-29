@@ -42,6 +42,8 @@ export function buildAgentBrief(options = {}) {
     '# Tailor the CV',
     'Use the staged CV, job posting and evidence. Emphasize relevant supported work; leave useful existing wording alone.',
     'Preserve the source layout, language and section labels unless the candidate requests a change. Keep LaTeX macro arguments valid.',
+    'Preserve existing role titles, organizations and dates. Keep personal project attribution explicit.',
+    options.cvSource === 'overleaf' ? 'Add a LaTeX experience entry only when one complete Memory experience record supports its title, organization and dates.' : '',
     options.cvSource === 'local' ? 'Write cv.md.' : 'Edit main.tex and ats.tex with consistent facts.',
     'List changes, supporting evidence and unresolved questions in agent-report.md. Failed checks preserve previously accepted documents.',
   ], options);

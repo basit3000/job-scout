@@ -159,6 +159,23 @@ export function extractTexFacts(tex) {
   return facts;
 }
 
+/** Match complete confirmed records, never fields pooled across different jobs. */
+function memoryExperienceFacts(memory) {
+  const supported = new Set();
+  for (const entry of memory?.facts?.experience || []) {
+    if (!entry || !['title', 'org', 'from', 'to'].every(key => typeof entry[key] === 'string' && entry[key].trim())) continue;
+    const dates = `${entry.from} -- ${entry.to}`;
+    // "Personal:" retains project attribution; it does not add an employer.
+    for (const org of [entry.org, `Personal: ${entry.org}`]) {
+      const role = [entry.title, org, dates].map(normText).join(' | ');
+      supported.add(`role:${role}`);
+      const modern = [dates, entry.title, org, entry.location || ''].map(normText).filter(Boolean).join(' | ');
+      supported.add(`entry:${modern}`);
+    }
+  }
+  return supported;
+}
+
 /**
  * ats.tex project lines are `\textbf{Name} -- \mbox{\href{..}{..}} -- sentence`.
  * Returns { label, body } so the sentence can be compared with main.tex's \cvitem body.
@@ -257,8 +274,9 @@ export async function buildFactCorpus({
   extraTexts = [],
   evidencePath = '',
   job = null,
+  root = ROOT,
 } = {}) {
-  const memory = readMemorySync();
+  const memory = readMemorySync(root);
   const texts = [...beforeTexts, ...extraTexts, ...(memory ? [memoryEvidence(memory)] : [])];
   const numbers = new Set();
   let lower = '';
@@ -329,11 +347,18 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', poli
   if (beforeFacts) {
     const afterSet = new Set(afterFacts.map((f) => f.text));
     const beforeSet = new Set(beforeFacts.map((f) => f.text));
+    const supported = memoryExperienceFacts(memory);
+    const experienceFacts = new Set(texSections(tex)
+      .filter(section => section.key === 'experience')
+      .flatMap(section => extractTexFacts(section.body).map(f => `${f.kind}:${f.text}`)));
     for (const f of beforeFacts) {
       if (!afterSet.has(f.text)) hard.push(`${prefix}${f.kind} line changed or removed: "${f.text}"`);
     }
     for (const f of afterFacts) {
-      if (!beforeSet.has(f.text)) hard.push(`${prefix}new ${f.kind} line not on the original CV: "${f.text}"`);
+      const key = `${f.kind}:${f.text}`;
+      if (!beforeSet.has(f.text) && !(experienceFacts.has(key) && supported.has(key))) {
+        hard.push(`${prefix}new ${f.kind} line not on the original CV or supported by a complete Memory experience record: "${f.text}"`);
+      }
     }
     const expBefore = experienceItemCount(before);
     const expAfter = experienceItemCount(tex);
@@ -641,9 +666,10 @@ export async function verifyCvAfterAgent({
   evidencePath = '',
   extraInstructions = '',
   emit = () => {},
+  root = ROOT,
 }) {
-  const overleafDir = join(ROOT, '.workspace', 'overleaf');
-  const memory = readMemorySync();
+  const overleafDir = join(root, '.workspace', 'overleaf');
+  const memory = readMemorySync(root);
   const policy = cvPreferences(memory);
   const before = {};
   const beforeTexts = [];
@@ -656,11 +682,12 @@ export async function verifyCvAfterAgent({
     beforeTexts,
     // Instructions (including reviewer repairs) are directions, never evidence.
     extraTexts: [],
-    evidencePath: evidencePath ? join(ROOT, evidencePath) : '',
+    evidencePath: evidencePath ? join(root, evidencePath) : '',
     job,
+    root,
   });
   let evidenceText = '';
-  if (evidencePath) evidenceText = await readIf(join(ROOT, evidencePath));
+  if (evidencePath) evidenceText = await readIf(join(root, evidencePath));
 
   const cv = { hard: [], soft: [], fixes: [], changedBullets: 0 };
   let pair = [];
@@ -673,7 +700,7 @@ export async function verifyCvAfterAgent({
     const results = {};
     for (const n of ['main.tex', 'ats.tex']) {
       if (!after[n]) continue;
-      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n, policy, memory, settings: promptSettings() });
+      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n, policy, memory, settings: promptSettings(root) });
       cv.hard.push(...results[n].hard);
       cv.soft.push(...results[n].soft);
       cv.fixes.push(...results[n].fixes);
@@ -683,6 +710,12 @@ export async function verifyCvAfterAgent({
       pair = compareTexPair(results['main.tex'].tex, results['ats.tex'].tex);
     }
     if (cv.hard.length) {
+      const rejectedDir = join(prepDir, 'rejected');
+      await mkdir(rejectedDir, { recursive: true });
+      // Save the entire pair before restoring either accepted source.
+      for (const n of ['main.tex', 'ats.tex']) {
+        await writeFile(join(rejectedDir, n), after[n]);
+      }
       for (const n of ['main.tex', 'ats.tex']) {
         if (before[n]) await writeFile(join(overleafDir, n), before[n]);
       }
@@ -704,7 +737,7 @@ export async function verifyCvAfterAgent({
     const path = join(prepDir, 'cv.md');
     const after = await readIf(path);
     if (after) {
-      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus, policy, memory, settings: promptSettings() });
+      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus, policy, memory, settings: promptSettings(root) });
       cv.hard.push(...r.hard);
       cv.soft.push(...r.soft);
       cv.fixes.push(...r.fixes);
@@ -728,7 +761,9 @@ export async function verifyCvAfterAgent({
     coverage,
     pair,
     reverted,
-    revertReason: reverted ? 'See hard failures below.' : '',
+    revertReason: reverted
+      ? `See hard failures below. Rejected drafts: ${cvSource === 'overleaf' ? 'rejected/main.tex and rejected/ats.tex' : 'cv.rejected.md'}.`
+      : '',
   });
   await writeFile(join(prepDir, 'quality-report.md'), report);
   return { ok: !reverted, reverted, hard: cv.hard, soft: [...cv.soft, ...pair], fixes: cv.fixes, coverage };

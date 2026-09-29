@@ -1,6 +1,9 @@
 import { validatePromptSettings } from './prompt-settings.mjs';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import {
   compareTexPair,
   extractTexBullets,
@@ -12,6 +15,7 @@ import {
   verifyLetter,
   verifyMarkdownCv,
   verifyTexEdit,
+  verifyCvAfterAgent,
 } from './cv-verify.mjs';
 
 const ATS = String.raw`
@@ -104,6 +108,71 @@ describe('cv-verify: parsing', () => {
 });
 
 describe('cv-verify: tex gate', () => {
+  const experience = [
+    { title: 'Independent Developer', org: 'Example Tool', from: '06/2024', to: 'Present' },
+    { title: 'Engineer', org: 'Other Org', from: '01/2022', to: '02/2023' },
+  ];
+  const memory = { facts: { experience } };
+  const addRole = (title, org, dates) => ATS.replace('\\section*{Experience}',
+    `\\section*{Experience}\n\\role{${title}}{${org}}{${dates}}`);
+  const corpus = corpusFor(ATS, JSON.stringify(experience));
+
+  it('allows a new role only when a complete Memory record supports it', () => {
+    for (const org of ['Example Tool', 'Personal: Example Tool']) {
+      const after = addRole('Independent Developer', org, '06/2024 -- Present');
+      assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory }).hard, []);
+      assert.match(verifyTexEdit({ before: ATS, after, corpus }).hard.join('\n'), /new role line/);
+    }
+    const after = MAIN.replace('\\section{Experience}', String.raw`\section{Experience}
+\cventry{06/2024 -- Present}{Independent Developer}{Personal: Example Tool}{}{}{}`);
+    assert.deepEqual(verifyTexEdit({ before: MAIN, after, corpus, memory }).hard, []);
+  });
+
+  it('rejects mixed records, invented identities, incomplete dates and changed existing roles', () => {
+    for (const args of [
+      ['Engineer', 'Example Tool', '06/2024 -- Present'],
+      ['Independent Developer', 'Unknown Org', '06/2024 -- Present'],
+      ['Independent Developer', 'Example Tool', '01/2022 -- Present'],
+      ['Independent Developer', 'Example Tool', '06/2024 --'],
+    ]) {
+      assert.match(verifyTexEdit({ before: ATS, after: addRole(...args), corpus, memory }).hard.join('\n'), /new role line/);
+    }
+    const after = ATS.replace('Acme GmbH, Berlin, DE', 'Example Tool');
+    const supportedChange = { facts: { experience: [{ title: 'Software Developer', org: 'Example Tool', from: '05/2024', to: 'Present' }] } };
+    assert.match(verifyTexEdit({ before: ATS, after, corpus, memory: supportedChange }).hard.join('\n'), /role line changed or removed/);
+    const missingDates = { facts: { experience: [{ title: 'Independent Developer', org: 'Example Tool' }] } };
+    assert.match(verifyTexEdit({ before: ATS, after: addRole('Independent Developer', 'Example Tool', '06/2024 -- Present'), corpus, memory: missingDates }).hard.join('\n'), /new role line/);
+  });
+
+  it('does not license education or unknown locations with an experience record', () => {
+    const after = MAIN.replace('\\section{Education}', String.raw`\section{Education}
+\cventry{06/2024 -- Present}{Independent Developer}{Example Tool}{}{}{}`);
+    assert.match(verifyTexEdit({ before: MAIN, after, corpus, memory }).hard.join('\n'), /new entry line/);
+    const located = after.replace('\\section{Education}\n', '').replace('{Example Tool}{}{}{}', '{Example Tool}{Unknown City}{}{}');
+    assert.match(verifyTexEdit({ before: MAIN, after: located, corpus, memory }).hard.join('\n'), /new entry line/);
+  });
+
+  it('retains both rejected LaTeX drafts before restoring the accepted sources', async t => {
+    const root = await mkdtemp(join(tmpdir(), 'scout-tex-gate-'));
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const prepDir = join(root, 'prep');
+    const overleafDir = join(root, '.workspace', 'overleaf');
+    await mkdir(join(prepDir, 'before'), { recursive: true });
+    await mkdir(overleafDir, { recursive: true });
+    const sources = { 'main.tex': MAIN, 'ats.tex': ATS };
+    for (const [name, source] of Object.entries(sources)) {
+      await writeFile(join(prepDir, 'before', name), source);
+      await writeFile(join(overleafDir, name), source.replace('Acme GmbH', 'Invented Employer'));
+    }
+    const result = await verifyCvAfterAgent({ root, prepDir, cvSource: 'overleaf', job: { title: 'Engineer', company: 'Example' } });
+    assert.equal(result.reverted, true);
+    for (const [name, source] of Object.entries(sources)) {
+      assert.equal(await readFile(join(overleafDir, name), 'utf8'), source);
+      assert.equal(await readFile(join(prepDir, 'rejected', name), 'utf8'), source.replace('Acme GmbH', 'Invented Employer'));
+    }
+    assert.match(await readFile(join(prepDir, 'quality-report.md'), 'utf8'), /REVERTED/);
+  });
+
   it('passes an unchanged file and an honest rewrite', () => {
     const corpus = corpusFor(ATS, MAIN);
     const same = verifyTexEdit({ before: ATS, after: ATS, corpus, fileName: 'ats.tex' });

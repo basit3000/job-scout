@@ -2,7 +2,7 @@
  * One list of what a CV or cover letter may not sound like.
  *
  * Consumed by two things so they can never drift apart:
- *   - the agent briefs (cv-agent.mjs) print these rules to the model before it writes
+ *   - the agent briefs (cv-prompts.mjs) print these rules to the model before it writes
  *   - the post-edit gate (cv-verify.mjs) checks the model's output against the same list
  *
  * Four tiers:

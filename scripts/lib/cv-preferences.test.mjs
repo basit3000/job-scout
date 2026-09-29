@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cvPreferences, cvOptionsInstructions, validateCvOptions } from './cv-preferences.mjs';
 import { verifyTexEdit, verifyMarkdownCv, extractTexBullets } from './cv-verify.mjs';
-import { buildAgentBrief, buildReviewerBrief, buildRepairBrief } from './cv-agent.mjs';
+import { buildAgentBrief, buildReviewerBrief, buildRepairBrief } from './cv-prompts.mjs';
 import { applyNextFitPass } from './tex-fit.mjs';
 import { validateGooseRequest } from './goose-tools.mjs';
 

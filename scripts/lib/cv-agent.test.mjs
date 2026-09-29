@@ -9,7 +9,7 @@ import {
   buildReviewerPrompt,
   buildRepairBrief,
   inlineReviewContext,
-} from './cv-agent.mjs';
+} from './cv-prompts.mjs';
 
 const base = {
   job: { title: 'Full Stack Engineer', company: 'Acme', url: 'https://example.com/job' },
@@ -84,6 +84,12 @@ describe('buildAgentBrief', () => {
 });
 
 describe('buildCoverLetterAgentPrompt', () => {
+  it('describes the current failure policy without promising a keyword fallback', () => {
+    const brief = buildCoverLetterAgentBrief({ localRules: '' });
+    assert.match(brief, /preserve previously accepted documents/);
+    assert.doesNotMatch(brief, /keyword draft ships|ships the keyword draft/);
+  });
+
   it('edits the letter with the same evidence files as the CV', () => {
     const prompt = buildCoverLetterAgentPrompt({
       ...base,

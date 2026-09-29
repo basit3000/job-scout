@@ -442,7 +442,6 @@ async function assembleCvFromDisk(job, profile, fit, settings, dir, onEvent = nu
       );
     }
     overleafResult = await assembleOverleafAfterAgent({
-      push: false,
       job,
       prepDir: dir,
       onEvent: onEvent || settings.onEvent || null,

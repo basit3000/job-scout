@@ -1,6 +1,6 @@
 import { createMemoryEditor } from './memory-editor.js';
 import { mountAtsCheck } from './ats-check.js';
-import { selectedGooseTools, suggestedGoosePrompt, renderGooseTools } from './goose-prep.js';
+import { openPrepModal } from './prep-modal.js';
 import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
@@ -128,11 +128,6 @@ const els = {
   setupMarket: $('setupMarket'),
   setupError: $('setupError'),
   setupSubmit: $('setupSubmit'),
-  prepModal: $('prepModal'),
-  prepModalTitle: $('prepModalTitle'),
-  prepModalHint: $('prepModalHint'),
-  prepModalCancel: $('prepModalCancel'),
-  prepModalRecreate: $('prepModalRecreate'),
   statusModal: $('statusModal'),
   statusModalTitle: $('statusModalTitle'),
   statusModalHint: $('statusModalHint'),
@@ -1405,83 +1400,8 @@ async function saveRecruiterEdits() {
   appendLog(`Recruiter saved for ${recruiterJob.title}`);
 }
 
-function closePrepModal() {
-  if (els.prepModal) els.prepModal.hidden = true;
-}
-
 function closeStatusModal() {
   if (els.statusModal) els.statusModal.hidden = true;
-}
-
-function syncPrepModalActions() {
-  const preparesCv = selectedGooseTools().includes('prepare_cv');
-  $('overleafPushOptions').hidden = $('gooseOptions').dataset.cvSource !== 'overleaf' || !preparesCv;
-  if ($('overleafPushOptions').hidden) $('pushToOverleaf').checked = false;
-  els.prepModalRecreate.textContent = preparesCv ? (els.prepModal.dataset.hasCv === 'true' ? 'Recreate CV' : 'Create CV') : 'Run Goose';
-  els.prepModalRecreate.disabled = $('gooseOptions').dataset.ready !== 'true'
-    || !selectedGooseTools().length || !$('goosePrompt').value.trim();
-}
-function openPrepModal(job, opts = {}) {
-  return new Promise(resolve => {
-    $('personalCvOptions').hidden = true;
-    $('overleafPushOptions').hidden = true;
-    $('pushToOverleaf').checked = false;
-    $('gooseOptions').dataset.cvSource = '';
-    els.prepModal.dataset.hasCv = String(Boolean(job.prepCached || job.tailoredPdf || job.tailoredCv));
-    for (const id of ['cvMatchHeadline', 'cvMatchKeywords', 'cvEquivalentRole']) $(id).checked = false;
-    $('cvPreferredCity').value = '';
-    $('cvUseJobCity').onclick = () => { $('cvPreferredCity').value = String(job.location || '').split(',')[0].trim().slice(0, 100); };
-    els.prepModalTitle.textContent = 'Prepare with Goose';
-    els.prepModalHint.textContent = 'Choose tools and describe the work. Goose plans the steps and checks the results.';
-    $('gooseOptions').dataset.ready = 'false';
-    els.prepModal.hidden = false;
-    const finish = value => {
-      els.prepModalCancel.removeEventListener('click', cancel);
-      els.prepModalRecreate.removeEventListener('click', run);
-      $('gooseTools').removeEventListener('change', syncPrepModalActions);
-      $('goosePrompt').removeEventListener('input', syncPrepModalActions);
-      $('gooseSuggestPrompt').removeEventListener('click', suggest);
-      els.prepModal.removeEventListener('click', backdrop);
-      document.removeEventListener('keydown', key);
-      closePrepModal(); resolve(value);
-    };
-    const cancel = () => finish(null);
-    const run = () => finish({ tools: selectedGooseTools(), prompt: $('goosePrompt').value.trim(),
-      ...($('overleafPushOptions').hidden ? {} : { pushToOverleaf: $('pushToOverleaf').checked }),
-      ...($('personalCvOptions').hidden ? {} : { cvOptions: { matchHeadline: $('cvMatchHeadline').checked,
-        matchKeywords: $('cvMatchKeywords').checked, equivalentRoleTitle: $('cvEquivalentRole').checked,
-        city: $('cvPreferredCity').value.trim() } }) });
-    const suggest = () => { $('goosePrompt').value = suggestedGoosePrompt(selectedGooseTools()); syncPrepModalActions(); };
-    const backdrop = event => { if (event.target === els.prepModal) cancel(); };
-    const key = event => { if (event.key === 'Escape') cancel(); };
-    els.prepModalCancel.addEventListener('click', cancel);
-    els.prepModalRecreate.addEventListener('click', run);
-    $('gooseTools').addEventListener('change', syncPrepModalActions);
-    $('goosePrompt').addEventListener('input', syncPrepModalActions);
-    $('gooseSuggestPrompt').addEventListener('click', suggest);
-    els.prepModal.addEventListener('click', backdrop);
-    document.addEventListener('keydown', key);
-    syncPrepModalActions();
-    api('/api/goose').then(({ tools, status, cvSource, cvPreferences = {} }) => {
-      if (els.prepModal.hidden) return;
-      $('gooseOptions').dataset.cvSource = cvSource || 'local';
-      $('personalCvOptions').hidden = !cvPreferences.enabled;
-      $('personalCvPolicy').textContent = [
-        cvPreferences.allowExperienceSelection ? 'Your complete Experience library stays in Memory; this CV may select relevant bullets.' : '',
-        cvPreferences.summaryWhenHelpful ? 'A summary is optional when useful.' : '',
-        cvPreferences.allowFillerWhenUseful ? 'Filler is avoided but allowed when it fits.' : '',
-      ].filter(Boolean).join(' ');
-      $('gooseTools').replaceChildren();
-      renderGooseTools($('gooseTools'), tools);
-      for (const input of $('gooseTools').querySelectorAll('input')) {
-        if (input.value === 'prepare_cv') input.checked = !opts.preferCoverLetter;
-        if (input.value === 'prepare_letter') input.checked = Boolean(opts.preferCoverLetter);
-      }
-      $('gooseStatus').textContent = status.detail;
-      $('gooseOptions').dataset.ready = String(status.ok);
-      suggest();
-    }).catch(error => { $('gooseStatus').textContent = error.message; });
-  });
 }
 
 /**
@@ -1650,7 +1570,7 @@ function showLogView() {
 
 async function runPrepFlow(job, opts = {}) {
   $('prepResultsDialog').close();
-  const choice = await openPrepModal(job, opts);
+  const choice = await openPrepModal(job, { ...opts, api });
   if (!choice) return;
   updatePrepTask(job, { status: 'running', title: 'Starting preparation', message: 'Starting the document workflow…', startedAt: new Date().toISOString(), stopping: false, starting: true });
   try {

@@ -38,7 +38,7 @@ export async function runGoosePipeline(options) {
   return withMemorySnapshot(async () => {
     const memory = await readMemory();
     if (!memory) throw new Error('Complete Memory setup before running Goose.');
-    return runGoosePipelineWithMemory({ ...options, ...(memory ? { profile: candidateProfile(memory), savedAnswers: memoryAnswers(memory) } : {}) });
+    return runGoosePipelineWithMemory({ ...options, profile: candidateProfile(memory), savedAnswers: memoryAnswers(memory) });
   });
 }
 

@@ -281,6 +281,32 @@ test('activity remains visible and actionable through search and Prep lifecycles
     assert.equal(await page.locator('#pushToOverleaf').isChecked(), false);
     await page.locator('#prepModalCancel').click();
   });
+  await t.test('a cancelled dialog cannot overwrite a later job when its request finishes late', async () => {
+    const results = await page.evaluate(async () => {
+      const { openPrepModal } = await import('/prep-modal.js');
+      const states = [];
+      for (const fails of [false, true]) {
+        let resolveOld, rejectOld;
+        const oldRequest = new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject; });
+        const oldDialog = openPrepModal({ title: 'Previous job' }, { api: () => oldRequest });
+        document.getElementById('prepModalCancel').click();
+        const currentState = { cvSource: 'local', status: { ok: true, detail: 'Current job ready' },
+          tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Current job' }] };
+        const currentDialog = openPrepModal({ title: 'Current job' }, { api: async () => currentState });
+        await Promise.resolve();
+        if (fails) rejectOld(new Error('Previous request failed'));
+        else resolveOld({ ...currentState, cvSource: 'overleaf', status: { ok: false, detail: 'Previous job unavailable' } });
+        await Promise.resolve(); await Promise.resolve();
+        states.push({ status: document.getElementById('gooseStatus').textContent,
+          pushHidden: document.getElementById('overleafPushOptions').hidden,
+          disabled: document.getElementById('prepModalRecreate').disabled });
+        document.getElementById('prepModalCancel').click();
+        await Promise.all([oldDialog, currentDialog]);
+      }
+      return states;
+    });
+    for (const state of results) assert.deepEqual(state, { status: 'Current job ready', pushHidden: true, disabled: false });
+  });
   await t.test('ATS button reads a selected PDF independently of generation', async () => {
     const before = prepRequests.length;
     await page.locator('#openAtsCheck').click();

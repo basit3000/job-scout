@@ -36,6 +36,10 @@ candidate-neutral. Privacy output identifies files without printing private valu
 
 ## Workflow boundaries
 
+Split code by responsibility, prefer clear control flow, remove unused paths,
+and avoid speculative abstractions.
+Keep structural moves reviewable and test behavior at the affected boundaries.
+
 - Goose coordinates selected Job Scout MCP tools. Writers, reviewers and repairs
   use Goose workers; rendering, quality gates and publication remain host code.
 - Failed generation preserves prior accepted documents and complete drafts.

@@ -51,39 +51,13 @@ function gitUrl() {
   return `https://git:${token}@git.overleaf.com/${id}`;
 }
 
-export async function syncOverleaf({ fresh = false, signal } = {}) {
+export async function syncOverleaf({ signal } = {}) {
   if (!overleafConfigured()) {
     throw new Error(
       'Overleaf not configured. Add OVERLEAF_GIT_TOKEN and OVERLEAF_PROJECT_ID to .env',
     );
   }
-  if (fresh) return refreshOverleafCheckout({ remote: gitUrl(), workspace: workspaceDir(), signal });
-  const dest = overleafDir();
-  await mkdir(workspaceDir(), { recursive: true });
-  if (existsSync(join(dest, '.git'))) {
-    try {
-      await run('git', ['-C', dest, 'pull', '--rebase', '--autostash'], { timeout: 120000 });
-    } catch {
-      // Dirty tree from a prior failed run — stash, pull, keep going
-      try {
-        await run('git', ['-C', dest, 'stash', 'push', '-u', '-m', 'job-scout-sync'], {
-          timeout: 30000,
-        });
-      } catch {
-        /* ignore */
-      }
-      await run('git', ['-C', dest, 'pull', '--rebase'], { timeout: 120000 });
-    }
-    return { dest, action: 'pulled' };
-  }
-  if (existsSync(dest)) {
-    // Incomplete dir — remove is dangerous; try clone into temp name
-    throw new Error(
-      `.workspace/overleaf exists but is not a git repo. Delete it and retry.`,
-    );
-  }
-  await run('git', ['clone', '--depth', '1', gitUrl(), dest], { timeout: 180000 });
-  return { dest, action: 'cloned' };
+  return refreshOverleafCheckout({ remote: gitUrl(), workspace: workspaceDir(), signal });
 }
 
 async function listTexFiles(dir) {
@@ -402,11 +376,10 @@ async function checkPdfTextLayer(pdfPath, texDir) {
 }
 
 /**
- * After a Goose worker edited Overleaf: sync (optional push leftover), compile PDFs.
+ * Fit and compile the sources edited by a Goose worker. Publication happens after review.
  * Does not run keyword reorder — the agent already tailored the .tex.
  */
 export async function assembleOverleafAfterAgent({
-  push = false,
   job,
   prepDir,
   onEvent = null,
@@ -421,7 +394,6 @@ export async function assembleOverleafAfterAgent({
   emit('Compiling Overleaf PDFs into the prep pack…');
   const pdf = await compileOverleafPdfs(prepDir);
   await recordOverleafSources(prepDir);
-  const pushResult = push ? await pushValidatedOverleaf({ job, prepDir }) : { pushed: false, reason: 'deferred until final validation' };
   if (pdf.atsText) {
     if (pdf.atsText.ok) emit(`ATS text layer: clean${pdf.atsText.warnings.length ? ` (${pdf.atsText.warnings.length} note(s) in README)` : ''}`, 'ok');
     else emit(`ATS text layer: ${pdf.atsText.problems.join('; ')}`, 'stderr');
@@ -430,7 +402,7 @@ export async function assembleOverleafAfterAgent({
     sync: { action: 'skipped-after-agent' },
     tailor: { edited: ['agent'], changed: true },
     fit,
-    push: pushResult,
+    push: { pushed: false, reason: 'deferred until final validation' },
     pdf,
     overleafDir: overleafDir(),
     via: 'agent',

@@ -11,6 +11,7 @@ cv/*
 !cv/README.md
 !cv/resume.example.md
 !cv/cover-letter.example.md
+engineering.md
 state/*
 !state/*.example.json
 !state/.gitkeep

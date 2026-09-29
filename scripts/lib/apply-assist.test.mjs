@@ -10,7 +10,6 @@ import {
   isPlaceholderValue,
   matchYearOption,
   yearsForQuestion,
-  yearsFromSeniority,
   yesNoForQuestion,
 } from './apply-questions.mjs';
 import { COOKIE_BUTTON_SELECTORS, dismissCookiesInWindow } from './accept-cookies.mjs';
@@ -111,8 +110,8 @@ test('additional Easy Apply questions map years, yes/no, and placeholders', () =
   };
   assert.equal(isPlaceholderValue('Select an option'), true);
   assert.equal(isPlaceholderValue('3'), false);
-  assert.equal(yearsFromSeniority('senior'), 6);
-  assert.equal(yearsForQuestion('How many years of work experience do you have with Python?', pack), 6);
+  assert.equal(yearsForQuestion('How many years of experience?', { seniority: 'senior' }), null);
+  assert.equal(yearsForQuestion('How many years of work experience do you have with Python?', pack), null);
   assert.equal(yesNoForQuestion('Are you comfortable commuting to this location?', pack), 'yes');
   assert.equal(
     answerAdditionalQuestion('Do you have experience with Python?', ['Yes', 'No'], pack),
@@ -178,12 +177,15 @@ Sure.
     fields,
     pack,
   );
-  assert.deepEqual(cleaned, [{
+  assert.deepEqual(cleaned, []);
+  const confirmed = { ...pack, savedAnswers: { 'Years of Python experience': '6' } };
+  assert.deepEqual(sanitizeLlmAnswers([{ id: 'f0', value: '6' }], fields, confirmed), [{
     id: 'f0',
     kind: 'select',
     label: 'Years of Python experience',
     value: '6',
   }]);
+  assert.deepEqual(sanitizeLlmAnswers([{ id: 'f0', value: '7' }], fields, confirmed), []);
 
   const prompt = buildFillFallbackPrompt({ fields, pack });
   assert.match(prompt, /do not invent/i);

@@ -11,23 +11,10 @@ export function isPlaceholderValue(value) {
   return !s || /^(select an option|select|please select|choose|bitte wählen|wählen sie|wählen|-|n\/a)$/i.test(s);
 }
 
-const YEARS = {
-  internship: 0,
-  intern: 0,
-  entry: 1,
-  junior: 2,
-  mid: 4,
-  'mid-level': 4,
-  senior: 6,
-  lead: 8,
-  principal: 8,
-  executive: 12,
-  any: 3,
-};
-
-export function yearsFromSeniority(seniority) {
-  const key = String(seniority || '').trim().toLowerCase();
-  return Object.prototype.hasOwnProperty.call(YEARS, key) ? YEARS[key] : 3;
+export function savedQuestionAnswer(label, pack = {}) {
+  const key = String(label || '').trim().toLowerCase();
+  const entry = Object.entries(pack.savedAnswers || {}).find(([question]) => question.trim().toLowerCase() === key);
+  return entry ? String(entry[1]).trim() : null;
 }
 
 function skills(pack) {
@@ -54,30 +41,15 @@ export function yesNoForQuestion(label, pack = {}) {
   if (/remote/.test(b) && /open|yes|true/i.test(String(pack.openToRemote ?? pack.remotePreference ?? ''))) {
     return 'yes';
   }
-  if (/18 years|over 18|at least 18|volljährig/.test(b)) return 'yes';
-  if (/previously (been )?employed|former employee|worked (for|at) (us|this company)|already work(ed)? (here|at)/.test(b)) {
-    return 'no';
-  }
   if (/do you have (experience|knowledge|skills)|hast du erfahrung|erfahrung mit/.test(b)) {
-    const list = skills(pack);
-    if (!list.length) return 'yes';
-    return list.some((s) => b.includes(s)) ? 'yes' : 'no';
-  }
-  if (/willing to|comfortable|able to|can you|are you open|bereit/.test(b) && !/sponsor|visa/.test(b)) {
-    return 'yes';
+    return skills(pack).some(skill => b.includes(skill)) ? 'yes' : null;
   }
   return null;
 }
 
 export function yearsForQuestion(label, pack = {}) {
-  const b = String(label || '').toLowerCase();
-  if (!/year|jahre|erfahrung|experience/.test(b)) return null;
-  const base = yearsFromSeniority(pack.seniority);
-  const list = skills(pack);
-  const hit = list.find((s) => s.length > 1 && b.includes(s));
-  if (hit) return base;
-  if (/how many years|years of (work )?experience|anzahl der jahre|jahre (berufs)?erfahrung/.test(b)) return base;
-  return base;
+  const answer = savedQuestionAnswer(label, pack);
+  return answer != null && /^\d+(?:\.\d+)?$/.test(answer) ? Number(answer) : null;
 }
 
 export function matchYesNoOption(options, yn) {
@@ -104,23 +76,17 @@ export function matchYearOption(options, years) {
 function matchEducation(options, degree) {
   const d = String(degree || '').toLowerCase();
   const pick = (re) => options.find((o) => re.test(o));
-  if (/phd|doctor/.test(d)) return pick(/ph\.?d|doctor|doktor/i) || pick(/master/i);
+  if (/phd|doctor/.test(d)) return pick(/ph\.?d|doctor|doktor/i);
   if (/master|msc|m\.sc/.test(d)) return pick(/master|msc|m\.sc/i);
   if (/bachelor|bsc|b\.sc|b\.eng/.test(d)) return pick(/bachelor|bsc|b\.sc/i);
-  return pick(/bachelor/i) || pick(/master/i) || null;
-}
-
-function matchLanguage(options) {
-  return (
-    options.find((o) => /professional|fluent|fließend|verhandlungssicher|native|muttersprach/i.test(o))
-    || options.find((o) => /full professional|business/i.test(o))
-    || null
-  );
+  return null;
 }
 
 export function answerAdditionalQuestion(label, options = [], pack = {}) {
   const opts = options.map((o) => String(o).trim()).filter((o) => o && !isPlaceholderValue(o));
   const b = String(label || '').toLowerCase();
+  const saved = savedQuestionAnswer(label, pack);
+  if (saved) return opts.length ? opts.find(option => option.toLowerCase() === saved.toLowerCase()) || null : saved;
 
   const yn = yesNoForQuestion(label, pack);
   if (yn && opts.length) {
@@ -140,11 +106,11 @@ export function answerAdditionalQuestion(label, options = [], pack = {}) {
   }
 
   if (/english|deutsch|german|language|sprache|proficiency|sprachkennt/.test(b) && !/years/.test(b) && opts.length) {
-    return matchLanguage(opts);
+    return null;
   }
 
   if (/hear about|how did you (find|hear)|woher hast|aufmerksam/.test(b) && opts.length) {
-    return opts.find((o) => /linkedin/i.test(o)) || opts.find((o) => /other|sonst/i.test(o)) || opts[0];
+    return null;
   }
 
   if (/country|land/.test(b) && /phone|telefon/.test(b) && opts.length) {

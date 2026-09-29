@@ -96,6 +96,7 @@ export function slimPackForFill(pack) {
     coverLetter: (pack.coverLetter || '').slice(0, 8000),
     needsSponsorship: pack.needsSponsorship,
     seniority: pack.seniority || '',
+    savedAnswers: pack.savedAnswers || {},
     skills: pack.skills || [],
     locationCurrent: pack.locationCurrent || '',
     willingToRelocate: pack.willingToRelocate,
@@ -152,6 +153,7 @@ export function buildApplyPack({ job = {}, profile = {}, answers = {} } = {}) {
     citiesOpenTo: unset(answers.citiesOpenTo),
     remotePreference: unset(answers.remotePreference),
     seniority: unset(profile.seniority),
+    savedAnswers: { ...answers },
     skills: [
       ...(profile.skills?.strong || []),
       ...(profile.skills?.familiar || []),

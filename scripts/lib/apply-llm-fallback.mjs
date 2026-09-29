@@ -7,7 +7,7 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isPlaceholderValue } from './apply-questions.mjs';
+import { isPlaceholderValue, answerAdditionalQuestion } from './apply-questions.mjs';
 import { yesNoFromText } from './apply-yesno.mjs';
 import { agentRunnerAvailable } from './cv-agent.mjs';
 import { runGoose } from './goose-runtime.mjs';
@@ -37,7 +37,7 @@ function packFacts(pack = {}) {
     needsSponsorship: mark(pack.needsSponsorship),
     citiesOpenTo: pack.citiesOpenTo || '',
     remotePreference: pack.remotePreference || '',
-    seniority: pack.seniority || '',
+    savedAnswers: pack.savedAnswers || {},
     skills: pack.skills || [],
     locationCurrent: pack.locationCurrent || '',
     willingToRelocate: pack.willingToRelocate,
@@ -58,7 +58,7 @@ Rules:
 - When the field lists options, value MUST be one of those option strings (same spelling).
 - NEVER invent visa/sponsorship, work authorization, or salary when PROFILE says empty / do not invent / depends / maybe / unsure.
 - NEVER answer gender, race, ethnicity, disability, veteran, criminal record, sexual orientation, or pronouns.
-- Years of experience: senior≈6, mid≈4, junior≈2, intern≈0. Use that when the question is general experience or a listed skill.
+- Years of experience: use an explicit saved answer for this question; never infer a number from seniority or a skill name.
 - Yes/No: pick the matching option (Yes/Ja or No/Nein).
 - Cover letters / extra essays: skip unless PROFILE has a coverLetter.
 
@@ -136,6 +136,10 @@ export function sanitizeLlmAnswers(answers = [], fields = [], pack = {}) {
     if (isUnsafeToGuess(field, pack)) continue;
     let value = String(a.value || '').trim();
     if (!value) continue;
+    if (/years?|jahre|proficiency|sprachkennt|degree|abschluss|over 18|previously employed|willing to|comfortable/i.test(field.label || '')) {
+      const known = answerAdditionalQuestion(field.label, field.options || [], pack);
+      if (!known || known.toLowerCase() !== value.toLowerCase()) continue;
+    }
     if (field.options?.length) {
       const match = matchListedOption(field.options, value);
       if (!match) continue;

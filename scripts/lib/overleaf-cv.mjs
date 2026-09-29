@@ -16,6 +16,7 @@ import {
   loadOptionalLines,
 } from './cv-optional.mjs';
 import { checkAtsText, extractPdfText } from './pdf-text.mjs';
+import { cvPreferences } from './cv-preferences.mjs';
 
 loadDotEnv();
 
@@ -131,7 +132,7 @@ async function fitOneTexToOnePage(dir, name, job = null) {
   }
 
   while (last.pages > 1) {
-    const next = applyNextFitPass(tex, applied);
+    const next = applyNextFitPass(tex, applied, cvPreferences());
     if (next.changed) {
       if (experienceItemCount(next.tex) < expBefore) break;
       tex = next.tex;

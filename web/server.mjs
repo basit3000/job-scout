@@ -1,4 +1,5 @@
-import { loadCandidateProfile } from '../scripts/lib/memory.mjs';
+import { loadCandidateProfile, readMemory } from '../scripts/lib/memory.mjs';
+import { cvPreferences, cvOptionsInstructions } from '../scripts/lib/cv-preferences.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
 //   npm start          → http://localhost:4040
@@ -1097,14 +1098,14 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'GET' && path === '/api/goose') {
-    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose') });
+    return json(res, 200, { tools: GOOSE_TOOLS, status: await agentRunnerAvailable('goose'), cvPreferences: cvPreferences(await readMemory()) });
   }
 
   if (req.method === 'POST' && path === '/api/prep') {
     if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     const body = await readBody(req);
     let request;
-    try { request = validateGooseRequest(body); }
+    try { request = validateGooseRequest(body); cvOptionsInstructions(request.cvOptions, await readMemory()); }
     catch (error) { return json(res, 400, { error: error.message }); }
     const status = await agentRunnerAvailable('goose');
     if (!status.ok) return json(res, 400, { error: status.detail });

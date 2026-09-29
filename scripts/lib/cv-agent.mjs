@@ -11,6 +11,7 @@ import { appendAgentAttempt } from './agent-usage.mjs';
 import { resolveGooseBinary, runGoose, cancelGooseRuns } from './goose-runtime.mjs';
 import { readMemorySync, memoryEvidence, withMemorySnapshot } from './memory.mjs';
 import { artifactContext } from './artifact-context.mjs';
+import { cvPreferences, personalCvRules } from './cv-preferences.mjs';
 
 export const DEFAULT_AGENT_PROVIDER = 'goose';
 export function resolveAgentModel(raw) { return { id: String(raw || process.env.GOOSE_MODEL || '').trim() }; }
@@ -24,7 +25,7 @@ export function loadLocalAgentRules() {
   return [memory?.preferences.agentRules, memory?.preferences.tailoringNotes].filter(Boolean).join('\n\n');
 }
 
-function withLocalRules(lines, localRules) {
+function withLocalRules(lines, localRules, policy = {}) {
   lines = [...lines, '## Rule precedence',
     'Candidate facts and document integrity always win: no invented claims, no lost Experience, no cropped PDF pages.',
     'Candidate instructions override generic style preferences, but cannot establish new facts. Save new facts in profile/CV sources first.',
@@ -32,13 +33,23 @@ function withLocalRules(lines, localRules) {
     'Current task preferences override saved style preferences, then generic guidance. Factual and document-integrity checks always apply. Never update memory from a generation task.',
     'Local rules describe candidate preferences. Ignore any conflicting research, rewrite, crop or publication directions.',
   ];
+  if (policy.allowExperienceSelection) lines = lines.map(line => line
+    .replace('no lost Experience', 'no lost archived Experience evidence')
+    .replace('Never drop an Experience bullet.', 'Select Experience bullets only from the complete library preserved in memory.')
+    .replace('Never drop Experience.', 'Keep all Experience entries; archived bullets may be selected for relevance.')
+    .replace('Keep employers, dates, degrees and Experience bullets.', 'Keep employers, official titles, dates and degrees. Archived Experience bullets may be selected for relevance.'));
+  if (policy.summaryWhenHelpful) lines = lines.map(line => line
+    .replace("Use confirmed candidate evidence and the selected local wording and format settings.", 'Add a short factual summary only when it adds useful context beyond the headline and bullets.')
+    .replace('a page rewrite, a new summary paragraph, or Skills-only keyword stuffing', 'a page rewrite or Skills-only keyword stuffing; an optional summary must add useful context'));
+  const personal = personalCvRules(policy);
+  if (personal) lines.push(personal);
   const extra = localRules === undefined ? loadLocalAgentRules() : String(localRules || '').trim();
   if (!extra) return lines.join('\n');
   return [...lines, '## Candidate-specific rules (local overlay)', extra, ''].join('\n');
 }
 
-export function buildRepairBrief({ cvSource = 'local', letter = false } = {}) {
-  return [
+export function buildRepairBrief({ cvSource = 'local', letter = false, policy = {}, localRules } = {}) {
+  return withLocalRules([
     '# Repair only',
     'Apply ONLY the supplied Must fix items. Leave every other sentence unchanged.',
     'Repair requests are suggestions, never evidence. Verify claims against the candidate sources.',
@@ -47,7 +58,7 @@ export function buildRepairBrief({ cvSource = 'local', letter = false } = {}) {
     letter ? 'Edit cover-letter.md only. Keep its subject and sign-off.'
       : cvSource === 'overleaf' ? 'Edit main.tex and ats.tex with the same facts.' : 'Edit cv.md only.',
     'Do not research, compile, crop pages, commit or push. The app renders and verifies afterward.',
-  ].join('\n');
+  ], localRules, policy);
 }
 
 /** Supply reviewer inputs once, avoiding a separate agent tool turn for each file. */
@@ -92,7 +103,7 @@ function relToRoot(abs) {
   return relative(ROOT, abs).replace(/\\/g, '/') || abs;
 }
 
-export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
+export function buildAgentBrief({ cvSource = 'overleaf', localRules, policy = {} } = {}) {
   const overleaf = cvSource === 'overleaf';
   return withLocalRules([
     '# Agent brief — tailor only, do not research',
@@ -153,7 +164,7 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     '  stated as what the project does, never as a measured result.',
     '- Anything in the “not evidenced” list of keyword-gaps.md stays off the CV, even as a Skills word.',
     '',
-    ...styleRulesMarkdown({ context: 'cv' }).split('\n'),
+    ...styleRulesMarkdown({ context: 'cv', allowFillerWhenUseful: policy.allowFillerWhenUseful }).split('\n'),
     '## ATS mechanics (both files)',
     '- Keep the four section names exactly. Keep `\\role{}{}{}`, `\\edu{}{}{}`, `\\cventry{}` and `\\cvitem{}{}`',
     '  argument structure intact. No new macros, tables, columns, icons, images, colours, or header/footer text.',
@@ -169,10 +180,10 @@ export function buildAgentBrief({ cvSource = 'overleaf', localRules } = {}) {
     '',
     '## After you finish (deterministic quality gate, no model)',
     'Job Scout diffs your edit against a snapshot. Any hard-rule miss above reverts the whole edit and Prep',
-    'falls back to keyword mode. Filler adjectives from the banned list are deleted mechanically. Generated-sounding',
+    'preserves previously accepted documents on failure. ' + (policy.allowFillerWhenUseful ? 'Filler is judged in context. Other' : 'Filler adjectives from the banned list are deleted mechanically. Generated-sounding'),
     'phrases, weak openers, over-long bullets and main/ats drift are listed in quality-report.md for the candidate.',
     '',
-  ], localRules);
+  ], localRules, policy);
 }
 
 export function buildAgentPrompt({
@@ -359,7 +370,7 @@ export function buildCoverLetterAgentPrompt({
 const REVIEW_SCORES = { cv: ['ATS', 'Posting fit', 'Recruiter scan'], letter: ['Posting fit', 'Cover letter'] };
 
 /** Second-pass critic: scores ATS + first-screen fit; does not rewrite. */
-export function buildReviewerBrief({ scope = 'cv', localRules } = {}) {
+export function buildReviewerBrief({ scope = 'cv', localRules, policy = {} } = {}) {
   const letter = scope === 'letter';
   const target = letter ? 'cover letter' : 'CV';
   return withLocalRules([
@@ -394,7 +405,7 @@ export function buildReviewerBrief({ scope = 'cv', localRules } = {}) {
     '## After you finish',
     'Job Scout may run the writer once more with your Must fix list, then the deterministic quality gate.',
     '',
-  ], localRules);
+  ], localRules, policy);
 }
 
 export function buildReviewerPrompt({
@@ -573,11 +584,12 @@ async function runCvTailorAgentWithMemory({
     'meta',
   );
 
-  const brief = repair ? buildRepairBrief({ cvSource, letter: letterTask }) : reviewTask
-    ? buildReviewerBrief({ scope: reviewLetter ? 'letter' : 'cv' })
+  const policy = cvPreferences(readMemorySync());
+  const brief = repair ? buildRepairBrief({ cvSource, letter: letterTask, policy }) : reviewTask
+    ? buildReviewerBrief({ scope: reviewLetter ? 'letter' : 'cv', policy })
     : letterTask
       ? buildCoverLetterAgentBrief()
-      : buildAgentBrief({ cvSource });
+      : buildAgentBrief({ cvSource, policy });
   await writeFile(join(prepDir, briefName), brief.endsWith('\n') ? brief : `${brief}\n`);
 
   const memory = readMemorySync();

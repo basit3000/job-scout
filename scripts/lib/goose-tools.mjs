@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
+import { validateCvOptions } from './cv-preferences.mjs';
 
 const noArgs = { type: 'object', properties: {}, additionalProperties: false };
 export const GOOSE_TOOLS = [
@@ -19,7 +20,8 @@ export function validateGooseRequest(body) {
   if (typeof body.prompt !== 'string' || !body.prompt.trim() || body.prompt.length > 4000) {
     throw new Error('Enter a prompt of 1–4000 characters.');
   }
-  return { tools: [...new Set(body.tools)], prompt: body.prompt.trim() };
+  return { tools: [...new Set(body.tools)], prompt: body.prompt.trim(),
+    ...(body.cvOptions === undefined ? {} : { cvOptions: validateCvOptions(body.cvOptions) }) };
 }
 
 // A per-run, loopback-only MCP endpoint. The unguessable path expires when the

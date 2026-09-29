@@ -8,6 +8,7 @@ import { analyzeKeywordGaps } from './cv-keywords.mjs';
 import { loadCvSettings, writePrepPack, readPrepPack, generateCoverLetterPack } from './prep.mjs';
 import { createGooseToolBridge, validateGooseRequest } from './goose-tools.mjs';
 import { runGoose, withGooseContext } from './goose-runtime.mjs';
+import { cvOptionsInstructions } from './cv-preferences.mjs';
 
 async function readOptional(path) {
   try { return await readFile(path, 'utf8'); } catch (error) { if (error.code === 'ENOENT') return ''; throw error; }
@@ -54,7 +55,9 @@ export async function runGooseCoordinator(options, bridge, run = runGoose) {
 }
 
 async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, request, signal, onEvent = () => {} }) {
-  const { tools, prompt } = validateGooseRequest(request);
+  const { tools, prompt: userPrompt, cvOptions } = validateGooseRequest(request);
+  const selectedInstructions = cvOptionsInstructions(cvOptions, await readMemory());
+  const prompt = [userPrompt, selectedInstructions].filter(Boolean).join('\n\n');
   const controller = new AbortController();
   // Bound the whole workflow, including host work left after the coordinator exits.
   signal = AbortSignal.any([controller.signal, AbortSignal.timeout(45 * 60_000), ...(signal ? [signal] : [])]);
@@ -113,7 +116,7 @@ async function runGoosePipelineWithMemory({ job, profile, fit, savedAnswers, req
         return resultFor(result);
       }),
     } });
-    const record = { id, jobId: job.id, tools, prompt, outputs, startedAt: new Date().toISOString(), status: 'running' };
+    const record = { id, jobId: job.id, tools, prompt, cvOptions, outputs, startedAt: new Date().toISOString(), status: 'running' };
     const save = () => writeFile(join(auditDir, 'run.json'), JSON.stringify({ ...record, calls: bridge.calls }, null, 2));
     try {
       await save();

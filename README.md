@@ -54,6 +54,17 @@ and allows at most one repair per document. Failed checks preserve complete draf
 and previous accepted documents. Failures never fall back to keyword generation.
 **Stop** cancels the run.
 
+Personal CV choices are opt-in through `preferences.cvCustomization` in Memory;
+they are not shared defaults. With `enabled: true`, each Prep dialog offers separate
+headline matching, supported keyword placement, equivalent functional role labels
+(keeping official titles), and a preferred work city. Choices apply to that application
+only. Optional preferences are `allowExperienceSelection`, `summaryWhenHelpful`, and
+`allowFillerWhenUseful`. Experience selection is permitted only when every original
+bullet is preserved in `facts.experienceLibrary.documents[].bullets`. Import the
+original source through Memory's preview/confirm flow before enabling this exception;
+generation never updates that library. With Overleaf selected, startup does not create
+a separate local CV master.
+
 Batch preparation runs a Goose workflow for each selected posting. Search, ranking,
 rendering, validation and tracking are ordinary code; agent decisions happen inside
 the Goose workflows. The coordinator's MCP bridge enforces tool selection. Document

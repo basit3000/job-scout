@@ -1417,6 +1417,10 @@ function syncPrepModalActions() {
 }
 function openPrepModal(job, opts = {}) {
   return new Promise(resolve => {
+    $('personalCvOptions').hidden = true;
+    for (const id of ['cvMatchHeadline', 'cvMatchKeywords', 'cvEquivalentRole']) $(id).checked = false;
+    $('cvPreferredCity').value = '';
+    $('cvUseJobCity').onclick = () => { $('cvPreferredCity').value = String(job.location || '').split(',')[0].trim().slice(0, 100); };
     els.prepModalTitle.textContent = 'Prepare with Goose';
     els.prepModalHint.textContent = 'Choose tools and describe the work. Goose plans the steps and checks the results.';
     $('gooseOptions').dataset.ready = 'false';
@@ -1432,7 +1436,10 @@ function openPrepModal(job, opts = {}) {
       closePrepModal(); resolve(value);
     };
     const cancel = () => finish(null);
-    const run = () => finish({ tools: selectedGooseTools(), prompt: $('goosePrompt').value.trim() });
+    const run = () => finish({ tools: selectedGooseTools(), prompt: $('goosePrompt').value.trim(),
+      ...($('personalCvOptions').hidden ? {} : { cvOptions: { matchHeadline: $('cvMatchHeadline').checked,
+        matchKeywords: $('cvMatchKeywords').checked, equivalentRoleTitle: $('cvEquivalentRole').checked,
+        city: $('cvPreferredCity').value.trim() } }) });
     const suggest = () => { $('goosePrompt').value = suggestedGoosePrompt(selectedGooseTools()); syncPrepModalActions(); };
     const backdrop = event => { if (event.target === els.prepModal) cancel(); };
     const key = event => { if (event.key === 'Escape') cancel(); };
@@ -1444,7 +1451,14 @@ function openPrepModal(job, opts = {}) {
     els.prepModal.addEventListener('click', backdrop);
     document.addEventListener('keydown', key);
     syncPrepModalActions();
-    api('/api/goose').then(({ tools, status }) => {
+    api('/api/goose').then(({ tools, status, cvPreferences = {} }) => {
+      if (els.prepModal.hidden) return;
+      $('personalCvOptions').hidden = !cvPreferences.enabled;
+      $('personalCvPolicy').textContent = [
+        cvPreferences.allowExperienceSelection ? 'Your complete Experience library stays in Memory; this CV may select relevant bullets.' : '',
+        cvPreferences.summaryWhenHelpful ? 'A summary is optional when useful.' : '',
+        cvPreferences.allowFillerWhenUseful ? 'Filler is avoided but allowed when it fits.' : '',
+      ].filter(Boolean).join(' ');
       $('gooseTools').replaceChildren();
       renderGooseTools($('gooseTools'), tools);
       for (const input of $('gooseTools').querySelectorAll('input')) {

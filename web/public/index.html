@@ -385,6 +385,16 @@
             <legend>Tools Goose may use</legend>
           </fieldset>
           <p class="meta">Goose chooses the steps from your prompt. Document tools include factual checks, PDF rendering, review and one repair attempt.</p>
+          <fieldset id="personalCvOptions" class="goose-tools" hidden>
+            <legend>My CV choices for this application</legend>
+            <label><input type="checkbox" id="cvMatchHeadline" /> Match my CV headline to the posting title where supported</label>
+            <label><input type="checkbox" id="cvMatchKeywords" /> Place supported job keywords naturally in relevant bullets</label>
+            <label><input type="checkbox" id="cvEquivalentRole" /> Add an equivalent role label beside an Experience title, keeping the official title</label>
+            <label class="prep-modal-field"><span>Preferred work city (optional)</span><input type="text" id="cvPreferredCity" maxlength="100" placeholder="Keep my usual location" /></label>
+            <button type="button" class="btn small" id="cvUseJobCity">Use job city</button>
+            <p class="meta">City is shown as “Preferred location”. Your home address stays unchanged. These choices apply only to this application.</p>
+            <p class="meta" id="personalCvPolicy"></p>
+          </fieldset>
           <label class="prep-modal-field">
             <span>Your task for Goose</span>
             <textarea id="goosePrompt" rows="4" maxlength="4000" placeholder="Compare my CV with this job, explain the gaps, then prepare a CV using only supported facts."></textarea>

@@ -1,4 +1,5 @@
 import { readMemorySync, memoryEvidence } from './memory.mjs';
+import { cvPreferences, experienceIsArchived } from './cv-preferences.mjs';
 /**
  * Post-edit quality gate for agent-tailored CVs and cover letters.
  *
@@ -298,7 +299,7 @@ export function newNumbers(text, corpus) {
 /**
  * @returns {{ tex: string, hard: string[], soft: string[], fixes: string[], changedBullets: number }}
  */
-export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex' }) {
+export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', policy = {}, memory = null }) {
   const hard = [];
   const soft = [];
   const fixes = [];
@@ -344,7 +345,9 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex' }) {
     }
     const expBefore = experienceItemCount(before);
     const expAfter = experienceItemCount(tex);
-    if (expAfter < expBefore) {
+    const canSelect = policy.allowExperienceSelection && experienceIsArchived(
+      extractTexBullets(before).filter(b => b.section === 'experience').map(b => b.text), memory);
+    if (expAfter < expBefore && !canSelect) {
       hard.push(`${prefix}Experience bullets dropped from ${expBefore} to ${expAfter}`);
     }
   }
@@ -375,12 +378,13 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex' }) {
       personalProject: b.section === 'projects',
     });
     for (const is of issues) {
+      if (policy.allowFillerWhenUseful && ['filler', 'ai-tell'].includes(is.kind)) continue;
       if (is.kind === 'filler') continue; // handled by scrub below
       const line = `${prefix}${b.section} bullet — ${is.kind} "${is.phrase}": ${is.excerpt}`;
       if (is.severity === 'hard' && changed) hard.push(line);
       else if (changed || is.kind === 'inflation') soft.push(line);
     }
-    if (changed && !/https?:\/\//.test(b.prose)) {
+    if (changed && !policy.allowFillerWhenUseful && !/https?:\/\//.test(b.prose)) {
       const scrubbed = scrubFiller(b.prose);
       if (scrubbed.removed.length && tex.includes(b.prose)) {
         tex = tex.replace(b.prose, scrubbed.text);
@@ -430,7 +434,7 @@ export function keywordCoverage({ job, tex, evidenceText = '', profile = {} }) {
   return { inBullets, skillsOnly, missing, notEvidenced: analysis.gaps, requirements: analysis.requirements || [] };
 }
 
-export function verifyMarkdownCv({ before, after, corpus }) {
+export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = null }) {
   const hard = [];
   const soft = [];
   const fixes = [];
@@ -462,7 +466,9 @@ export function verifyMarkdownCv({ before, after, corpus }) {
     for (const heading of original.match(/^###\s+.+$/gm) || []) {
       if (!edited.split('\n').includes(heading)) hard.push(`cv.md: ${name} entry removed or changed: ${heading}`);
     }
-    if (name === 'Experience' && (edited.match(/^\s*[-*]\s+/gm) || []).length < (original.match(/^\s*[-*]\s+/gm) || []).length) {
+    const originalBullets = (original.match(/^\s*[-*]\s+.+$/gm) || []).map(s => s.replace(/^\s*[-*]\s+/, '').trim());
+    const canSelect = policy.allowExperienceSelection && experienceIsArchived(originalBullets, memory);
+    if (name === 'Experience' && !canSelect && (edited.match(/^\s*[-*]\s+/gm) || []).length < originalBullets.length) {
       hard.push('cv.md: Experience bullets dropped');
     }
   }
@@ -481,12 +487,13 @@ export function verifyMarkdownCv({ before, after, corpus }) {
     const changed = !beforeBullets.has(text.toLowerCase());
     const issues = findStyleIssues(text, { context: 'cv', bullet: true, personalProject: section === 'projects' });
     for (const is of issues) {
+      if (policy.allowFillerWhenUseful && ['filler', 'ai-tell'].includes(is.kind)) continue;
       if (is.kind === 'filler') continue;
       const l = `cv.md ${section} bullet — ${is.kind} "${is.phrase}": ${is.excerpt}`;
       if (is.severity === 'hard' && changed) hard.push(l);
       else if (changed || is.kind === 'inflation') soft.push(l);
     }
-    if (changed) {
+    if (changed && !policy.allowFillerWhenUseful) {
       const s = scrubFiller(text);
       if (s.removed.length) {
         md = md.replace(text, s.text);
@@ -662,6 +669,8 @@ export async function verifyCvAfterAgent({
   emit = () => {},
 }) {
   const overleafDir = join(ROOT, '.workspace', 'overleaf');
+  const memory = readMemorySync();
+  const policy = cvPreferences(memory);
   const before = {};
   const beforeTexts = [];
   const names = cvSource === 'overleaf' ? ['main.tex', 'ats.tex'] : ['resume.md'];
@@ -690,7 +699,7 @@ export async function verifyCvAfterAgent({
     const results = {};
     for (const n of ['main.tex', 'ats.tex']) {
       if (!after[n]) continue;
-      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n });
+      results[n] = verifyTexEdit({ before: before[n] || null, after: after[n], corpus, fileName: n, policy, memory });
       cv.hard.push(...results[n].hard);
       cv.soft.push(...results[n].soft);
       cv.fixes.push(...results[n].fixes);
@@ -721,7 +730,7 @@ export async function verifyCvAfterAgent({
     const path = join(prepDir, 'cv.md');
     const after = await readIf(path);
     if (after) {
-      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus });
+      const r = verifyMarkdownCv({ before: before['resume.md'] || '', after, corpus, policy, memory });
       cv.hard.push(...r.hard);
       cv.soft.push(...r.soft);
       cv.fixes.push(...r.fixes);

@@ -138,9 +138,10 @@ const PASSES = [
 /**
  * Apply the next unused fit pass. Returns { tex, changed, pass }.
  */
-export function applyNextFitPass(tex, already = []) {
+export function applyNextFitPass(tex, already = [], { allowFillerWhenUseful = false } = {}) {
   const done = new Set(already);
   for (const pass of PASSES) {
+    if (pass.id === 'wording' && allowFillerWhenUseful) continue;
     if (done.has(pass.id)) continue;
     const r = pass.apply(tex);
     if (r.changed) return { tex: r.tex, changed: true, pass: pass.id };

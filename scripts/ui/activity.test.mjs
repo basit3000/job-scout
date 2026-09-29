@@ -32,6 +32,8 @@ test('activity remains visible and actionable through search and Prep lifecycles
   let failSearch = false;
   let prepStartedAt;
   let searches = 0;
+  let personalCvOptions = false;
+  const prepRequests = [];
   const unexpected = [];
   const posts = [];
   await page.route('**/api/**', async (route) => {
@@ -48,13 +50,14 @@ test('activity remains visible and actionable through search and Prep lifecycles
     else if (path === '/api/digest') data = { newJobs: jobs, candidates: jobs, pagination, count: 10 };
     else if (path === '/api/ready') data = { jobs, pagination, total: 10 };
     else if (path === '/api/run-history') data = {};
-    else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
+    else if (path === '/api/goose') data = { status: { ok: true, detail: 'Ready' }, cvPreferences: personalCvOptions ? { enabled: true, allowExperienceSelection: true, summaryWhenHelpful: true, allowFillerWhenUseful: true } : {}, tools: [{ name: 'prepare_cv', label: 'Prepare CV', description: 'Prepare documents' }] };
     else if (path === '/api/fetch') {
       searches++;
       if (failSearch) { code = 500; data = { error: 'Search provider unavailable' }; }
       else { status.fetchRunning = true; status.fetchStartedAt = new Date().toISOString(); data = { startedAt: status.fetchStartedAt }; }
     } else if (path === '/api/fetch/stop' || path === '/api/prep/stop') data = { ok: true };
     else if (path === '/api/prep') {
+      prepRequests.push(request.postDataJSON());
       prepStartedAt = new Date().toISOString(); status.prepStartedAt = prepStartedAt; status.prepJobId = jobs[0].id; status.prepRunning = true;
       data = { startedAt: prepStartedAt, jobId: jobs[0].id };
     } else { unexpected.push(path); data = {}; }
@@ -210,6 +213,39 @@ test('activity remains visible and actionable through search and Prep lifecycles
     await textIs('#activityMessage', 'Search and document progress');
   });
   assert.equal(searches, 4);
+  await t.test('personal choices are hidden by default and submitted independently for one application', async () => {
+    await page.locator('[data-view="results"]').click();
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.waitForFunction(() => document.getElementById('gooseOptions').dataset.ready === 'true');
+    assert.equal(await page.locator('#personalCvOptions').isVisible(), false);
+    await page.locator('#prepModalCancel').click();
+    personalCvOptions = true;
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#personalCvOptions').waitFor();
+    assert.equal(await page.locator('#cvMatchHeadline').isChecked(), false);
+    await page.locator('#cvMatchHeadline').check();
+    await page.locator('#cvMatchKeywords').check();
+    await page.locator('#cvEquivalentRole').check();
+    await page.locator('#cvUseJobCity').click();
+    assert.equal(await page.locator('#cvPreferredCity').inputValue(), 'Berlin');
+    await mkdir(resolve('.workspace/cv-ui'), { recursive: true });
+    await page.screenshot({ path: resolve('.workspace/cv-ui/options.png') });
+    await page.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await page.screenshot({ path: resolve('.workspace/cv-ui/options-mobile.png') });
+    await page.setViewportSize({ width: 1365, height: 900 });
+    await page.locator('#prepModalRecreate').click();
+    await textIs('#activityTitle', 'Preparing documents');
+    assert.deepEqual(prepRequests.at(-1).cvOptions, { matchHeadline: true, matchKeywords: true, equivalentRoleTitle: true, city: 'Berlin' });
+    status.prepRunning = false;
+    await emit('/api/prep/stream', 'done', { ok: false, cancelled: true, startedAt: prepStartedAt, error: 'Synthetic run stopped' });
+    await textIs('#activityTitle', 'Preparation stopped');
+    await page.locator('#jobList [data-prep]').first().click();
+    await page.locator('#personalCvOptions').waitFor();
+    assert.equal(await page.locator('#cvMatchHeadline').isChecked(), false);
+    assert.equal(await page.locator('#cvPreferredCity').inputValue(), '');
+    await page.locator('#prepModalCancel').click();
+  });
   assert.deepEqual(errors, []);
   assert.deepEqual(unexpected, []);
 });

@@ -31,6 +31,10 @@ export async function ensureLocalTemplates({ quiet = false } = {}) {
     await updateMemory(() => template);
   }
   for (const [fromRel, toRel] of TEMPLATE_COPIES) {
+    if (toRel === 'cv/resume.md') {
+      const config = await loadJson(join(ROOT, 'search-profile.json'), {});
+      if (config.cv?.source === 'overleaf') continue;
+    }
     const from = join(ROOT, fromRel);
     const to = join(ROOT, toRel);
     await mkdir(dirname(to), { recursive: true });
@@ -274,7 +278,7 @@ export async function applySetup(body = {}) {
   const resumePath = join(ROOT, 'cv', 'resume.md');
   const resumeExists = await exists(resumePath);
   let resumeText = resumeExists ? await readFile(resumePath, 'utf8') : '';
-  if (!resumeExists || /\bYOUR_[A-Z0-9_]+\b/.test(resumeText)) {
+  if (searchProfile.cv?.source !== 'overleaf' && (!resumeExists || /\bYOUR_[A-Z0-9_]+\b/.test(resumeText))) {
     resumeText = buildResumeMarkdown(profile);
     await mkdir(join(ROOT, 'cv'), { recursive: true });
     await writeFile(resumePath, resumeText);

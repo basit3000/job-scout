@@ -50,4 +50,22 @@ test('clean source copy uses only memory through first setup, restart, and stand
   await run(process.execPath, ['scripts/setup.mjs', '--quiet'], options);
   assert.match(await readFile(join(root, 'profile.json'), 'utf8'), /Stale legacy candidate/);
   assert.equal(JSON.parse(await readFile(join(root, 'state/memory.json'), 'utf8')).facts.headline,'Updated from memory');
+  // Overleaf users can remove the local master without startup or setup recreating it.
+  const overleafCode = `
+    import assert from 'node:assert/strict';
+    import {readFile,writeFile,unlink} from 'node:fs/promises';
+    import {applySetup,getSetupStatus} from './scripts/lib/setup-state.mjs';
+    const config = JSON.parse(await readFile('search-profile.json','utf8'));
+    config.cv = {...config.cv,source:'overleaf'};
+    await writeFile('search-profile.json',JSON.stringify(config));
+    await unlink('cv/resume.md');
+    assert.equal((await getSetupStatus()).hasResume,false);
+    await applySetup({name:'Example Candidate',targetRole:'Engineer',market:'GB',email:'example@example.com',searchTitles:'Engineer',skills:'Python'});
+    await assert.rejects(readFile('cv/resume.md'), /ENOENT/);
+    assert.equal(JSON.parse(await readFile('search-profile.json','utf8')).cv.source,'overleaf');
+    assert.ok(await readFile('cv/cover-letter.md','utf8'));
+  `;
+  await run(process.execPath, ['--input-type=module', '-e', overleafCode], options);
+  await run(process.execPath, ['scripts/setup.mjs', '--quiet'], options);
+  await assert.rejects(readFile(join(root, 'cv/resume.md')), /ENOENT/);
 });

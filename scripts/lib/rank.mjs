@@ -1,6 +1,15 @@
 import { FIT_VERDICTS, scoreJob } from './fit.mjs';
 import { compareFit } from './job-sort.mjs';
 
+/** CV content only: style instructions, saved answers and LaTeX comments are not skill evidence. */
+export function rankingEvidence(inputs = {}) {
+  const names = ['.workspace/overleaf/ats.tex', '.workspace/overleaf/main.tex', 'cv/resume.md', 'cv/resume.txt'];
+  const name = names.find((key) => inputs[key]?.trim());
+  if (!name) return '';
+  return String(inputs[name]).replace(/(?<!\\)%[^\n]*/g, '')
+    .split('\n').filter((line) => !/\b(?:do not invent|no experience (?:in|with)|currently learning|not yet experienced)\b/i.test(line)).join('\n');
+}
+
 export function shortDescription(description, max = 220) {
   const clean = String(description ?? '')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
@@ -16,9 +25,9 @@ export function shortDescription(description, max = 220) {
   return `${out.slice(0, max - 1).trimEnd()}…`;
 }
 
-export function rankJobs(jobs, profile, cvText = '') {
+export function rankJobs(jobs, profile, cvText = '', options = {}) {
   return (jobs ?? []).map((job) => {
-    const fit = scoreJob(job, profile, cvText);
+    const fit = scoreJob(job, profile, cvText, options);
     return {
       ...job,
       score: fit.score,
@@ -27,6 +36,8 @@ export function rankJobs(jobs, profile, cvText = '') {
       why: (fit.reasons ?? []).slice(0, 3),
       matched: fit.matched,
       gaps: fit.gaps,
+      eligibility: fit.eligibility,
+      experience: fit.experience,
     };
   }).sort((a, b) => {
     const byFit = compareFit(

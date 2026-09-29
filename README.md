@@ -64,6 +64,24 @@ memory and board selection. Recruiter agent lookup and unanswered application
 questions also use Goose. **Fill submits LinkedIn Easy Apply when clicked**; other
 boards are filled for you to inspect and submit yourself.
 
+## Job fit and reranking
+
+Job fit uses CV skills and confirmed work-history dates in Memory. It merges
+overlapping employment, excludes gaps and personal projects, and labels student /
+part-time calendar duration without treating it as full-time-equivalent experience.
+Required experience shortfalls lower the score; preferred tenure has a smaller
+effect. Unknown dates, skill-specific years and alternative qualifications remain
+checks for the candidate. Writing preferences and LaTeX comments are not skill evidence.
+
+The UI recalculates fit for saved jobs with the current ranker; choose the history
+scope to include older postings. Restart the server after updating ranking code.
+To regenerate a complete local shortlist from the existing archive without fetching:
+
+    node scripts/rank-jobs.mjs --history --all
+
+This rewrites only the generated shortlist files in .workspace/. It preserves
+the job archive, application decisions, memory and prepared documents.
+
 ## One local memory
 
 Edit **Memory**, preview the exact changes, then **Confirm and save memory**.

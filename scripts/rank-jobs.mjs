@@ -3,6 +3,7 @@ import { loadCandidateProfile } from './lib/memory.mjs';
 //
 //   node scripts/rank-jobs.mjs
 //   node scripts/rank-jobs.mjs --limit 15
+//   node scripts/rank-jobs.mjs --history --all
 
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -11,7 +12,7 @@ import { currentSearchState } from './lib/current-search.mjs';
 import { loadPrepInputs } from './lib/prep-state.mjs';
 import { withMatchingAnswers } from './lib/match-requirements.mjs';
 import { loadSavedAnswers } from './lib/saved-answers.mjs';
-import { rankJobs, summariseRanking } from './lib/rank.mjs';
+import { rankJobs, summariseRanking, rankingEvidence } from './lib/rank.mjs';
 
 function renderShortlist(ranked, meta, summary) {
   const lines = [];
@@ -56,11 +57,12 @@ async function main() {
     process.exit(1);
   }
 
-  const limit = Number(value('--limit', 25));
+  const limit = flag('--all') ? Infinity : Number(value('--limit', 25));
+  if (!(limit > 0)) throw new Error('Use --all or a positive --limit.');
   const config = await loadJson(join(ROOT, 'search-profile.json'), {});
   const market = await loadMarket(config);
   const inputs = await loadPrepInputs(config.cv || {});
-  const cvText = Object.entries(inputs).filter(([name]) => !name.includes('cover-letter')).map(([, text]) => text).join('\n');
+  const cvText = rankingEvidence(inputs);
   const jobs = bundle.jobs.map((job) => {
     const currentSearch = currentSearchState(job, profile, config, market);
     return { ...job, ageDays: currentSearch.ageDays, currentSearch };
@@ -75,6 +77,8 @@ async function main() {
     targetRole: bundle.targetRole,
     generatedAt: new Date().toISOString(),
     strategy: bundle.strategy,
+    rankingVersion: 2,
+    scope: flag('--history') ? 'history' : 'current',
   };
 
   await mkdir(outDir, { recursive: true });

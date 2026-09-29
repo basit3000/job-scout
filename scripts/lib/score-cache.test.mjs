@@ -2,6 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createScoreCache } from './score-cache.mjs';
 
+test('ongoing employment advances when the scoring date changes', () => {
+  let date = new Date('2026-01-01T00:00:00Z'), calls = 0;
+  const cache = createScoreCache((_job, _profile, _evidence, options) => ({ count: ++calls, date: options.now.toISOString() }), 10, { now: () => date });
+  const job = { id: 'a' };
+  assert.equal(cache({}, '')(job).count, 1);
+  assert.equal(cache({}, '')(job).count, 1);
+  date = new Date('2026-01-02T00:00:00Z');
+  assert.equal(cache({}, '')(job).count, 2);
+});
+
 test('score cache reuses unchanged inputs and invalidates posting, profile, and evidence changes', () => {
   let calls = 0;
   const cache = createScoreCache(() => ++calls, 2);

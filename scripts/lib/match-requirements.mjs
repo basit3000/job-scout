@@ -1,3 +1,6 @@
+import { assessExperience } from './experience-fit.mjs';
+import { detectGermanRequirement } from './cv-keywords.mjs';
+
 const OPTIONAL = /\b(preferred|optional|nice.to.have|a plus|beneficial|von Vorteil|wünschenswert)\b/i;
 const REQUIRED = /\b(required|mandatory|must|essential|minimum|at least|erforderlich|mindestens|voraussetzung)\b/i;
 const LEVELS = ['none', 'a1', 'a2', 'b1', 'b2', 'c1', 'c2', 'fluent', 'native'];
@@ -22,12 +25,14 @@ function candidateLanguage(profile, evidence, name) {
   return match ? (match[1] || match[2]).toLowerCase() : null;
 }
 
-export function assessRequirements(job, profile, evidence = '') {
+export function assessRequirements(job, profile, evidence = '', options = {}) {
   const requirements = [];
-  const lines = String(job.description || '').split(/[.!?\n]+/).map((s) => s.trim()).filter(Boolean);
+  const lines = String(job.description || '').split(/[!?;\n]|[.](?=\s|$)/).map((s) => s.trim()).filter(Boolean);
+  const languageLines = lines.map((s) => s.replace(/\bDeutsch(?:kenntnisse)?\b/gi, 'German').replace(/\bEnglisch(?:kenntnisse)?\b/gi, 'English')
+    .replace(/\b(?:verhandlungssicher\w*|flie(?:ss|ß)end\w*)\b/gi, 'fluent'));
   for (const name of ['german', 'english', 'french', 'spanish', 'arabic']) {
-    const line = lines.find((s) => new RegExp(`\\b${name}\\b`, 'i').test(s) && !OPTIONAL.test(s)
-      && (REQUIRED.test(s) || /\b(fluent|fluency|native|c1|c2|b2)\b/i.test(s)));
+    const line = languageLines.find((s) => new RegExp(`\\b${name}\\b`, 'i').test(s) && !OPTIONAL.test(s)
+      && (REQUIRED.test(s) || /\b(fluent|fluency|native|c1|c2|b2)\b/i.test(s) || (name === 'german' && detectGermanRequirement({description: s}) === 'required')));
     if (!line) continue;
     if (/\b(?:english|german|french|spanish|arabic)\s+(?:or|oder)\s+(?:english|german|french|spanish|arabic)\b/i.test(line)) {
       if (!requirements.some((r) => r.posting === line)) requirements.push({ label: 'Alternative language requirement', status: 'needs-checking',
@@ -44,26 +49,14 @@ export function assessRequirements(job, profile, evidence = '') {
       status: mismatch ? 'incompatible' : required && candidate && LEVELS.includes(candidate) ? 'matched' : 'needs-checking',
       evidence: candidate ? `Candidate: ${candidate}` : 'Candidate proficiency not recorded', posting: line });
   }
-  const words = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
-  for (const line of lines) {
-    if (OPTIONAL.test(line)) continue;
-    const m = line.match(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*(?:\+|[-–]\s*\d+)?\s*years?\s+(?:of\s+)?(?:[\w-]+\s+){0,3}experience\b/i);
-    if (!m) continue;
-    const years = Number(m[1]) || words[m[1].toLowerCase()];
-    const explicit = profile.experienceYears;
-    const known = typeof explicit === 'number' && Number.isFinite(explicit) && explicit >= 0;
-    // Total experience cannot prove years in a particular skill; only a shortfall
-    // establishes incompatibility. Relevant experience remains a human check.
-    requirements.push({ label: `${years}+ years of relevant experience`,
-      status: known && explicit < years ? 'incompatible' : 'needs-checking',
-      evidence: known ? `Profile records ${explicit} total years; confirm relevance` : 'Relevant years not recorded', posting: line });
-  }
+  const experience = assessExperience(job, profile, evidence, options);
+  requirements.push(...experience.requirements);
   if (/\b(no (?:visa )?sponsorship|cannot sponsor|unable to sponsor)\b/i.test(job.description || '')) {
     const needs = profile.constraints?.needsSponsorship;
     requirements.push({ label: 'Employer does not sponsor', status: needs === true ? 'incompatible' : needs === false ? 'matched' : 'needs-checking',
       evidence: typeof needs === 'boolean' ? `Needs sponsorship: ${needs}` : 'Sponsorship need not recorded' });
   }
   if (!String(job.description || '').trim()) requirements.push({ label: 'Full job description unavailable', status: 'needs-checking', evidence: 'Open the posting to check requirements' });
-  return { requirements, status: requirements.some((r) => r.status === 'incompatible') ? 'incompatible'
-    : requirements.some((r) => r.status === 'needs-checking') ? 'needs-checking' : 'matched' };
+  return { requirements, experience: experience.candidate, status: requirements.some((r) => !r.optional && r.status === 'incompatible') ? 'incompatible'
+    : requirements.some((r) => !r.optional && ['needs-checking', 'shortfall'].includes(r.status)) ? 'needs-checking' : 'matched' };
 }

@@ -17,6 +17,7 @@ import { ROOT, loadJson, loadDotEnv, loadMarket, listMarketIds, workspaceDir, pi
 import { loadDecisions, recordDecision, patchDecision, VALID_DECISIONS } from '../scripts/lib/decisions.mjs';
 import { dedupeJobs, clusterByCompany } from '../scripts/lib/dedupe.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
+import { rankingEvidence } from '../scripts/lib/rank.mjs';
 import { createScoreCache } from '../scripts/lib/score-cache.mjs';
 const cachedScorer = createScoreCache(scoreJob);
 import { readPrepPack, readPrepFile, loadPrepFlagsIndex, prepFlagsForJob, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
@@ -596,7 +597,7 @@ async function enrichJobs({ force = false } = {}) {
     const prepIndex = await loadPrepFlagsIndex();
     const cvSettings = await loadCvSettings();
     const prepInputs = await loadPrepInputs(cvSettings);
-    const evidenceText = Object.entries(prepInputs).filter(([name]) => !name.includes('cover-letter')).map(([, text]) => text).join('\n');
+    const evidenceText = rankingEvidence(prepInputs);
     const matchingProfile = profile ? withMatchingAnswers(profile, await loadSavedAnswers()) : null;
     const searchConfig = await loadSearchProfile();
     const currentMarket = await loadMarket(searchConfig);

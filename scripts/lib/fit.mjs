@@ -84,7 +84,7 @@ function mentions(haystack, skill) {
  *   checklist: { id: string, label: string, ok: boolean|null, detail?: string }[]
  * }}
  */
-export function scoreJob(job, profile, evidenceText = '') {
+export function scoreJob(job, profile, evidenceText = '', options = {}) {
   const candidateEvidence = `${evidenceText}\n${(profile.experience || []).flatMap((e) => e.bullets || []).join('\n')}`;
   const jobText = `${job.title}\n${job.description ?? ''}`;
   const skills = skillList(profile);
@@ -107,9 +107,10 @@ export function scoreJob(job, profile, evidenceText = '') {
     gaps.push('Title is not an obvious match to target role');
   }
 
-  for (const sk of unique(skills.strong)) {
+  const beforeSkills = score;
+  for (const sk of unique(skills.strong.map((s) => s.toLowerCase()))) {
     if (mentions(jobText, sk)) {
-      matched.push(sk);
+      matched.push(skills.strong.find((s) => s.toLowerCase() === sk));
       score += 8;
     }
   }
@@ -129,10 +130,14 @@ export function scoreJob(job, profile, evidenceText = '') {
     }
   }
 
-  // Common stack terms asked but missing from strong/familiar
+  // Bound keyword rewards so long adverts cannot overwhelm requirement gaps.
+  score = beforeSkills + Math.min(32, score - beforeSkills);
+
+  // Common stack terms asked but missing from strong/familiar.
+  // Learning a skill is not evidence of professional proficiency.
   const asked = unique(tokens(jobText)).filter((t) => t.length > 2);
   const known = new Set(
-    [...skills.strong, ...skills.familiar, ...skills.learning, ...evidenceMatches.onCv, ...evidenceMatches.promote].map((s) => s.toLowerCase()),
+    [...skills.strong, ...skills.familiar, ...evidenceMatches.onCv, ...evidenceMatches.promote].map((s) => s.toLowerCase()),
   );
   const interesting = asked.filter((t) =>
     /^(python|java|kotlin|react|fastapi|django|docker|postgres|sql|typescript|javascript|aws|azure|kubernetes|node)$/i.test(t),
@@ -177,7 +182,7 @@ export function scoreJob(job, profile, evidenceText = '') {
   else if (score < 35) verdict = 'No';
   else if (score < 50 || gaps.length >= 4) verdict = 'Stretch';
 
-  const eligibility = assessRequirements(job, profile, candidateEvidence);
+  const eligibility = assessRequirements(job, profile, candidateEvidence, options);
   for (const skill of evidenceMatches.gaps) {
     if (eligibility.requirements.some((r) => r.status === 'matched' && r.label.toLowerCase().startsWith(`${skill.toLowerCase()} `))) continue;
     const requiredLine = String(job.description || '').split(/[\n.!?]+/).find((line) =>
@@ -198,10 +203,33 @@ export function scoreJob(job, profile, evidenceText = '') {
     if (verdict === 'Strong') verdict = 'Worth a shot';
   }
 
+  const experienceChecks = eligibility.requirements.filter((r) => r.category === 'experience');
+  const requiredShortfall = Math.max(0, ...experienceChecks.filter((r) => !r.optional && r.status === 'shortfall').map((r) => r.shortfall));
+  if (requiredShortfall) {
+    const largestRatio = Math.max(...experienceChecks.filter((r) => !r.optional && r.status === 'shortfall').map((r) => r.shortfall / r.minYears));
+    const ceiling = requiredShortfall >= 2 || largestRatio >= 0.5 ? 34 : requiredShortfall >= 1 ? 49 : 71;
+    score = Math.max(0, Math.min(ceiling, score - Math.ceil(requiredShortfall * 8)));
+    verdict = score < 35 ? 'No' : score < 50 ? 'Stretch' : 'Worth a shot';
+  } else {
+    const preferredShortfall = Math.max(0, ...experienceChecks.filter((r) => r.optional && r.status === 'shortfall').map((r) => r.shortfall));
+    score = Math.max(0, score - Math.min(8, Math.ceil(preferredShortfall * 2)));
+    if (verdict === 'Strong' && score < 72) verdict = 'Worth a shot';
+    if (verdict === 'Worth a shot' && score < 50) verdict = score < 35 ? 'No' : 'Stretch';
+  }
+  if (eligibility.experience.years != null) {
+    reasons.unshift('Experience: about ' + eligibility.experience.years.toFixed(1) + ' calendar years (' + eligibility.experience.source + ')');
+  }
+
   if (matched.length) reasons.push(`Matched skills: ${unique(matched).slice(0, 6).join(', ')}`);
   if (!reasons.length) reasons.push('Limited signal — open the posting and judge manually');
 
   const checklist = buildChecklist(job, profile, { matched: unique(matched), gaps: unique(gaps), verdict });
+  if (experienceChecks.length) checklist.splice(2, 0, {
+    id: 'experience', label: 'Experience requirement',
+    ok: experienceChecks.some((r) => !r.optional && r.status === 'shortfall') ? false
+      : experienceChecks.some((r) => !r.optional && r.status === 'needs-checking') ? null : true,
+    detail: experienceChecks.map((r) => r.label + ': ' + r.evidence).join('; '),
+  });
 
   return {
     verdict,
@@ -211,6 +239,7 @@ export function scoreJob(job, profile, evidenceText = '') {
     reasons,
     checklist,
     eligibility,
+    experience: eligibility.experience,
   };
 }
 

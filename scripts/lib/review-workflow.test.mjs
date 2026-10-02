@@ -10,9 +10,10 @@ import { verifyCvAfterAgent, verifyLetterAfterAgent, verifyMarkdownCv } from './
 import { pushValidatedOverleaf } from './overleaf-cv.mjs';
 import { appendAgentAttempt } from './agent-usage.mjs';
 import { pdfFixture } from '../test-helpers/pdf-fixture.mjs';
+import { REVIEW_COVERAGE } from '../test-helpers/review-fixture.mjs';
 
 const job = { id: 'review-fixture', title: 'Engineer', company: 'Example' };
-const pass = 'Verdict: pass\nATS: 8/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_';
+const pass = 'Verdict: pass\nATS: 8/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_' + REVIEW_COVERAGE;
 const revise = pass.replace('Verdict: pass', 'Verdict: revise').replace('- _none_', '- Clarify the API work.');
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'scout-review-'));
@@ -69,6 +70,9 @@ test('review follows fitting, and one repair is rendered and verified before pas
   assert.deepEqual(order, ['render', 'review', 'repair', 'render', 'review']);
   assert.equal(result.verdict, 'pass');
   assert.equal(result.ranFixLoop, true);
+  const savedReview = JSON.parse(await readFile(join(dir, 'review-summary.json'), 'utf8'));
+  assert.deepEqual(savedReview.cv.requirementCoverage, result.requirementCoverage);
+  assert.equal(savedReview.cv.requirementCoverage[0].status, 'supported');
   assert.equal(result.documentFingerprint, await documentFingerprint(dir, 'cv'));
   assert.equal((await inspectDocuments(dir, ['cv'])).cv.needsReview, false);
   await writeFile(join(dir, 'cv.pdf'), pdfFixture(['Changed after review']));
@@ -109,7 +113,7 @@ test('a second revise stops after one repair and leaves the remaining issues vis
 
 test('letter review checks the rendered repaired letter and saves a letter-specific fingerprint', async (t) => {
   const dir = await fixture(t);
-  const letterPass = 'Verdict: pass\nPosting fit: 8/10\nCover letter: 8/10\n\n## Must fix\n- _none_';
+  const letterPass = 'Verdict: pass\nPosting fit: 8/10\nCover letter: 8/10\n\n## Must fix\n- _none_' + REVIEW_COVERAGE;
   let count = 0;
   await writeFile(join(dir, 'cover-letter.md'), 'Original letter');
   const result = await runReviewerPass({ scope: 'letter', job, prepDir: dir,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { REVIEW_COVERAGE } from '../test-helpers/review-fixture.mjs';
 import {
   copyAcceptedLetter,
   formatFixInstructions,
@@ -30,7 +31,7 @@ Cover letter: 8/10
 
 ## Gaps (do not invent)
 - No Kubernetes evidence — leave it off.
-`;
+` + REVIEW_COVERAGE;
 
 describe('parseReviewMarkdown', () => {
   it('reads verdict, scores, and must-fix bullets', () => {
@@ -53,7 +54,7 @@ describe('parseReviewMarkdown', () => {
   });
 
   it('treats pass-with-nits as pass', () => {
-    const r = parseReviewMarkdown(`Verdict: pass\nATS: 9/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_\n\n## Should fix\n- Shorten bullet 3.\n`);
+    const r = parseReviewMarkdown(`Verdict: pass\nATS: 9/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_\n\n## Should fix\n- Shorten bullet 3.\n` + REVIEW_COVERAGE);
     assert.equal(r.verdict, 'pass');
     assert.equal(r.shouldFix.length, 1);
   });

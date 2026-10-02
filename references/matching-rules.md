@@ -3,12 +3,12 @@
 Test: **if this person walks into the interview, does the posting match what their
 evidence pack can show?**
 
-The pack is whatever they put in `profile.json` + `cv/`. There is no default profession.
+Candidate facts come only from `state/memory.json`. CVs are documents, not another memory store. There is no default profession.
 The target country is whatever `search-profile.json` → `market` (or `--market`) selected.
 
 ## Before you rank
 
-1. Read `.workspace/evidence.md` in full  
+1. Read `state/memory.json` and the generated `.workspace/memory-evidence.md` in full
 2. If it still contains `YOUR_*`, stop and finish setup — do not invent  
 3. Note `targetRole` and `search.titles` — that is the field you are matching for  
 4. Note the market in `.workspace/jobs.json` (`market` / `marketId`)  

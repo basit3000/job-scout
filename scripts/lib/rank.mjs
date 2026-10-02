@@ -38,6 +38,7 @@ export function rankJobs(jobs, profile, cvText = '', options = {}) {
       gaps: fit.gaps,
       eligibility: fit.eligibility,
       experience: fit.experience,
+      relevantExperience: fit.relevantExperience,
     };
   }).sort((a, b) => {
     const byFit = compareFit(

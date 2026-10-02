@@ -1,4 +1,5 @@
 import { daysSince, isJobInMarket } from './common.mjs';
+import { matchesTitlePatterns } from './title-matching.mjs';
 
 const patterns = (items = []) => items.filter((p) => p && !String(p).includes('YOUR_')).map((p) => new RegExp(p, 'i'));
 
@@ -10,8 +11,8 @@ export function currentSearchState(job, profile, config, market) {
   if (ageDays != null && ageDays > limit) reasons.push(`Older than ${limit} days`);
   const include = patterns(profile.search?.includeTitlePatterns);
   const exclude = patterns([...(config.filters?.titleMustNotMatch || []), ...(profile.search?.excludeTitlePatterns || [])]);
-  if (include.length && !include.some((r) => r.test(job.title || ''))) reasons.push('Outside current target titles');
-  if (exclude.some((r) => r.test(job.title || ''))) reasons.push('Excluded title');
+  if (include.length && !matchesTitlePatterns(job.title, include)) reasons.push('Outside current target titles');
+  if (matchesTitlePatterns(job.title, exclude)) reasons.push('Excluded title');
   if (patterns([...(config.filters?.excludeCompanies || []), ...(profile.constraints?.excludeCompanies || [])]).some((r) => r.test(job.company || ''))) reasons.push('Excluded company');
   if ((config.filters?.countryOnly ?? config.filters?.uaeOnly ?? true) && !isJobInMarket(job, market)) reasons.push('Outside current market');
   if ((profile.constraints?.dropNationalsOnly ?? config.filters?.dropNationalsOnly ?? market.dropNationalsOnlyDefault)

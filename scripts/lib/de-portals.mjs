@@ -18,7 +18,7 @@ import { withRateLimitRetry } from './fetch-resilience.mjs';
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
 const AA_KEY = 'jobboerse-jobsuche';
-const AA_UA = 'JobScout/1.0 (personal job search; +https://github.com/YOUR_GITHUB/job-scout)';
+const AA_UA = 'JobScout/2 (personal job search)';
 
 const BSJ_BASE = 'https://berlinstartupjobs.com/wp-json/wp/v2';
 const PEGEL_BASE = 'https://pegel.berlin/api/v1';
@@ -154,9 +154,13 @@ async function fetchDescriptionFromUrl(url, board) {
  */
 export async function hydrateJobDescription(job) {
   const existing = String(job?.description || '').trim();
-  if (existing) return existing;
   const board = job?.board;
+  if (existing && !(board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(existing))) return existing;
   try {
+    if (board === 'arbeitsagentur') {
+      const ref = job.nativeId || decodeURIComponent(new URL(job.url).pathname.split('/').pop());
+      return await fetchArbeitsagenturDescription(ref);
+    }
     if (board === 'pegel') {
       const fromApi = await fetchPegelDescription(pegelIdFromJob(job));
       if (fromApi) return fromApi;
@@ -165,6 +169,18 @@ export async function hydrateJobDescription(job) {
   } catch {
     return null;
   }
+}
+
+export async function fetchArbeitsagenturDescription(ref) {
+  if (!ref) return null;
+  const code = encodeURIComponent(Buffer.from(String(ref)).toString('base64'));
+  const res = await fetch(`${AA_BASE}/pc/v4/jobdetails/${code}`, {
+    headers: { 'X-API-Key': AA_KEY, Accept: 'application/json', 'User-Agent': AA_UA },
+    signal: AbortSignal.timeout(12000),
+  });
+  if (!res.ok) throw new Error(`Arbeitsagentur details HTTP ${res.status}`);
+  const data = await res.json();
+  return pickDescription(data.stellenangebotsBeschreibung);
 }
 
 function pegelIdFromJob(job) {
@@ -203,7 +219,7 @@ function aaEmploymentType(job) {
 }
 
 /** Search Bundesagentur für Arbeit (Germany). Free public API key. */
-export async function fetchArbeitsagentur(query, { limit }, market) {
+export async function fetchArbeitsagentur(query, { limit, hydrate = true }, market) {
   const size = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const umkreis = Math.min(Math.max(Number(query.radiusKm ?? market.defaultRadiusKm) || 50, 0), 200);
   const params = new URLSearchParams({
@@ -213,6 +229,7 @@ export async function fetchArbeitsagentur(query, { limit }, market) {
     page: '1',
     umkreis: String(umkreis),
   });
+  if (query.employer) params.set('arbeitgeber', query.employer);
 
   const res = await fetch(`${AA_BASE}/pc/v6/jobs?${params}`, {
     headers: {
@@ -220,15 +237,17 @@ export async function fetchArbeitsagentur(query, { limit }, market) {
       Accept: 'application/json',
       'User-Agent': AA_UA,
     },
+    signal: AbortSignal.timeout(20000),
   });
   if (!res.ok) {
     throw new Error(`Arbeitsagentur HTTP ${res.status}`);
   }
   const data = await res.json();
-  const items = data.ergebnisliste ?? data.stellenangebote ?? [];
+  const items = data.ergebnisliste ?? data.stellenangebote ?? (data.maxErgebnisse === 0 ? [] : undefined);
+  if (!Array.isArray(items)) throw new Error('Arbeitsagentur returned an invalid jobs response');
   const source = `${market.slug}:arbeitsagentur`;
 
-  return items
+  const jobs = items
     .map((j) => {
       const url = aaUrl(j);
       if (!url) return null;
@@ -240,18 +259,25 @@ export async function fetchArbeitsagentur(query, { limit }, market) {
         company: j.firma,
         location: aaLocation(j),
         country: market.shortName,
-        remote: Boolean(j.homeofficemoeglich),
+        remote: j.homeofficemoeglich ?? null,
         url,
         postedAt: j.datumErsteVeroeffentlichung || j.veroeffentlichungszeitraum?.von || null,
         employmentType: aaEmploymentType(j),
         salary: j.verguetungsangabe && j.verguetungsangabe !== 'KEINE_ANGABEN' ? j.verguetungsangabe : null,
-        description: j.hauptberuf ? `Beruf: ${j.hauptberuf}` : null,
+        description: pickDescription(j.stellenangebotsBeschreibung),
       };
       const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
       job.flags = detectMarketFlags(job, market);
       return job;
     })
     .filter(Boolean);
+  if (hydrate) await mapLimit(jobs, 3, async (job) => {
+    try {
+      job.description ||= await fetchArbeitsagenturDescription(job.nativeId);
+      job.flags = detectMarketFlags(job, market);
+    } catch { /* Keep the listing; missing requirements remain unknown. */ }
+  });
+  return jobs;
 }
 
 function decodeArbeitnowHtml(html) {

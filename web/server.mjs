@@ -48,6 +48,7 @@ import { handleTrackerApi } from './tracker-routes.mjs';
 import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
+import { expandSearchTitles } from '../scripts/lib/title-matching.mjs';
 import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
 import { resolveFetchConcurrency } from '../scripts/lib/fetch-pool.mjs';
 
@@ -492,7 +493,7 @@ async function getStatus({ light = false } = {}) {
   }
   const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
   const enabledBoards = selectedBoardIds(config.boards?.length ? config.boards : market?.boards);
-  const titles = (profile?.search?.titles ?? []).filter((t) => t && !String(t).startsWith('YOUR_'));
+  const titles = expandSearchTitles((profile?.search?.titles ?? []).filter((t) => t && !String(t).startsWith('YOUR_')));
   const configCities = (config.cities ?? []).filter((c) => c?.where);
   const marketCities = (market?.cities ?? []).filter((c) => c?.where);
   const cityCount = (configCities.length ? configCities : marketCities).length || 1;
@@ -829,7 +830,8 @@ async function handleApi(req, res, url) {
     const enriched = await enrichJobs();
     const job = enriched.jobs.find((j) => j.id === id);
     if (!job) return json(res, 404, { error: 'Job not found' });
-    if (!String(job.description || '').trim()) {
+    if (!String(job.description || '').trim()
+      || (job.board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(job.description))) {
       const text = await hydrateJobDescription(job);
       if (text) {
         await persistJobDescription(job.id, text).catch(() => false);

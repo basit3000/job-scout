@@ -42,6 +42,8 @@ import {
   normalizeBoardEntry,
 } from './lib/boards.mjs';
 import { fetchGermanyPortal } from './lib/de-portals.mjs';
+import { companyQueries, fetchCompanyCareers } from './lib/company-careers.mjs';
+import { expandSearchTitles, matchesTitlePatterns } from './lib/title-matching.mjs';
 import {
   apifyDatePostedAttempts,
   mapIndeedDatePosted,
@@ -334,9 +336,9 @@ function applyFilters(jobs, filters, decided, market) {
     if (filters.maxAgeDays != null && job.ageDays != null && job.ageDays > filters.maxAgeDays) {
       return (dropped.tooOld++, false);
     }
-    if (mustNotMatch.some((re) => re.test(job.title))) return (dropped.titleExcluded++, false);
+    if (matchesTitlePatterns(job.title, mustNotMatch)) return (dropped.titleExcluded++, false);
     if (excludeCompanies.some((re) => re.test(job.company))) return (dropped.company++, false);
-    if (mustMatch.length && !mustMatch.some((re) => re.test(job.title))) {
+    if (mustMatch.length && !matchesTitlePatterns(job.title, mustMatch)) {
       return (dropped.titleNotMatched++, false);
     }
     // Location string is the source of truth. Fetchers stamp job.country with the
@@ -358,10 +360,11 @@ function applyFilters(jobs, filters, decided, market) {
 }
 
 function buildQueriesFromProfile(profile, config, boardConfig, market) {
+  if (boardConfig.board === 'companycareers') return companyQueries(config, profile);
   if (Array.isArray(boardConfig.queries) && boardConfig.queries.length) return boardConfig.queries;
   if (boardConfig.queriesFromProfile === false && Array.isArray(config.queries)) return config.queries;
 
-  const titles = (profile.search?.titles ?? []).filter((t) => t && !isPlaceholder(t));
+  const titles = expandSearchTitles((profile.search?.titles ?? []).filter((t) => t && !isPlaceholder(t)));
   const boardCities = (boardConfig.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
   const configCities = (config.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
   const marketCities = (market.cities ?? []).filter((c) => c?.where && !isPlaceholder(c.where));
@@ -470,7 +473,7 @@ async function main() {
 
   const filters = {
     ...config.filters,
-    maxAgeDays: Number(value('--max-age-days', profile.constraints?.maxAgeDays ?? config.filters?.maxAgeDays ?? 30)),
+    maxAgeDays: Number(value('--max-age-days', config.filters?.maxAgeDays ?? profile.constraints?.maxAgeDays ?? 30)),
     dropNationalsOnly: profile.constraints?.dropNationalsOnly
       ?? config.filters?.dropNationalsOnly
       ?? market.dropNationalsOnlyDefault
@@ -520,7 +523,7 @@ async function main() {
   const maxApifyRuns = Number(value('--max-apify', config.maxApifyRuns ?? 8));
   let apifyRunsUsed = 0;
   let apifyBlocked = false;
-  const strategy = FORCE_JOBSPY
+  const strategy = boards.every(entry => getBoardMeta(entry.board)?.api) ? 'free-portals' : FORCE_JOBSPY
     ? 'jobspy-only'
     : useApify
       ? (preferJobspy ? 'jobspy-primary-apify-fallback' : 'apify-primary-jobspy-fallback')
@@ -722,6 +725,7 @@ async function main() {
     const failLog = [];
     let consecutiveFails = 0;
     let skipRest = null;
+    const queryResults = [];
     const meta = getBoardMeta(board);
     const jobspyFirst = boardPrefersJobspy(board, boardConfig, preferJobspy);
     const jobspySession = meta?.jobspy
@@ -777,7 +781,9 @@ async function main() {
           if (!canApi) return false;
           console.log(`  (${n}/${totalQueries}) [${board}] ${label} via api…`);
           try {
-            const jobs = await withRateLimitRetry(() => fetchGermanyPortal(board, query, opts, market));
+            const jobs = await withRateLimitRetry(() => board === 'companycareers'
+              ? fetchCompanyCareers(query, opts, market)
+              : fetchGermanyPortal(board, query, opts, market));
             for (const job of jobs) collected.push(job);
             count += jobs.length;
             if (jobs.length) {
@@ -785,9 +791,11 @@ async function main() {
               via = 'api';
             }
             console.log(`  (${n}/${totalQueries}) [${board}] ${label} via api — ${jobs.length} job(s)`);
+            queryResults.push({ query: query.what, count: jobs.length, ok: true });
             return jobs.length > 0;
           } catch (err) {
             noteFail(`api: ${err.message}`);
+            queryResults.push({ query: query.what, count: 0, ok: false, error: err.message });
             console.log(`  (${n}/${totalQueries}) [${board}] ${label} via api — failed (${err.message})`);
             return false;
           }
@@ -883,7 +891,7 @@ async function main() {
           consecutiveFails = 0;
         } else if (queryError) {
           consecutiveFails += 1;
-          skipRest = shouldAbandonBoard({
+          skipRest = board === 'companycareers' ? null : shouldAbandonBoard({
             consecutiveFails,
             lastError: queryError,
             flaky: Boolean(meta?.flaky),
@@ -904,14 +912,16 @@ async function main() {
       await jobspySession?.close();
     }
 
+    const successfulEmpty = count === 0 && queryResults.length > 0 && queryResults.every(q => q.ok);
     const statusError = summarizeFailures(failLog)
       || (skipRest ? `skipped remaining queries (${skipRest})` : null)
-      || (count === 0 ? '0 jobs (board returned nothing or is blocked)' : null);
+      || (count === 0 && !successfulEmpty ? '0 jobs (board returned nothing or is blocked)' : null);
     sourceStatus.push({
       board,
-      ok: count > 0,
+      ok: count > 0 || successfulEmpty,
       count,
       via,
+      ...(queryResults.length ? { queries: queryResults } : {}),
       ...(statusError ? { error: statusError } : {}),
       ...(skipRest ? { skipped: skipRest } : {}),
       ...(stoppedEarly ? { stopped: true } : {}),

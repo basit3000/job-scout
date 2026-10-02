@@ -1472,6 +1472,14 @@ a.btn.primary-link:hover {
   border-radius: 3px;
 }
 
+.requirement-coverage { margin: 12px 0; }
+.requirement-coverage summary { cursor: pointer; font-weight: 600; }
+.requirement-coverage-scroll { overflow-x: auto; }
+.requirement-coverage table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.requirement-coverage caption { text-align: left; padding: 8px 0; }
+.requirement-coverage th, .requirement-coverage td { text-align: left; vertical-align: top; padding: 8px; border-bottom: 1px solid var(--border); min-width: 100px; overflow-wrap: anywhere; }
+.requirement-coverage td:nth-child(4), .requirement-coverage td:nth-child(5) { min-width: 180px; }
+
 .prep-review {
   margin: 0.65rem 0 0.85rem;
   padding: 0.65rem 0.75rem;

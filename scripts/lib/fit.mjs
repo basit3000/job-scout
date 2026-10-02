@@ -1,6 +1,7 @@
 /** Heuristic fit score against state/memory.json (and optional evidence text). */
 import { analyzeKeywordGaps } from './cv-keywords.mjs';
 import { assessRequirements } from './match-requirements.mjs';
+import { titleVariants, matchesTitlePatterns } from './title-matching.mjs';
 export const FIT_VERDICTS = ['Strong', 'Worth a shot', 'Stretch', 'No'];
 
 
@@ -74,6 +75,17 @@ function mentions(haystack, skill) {
   return re.test(haystack);
 }
 
+/** Exact Memory bullets, linked to matched skills; never convert overlap to years. */
+export function relevantExperience(profile, matched) {
+  return (profile?.experience || []).map((role, index) => {
+    const bullets = (role.bullets || []).filter(b => matched.some(skill => mentions(String(b), skill)));
+    const skills = matched.filter(skill => bullets.some(b => mentions(String(b), skill)));
+    return { memoryPath: `facts.experience[${index}]`, title: role.title, org: role.org,
+      from: role.from, to: role.to, skills, bullets };
+  }).filter(role => role.bullets.length)
+    .sort((a, b) => b.skills.length - a.skills.length).slice(0, 3);
+}
+
 /**
  * @returns {{
  *   verdict: 'Strong'|'Worth a shot'|'Stretch'|'No',
@@ -96,9 +108,9 @@ export function scoreJob(job, profile, evidenceText = '', options = {}) {
   const reasons = [];
   let score = 40;
 
-  const titleHit =
-    (target && new RegExp(escapeRe(target), 'i').test(job.title))
-    || titles.some((t) => t.length > 2 && new RegExp(escapeRe(t), 'i').test(job.title));
+  const titlePatterns = [target, ...titles].filter(t => t.length > 2)
+    .flatMap(titleVariants).map(t => new RegExp(escapeRe(t), 'i'));
+  const titleHit = matchesTitlePatterns(job.title, titlePatterns);
   if (titleHit) {
     score += 18;
     reasons.push('Title aligns with target role / search titles');
@@ -240,6 +252,7 @@ export function scoreJob(job, profile, evidenceText = '', options = {}) {
     checklist,
     eligibility,
     experience: eligibility.experience,
+    relevantExperience: relevantExperience(profile, unique(matched)),
   };
 }
 

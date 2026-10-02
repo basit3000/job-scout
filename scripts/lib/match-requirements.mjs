@@ -56,7 +56,7 @@ export function assessRequirements(job, profile, evidence = '', options = {}) {
     requirements.push({ label: 'Employer does not sponsor', status: needs === true ? 'incompatible' : needs === false ? 'matched' : 'needs-checking',
       evidence: typeof needs === 'boolean' ? `Needs sponsorship: ${needs}` : 'Sponsorship need not recorded' });
   }
-  if (!String(job.description || '').trim()) requirements.push({ label: 'Full job description unavailable', status: 'needs-checking', evidence: 'Open the posting to check requirements' });
+  if (!String(job.description || '').trim() || (job.board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(job.description))) requirements.push({ label: 'Full job description unavailable', status: 'needs-checking', evidence: 'Open the posting to check requirements' });
   return { requirements, experience: experience.candidate, status: requirements.some((r) => !r.optional && r.status === 'incompatible') ? 'incompatible'
     : requirements.some((r) => !r.optional && ['needs-checking', 'shortfall'].includes(r.status)) ? 'needs-checking' : 'matched' };
 }

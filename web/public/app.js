@@ -6,6 +6,7 @@ import { mountPager } from './pagination.js';
 import { openApplicationEditor } from './application-editor.js';
 import { ACTIVE_STATUSES, validDateKey, followUpState, trackerSummary, filterTracker } from './tracker-view.js';
 import { createActivity } from './activity.js';
+import { renderRequirementCoverage } from './review-coverage.js';
 
 const $ = (id) => document.getElementById(id);
 mountAtsCheck();
@@ -1084,7 +1085,9 @@ function renderJob(job, { compact = false } = {}) {
     const desc = el.querySelector('.job-desc');
     fitBox.innerHTML = fit
       ? `<strong>Why:</strong> ${(fit.reasons || []).map(escapeHtml).join(' · ')}
-         <ul>${(fit.gaps || []).slice(0, 5).map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>`
+         <ul>${(fit.gaps || []).slice(0, 5).map((g) => `<li>${escapeHtml(g)}</li>`).join('')}</ul>
+         ${(fit.relevantExperience || []).length ? '<strong>Supporting experience from Memory</strong>' : ''}
+         ${(fit.relevantExperience || []).map(role => `<p>${escapeHtml(role.title || '')} — ${escapeHtml(role.org || '')}</p><ul>${role.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('')}</ul>`).join('')}`
       : '';
     desc.textContent = job.description
       || (job.hasDescription === false
@@ -1691,7 +1694,7 @@ function reviewSectionHtml(label, block, href) {
     : '';
   return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(reviewScoreBits(block.scores))}${escapeHtml(loop)}${
     href ? ` · <a href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ''
-  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}`;
+  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}${renderRequirementCoverage(block.requirementCoverage)}`;
 }
 
 function reviewPanel(review, jobId) {

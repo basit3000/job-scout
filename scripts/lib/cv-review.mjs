@@ -11,6 +11,7 @@ import { ROOT } from './common.mjs';
 import { currentEvidenceRel, runCvTailorAgent } from './cv-agent.mjs';
 import { verifyCvAfterAgent, verifyLetterAfterAgent } from './cv-verify.mjs';
 import { DOCUMENT_FILES, documentFingerprint, stageFinalDocumentText } from './review-documents.mjs';
+import { parseRequirementCoverage } from './review-coverage.mjs';
 
 export const ACCEPTED_DIR = 'accepted';
 const MAX_MUST_FIX = 6;
@@ -70,7 +71,10 @@ export function parseReviewMarkdown(md, scope = 'cv') {
   const gaps = bulletsUnder(src, 'Gaps \\(do not invent\\)')
     .concat(bulletsUnder(src, 'Gaps'));
   const requiredScores = scope === 'letter' ? ['postingFit', 'coverLetter'] : ['ats', 'postingFit', 'recruiterScan'];
+  const coverage = parseRequirementCoverage(src);
   const valid = verdict !== 'not_reviewed' && /^##\s+Must fix\s*$/im.test(src)
+    && !coverage.error
+    && !(verdict === 'pass' && coverage.rows.some(row => row.status === 'unsupported-claim'))
     && requiredScores.every((key) => scores[key] !== null)
     && (verdict === 'revise' ? mustFix.length > 0 : mustFix.length === 0);
   if (!valid) verdict = 'not_reviewed';
@@ -81,8 +85,9 @@ export function parseReviewMarkdown(md, scope = 'cv') {
     shouldFix,
     fine,
     gaps,
+    requirementCoverage: coverage.rows,
     empty: !src,
-    error: valid ? null : 'Reviewer output is missing, malformed, or contradictory',
+    error: valid ? null : coverage.error || 'Reviewer output is missing, malformed, or contradictory',
   };
 }
 
@@ -196,6 +201,7 @@ function toPublicReview(parsed, extra = {}) {
     mustFix: parsed.mustFix,
     shouldFix: parsed.shouldFix,
     gaps: parsed.gaps,
+    requirementCoverage: parsed.requirementCoverage,
     ranFixLoop: Boolean(extra.ranFixLoop),
     restored: Boolean(extra.restored),
     error: extra.error || null,

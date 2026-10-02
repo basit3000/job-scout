@@ -89,6 +89,66 @@ boards are filled for you to inspect and submit yourself.
 
 ## Job fit and reranking
 
+### Additional employer searches
+
+Enable **Company careers** in Portals to search the `companies` watchlist in your
+ignored `search-profile.json`. It runs once per employer, alongside the other
+selected boards, and merges results into the same `.workspace/jobs.json` archive.
+The existing title, country, age and decision filters still apply. A successful
+empty employer search means no matching jobs were returned by that source; it is
+not proof that the employer has no vacancies. Per-employer results are recorded
+in `sourceStatus[].queries`.
+
+```json
+"companies": [
+  { "name": "Example Employer", "aliases": ["Example Subsidiary"] },
+  { "name": "Example ATS Employer", "provider": "personio", "tenant": "example" }
+]
+```
+
+An entry without `provider` searches Arbeitsagentur by employer and your saved
+role titles, then verifies the returned employer name. This is indirect coverage,
+not a complete crawl of that employer's careers site. Public feed options are
+`personio` and `greenhouse` (with `tenant`); `amazon` accepts an optional
+`searchTerm`; `jsonld` accepts `careersUrl` and `jobLinkPattern` for same-origin
+job links containing structured JobPosting data. Keep watchlists in the private
+configuration, not candidate facts. Other markets are currently unsupported.
+
+Arbeitsagentur fetches full posting details for matching, including requirements.
+If detail retrieval fails, the listing is retained with unknown requirements.
+Opening an older Arbeitsagentur listing also replaces the former occupation-only
+description when its details are available. Supporting experience in job details
+quotes matching Memory bullets with their role and employer; skill overlap does
+not establish skill-specific years of experience.
+
+Fetch and the current-search view use the same configured age limit. A CLI
+`--max-age-days` override affects that fetch only; it does not change view settings.
+
+### Matching
+
+Title matching recognizes a small set of equivalent phrases across fetching,
+company sources, current-search filtering and scoring. For example, **Software
+Development Engineer** and **Software Dev Engineer** can match **Software
+Engineer**. Back-end/backend and fullstack/full stack spellings also match.
+The displayed title stays unchanged, including seniority and specialty. Exclusions
+still apply. Search queries add the Development Engineer wording when a saved
+search title includes Software Engineer; Memory itself is not rewritten. Ambiguous
+titles such as Product Engineer and Founding Engineer are not automatically widened.
+
+New CV and letter reviews include a **Requirement coverage** table, also shown in
+the Prep results. Each row contains the posting requirement, required/preferred/
+unknown priority, status, a Memory evidence citation and the final document's
+wording or location. Statuses are supported, partial, gap, unknown, and
+unsupported-claim. Missing or malformed tables and pass verdicts containing
+unsupported claims cannot pass the new review gate. After a repair, the reviewer
+checks the final rendered document and updates the table.
+
+A passing document review means the document has no required correction; it does
+not mean the candidate meets every employer requirement. Honest gaps stay visible.
+Skill keywords do not establish years of experience, projects are not employment,
+and missing dates or sponsorship answers remain unknown. Existing accepted
+documents are preserved; the coverage table appears when they are reviewed again.
+
 Job fit uses CV skills and confirmed work-history dates in Memory. It merges
 overlapping employment, excludes gaps and personal projects, and labels student /
 part-time calendar duration without treating it as full-time-equivalent experience.

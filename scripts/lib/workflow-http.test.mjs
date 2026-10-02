@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { ROOT } from './common.mjs';
 import { pdfFixture } from '../test-helpers/pdf-fixture.mjs';
+import { REVIEW_COVERAGE } from '../test-helpers/review-fixture.mjs';
 
 test('HTTP workflow filters history, exports per job, regenerates stale packs and preserves a good CV on overflow', { timeout: 60000 }, async (t) => {
   const parent = join(ROOT, '.workspace', 'tests');
@@ -71,7 +72,7 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
         if (prompt.includes('review-context.md')) {
           const letter = prompt.includes('letter-review-context.md');
           await writeFile(join(dir, letter ? 'cover-letter-review.md' : 'review.md'),
-            'Verdict: pass\\nATS: 9/10\\nPosting fit: 9/10\\nRecruiter scan: 9/10\\nCover letter: 9/10\\n\\n## Must fix\\n- _none_\\n');
+            'Verdict: pass\\nATS: 9/10\\nPosting fit: 9/10\\nRecruiter scan: 9/10\\nCover letter: 9/10\\n\\n## Must fix\\n- _none_\\n' + ${JSON.stringify(REVIEW_COVERAGE)});
         } else if (!prompt.startsWith('Cover letter tailor')) {
           await writeFile(join(dir,'cv.md'), await readFile(join(ROOT,'cv/resume.md'),'utf8'));
         }

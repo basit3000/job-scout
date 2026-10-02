@@ -6,6 +6,7 @@ import { readMemorySync } from './memory.mjs';
 import { personalCvRules } from './cv-preferences.mjs';
 import { defaultPromptSettings, localPromptInstructions } from './prompt-settings.mjs';
 import { styleRulesMarkdown } from './cv-style.mjs';
+import { COVERAGE_HEADER, COVERAGE_SEPARATOR } from './review-coverage.mjs';
 
 export function loadLocalAgentRules() {
   const memory = readMemorySync();
@@ -64,6 +65,7 @@ export function buildReviewerBrief({ scope = 'cv', ...options } = {}) {
     `# Review the ${scope === 'letter' ? 'cover letter' : 'CV'}`,
     'Compare the final document and extracted PDF text with the evidence, posting and candidate instructions. Write only the review file.',
     'Check factual support, completeness, relevance and readability. Flag missing evidence as a gap, not an instruction to invent it.',
+    'Map the posting requirements to the Memory evidence and the final document in the required Requirement coverage table. Document quality passing is not a promise that the candidate meets every job requirement.',
     'Verdict: pass when no required fix remains; revise when a supported factual or document correction is needed.',
     'Use at most six Must fix items with document locations and evidence. Keep optional style suggestions under Should fix.',
     'After repair, verify the original issues and any factual regressions. Do not introduce new stylistic requirements.',
@@ -286,9 +288,21 @@ export function buildReviewerPrompt({
     '',
     '## Gaps (do not invent)',
     '- …',
+    '',
+    '## Requirement coverage',
+    COVERAGE_HEADER,
+    COVERAGE_SEPARATOR,
+    '| Exact requirement from posting | required | unknown | Explain missing candidate evidence | Quote and locate the document wording, or Not included |',
     '```',
     '',
     'Scores are integers 1–10. Use Verdict `revise` only when Must fix is not `_none_`.',
+    'Replace the example coverage row. Cover every explicit hard requirement (including language, experience, qualifications and work authorization), the core responsibilities, and relevant preferred criteria. Do not turn preferred wording into a requirement.',
+    'Priority must be required, preferred, or unknown. Status must be supported, partial, gap, unknown, or unsupported-claim.',
+    'For supported/partial rows, cite the exact Memory record (role/employer, project, skill, language or saved answer) and quote its relevant evidence. Quote the final rendered document and identify its section/bullet, or write Not included.',
+    'A keyword alone does not establish years or depth. Keep employment, student work and projects separate. Missing dates, skill-specific years, sponsorship and ambiguous alternatives stay unknown.',
+    'A gap means the candidate lacks evidence; it is not a repair instruction. An unsupported-claim means the document claims something the evidence does not support: use revise and add a specific Must fix. An honestly omitted qualification may remain a gap in a passing document review.',
+    'If the full posting is unavailable, include an unknown row explaining that requirements could not be assessed. Do not infer requirements from a title.',
+    'Use one table row per requirement. Escape literal pipes inside cells as \\| and keep each cell on one line. Recheck the table against the final rendered text after repair.',
     'Do not edit any other file. Do not stop at a plan — write the review file.',
   ].join('\n');
 }

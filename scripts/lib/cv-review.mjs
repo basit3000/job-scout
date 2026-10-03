@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { ROOT } from './common.mjs';
+import { overleafDir } from './overleaf-workspace.mjs';
 import { currentEvidenceRel, runCvTailorAgent } from './cv-agent.mjs';
 import { verifyCvAfterAgent, verifyLetterAfterAgent } from './cv-verify.mjs';
 import { DOCUMENT_FILES, documentFingerprint, stageFinalDocumentText } from './review-documents.mjs';
@@ -70,12 +71,19 @@ export function parseReviewMarkdown(md, scope = 'cv') {
   const fine = bulletsUnder(src, 'Fine as-is');
   const gaps = bulletsUnder(src, 'Gaps \\(do not invent\\)')
     .concat(bulletsUnder(src, 'Gaps'));
+  const needsInput = verdictRaw.toLowerCase().replace(/[`*]/g, '') === 'needs_input';
+  const limitations = bulletsUnder(src, 'Review limitations');
+  const inputError = needsInput
+    ? `Reviewer could not complete the review: ${limitations.join('; ') || shouldFix.find(item => /^Review limitation:/i.test(item)) || 'required review inputs are missing or incomplete. Scores are provisional.'}`
+    : null;
   const requiredScores = scope === 'letter' ? ['postingFit', 'coverLetter'] : ['ats', 'postingFit', 'recruiterScan'];
   const coverage = parseRequirementCoverage(src);
+  const fitNotAssessed = /^Posting fit:[ \t]*N\/A[ \t]*$/im.test(src)
+    && limitations.length > 0 && coverage.rows.some(row => row.status === 'unknown');
   const valid = verdict !== 'not_reviewed' && /^##\s+Must fix\s*$/im.test(src)
     && !coverage.error
     && !(verdict === 'pass' && coverage.rows.some(row => row.status === 'unsupported-claim'))
-    && requiredScores.every((key) => scores[key] !== null)
+    && requiredScores.every((key) => scores[key] !== null || (key === 'postingFit' && fitNotAssessed))
     && (verdict === 'revise' ? mustFix.length > 0 : mustFix.length === 0);
   if (!valid) verdict = 'not_reviewed';
   return {
@@ -85,9 +93,10 @@ export function parseReviewMarkdown(md, scope = 'cv') {
     shouldFix,
     fine,
     gaps,
+    limitations,
     requirementCoverage: coverage.rows,
     empty: !src,
-    error: valid ? null : coverage.error || 'Reviewer output is missing, malformed, or contradictory',
+    error: valid ? null : inputError || coverage.error || 'Reviewer output is missing, malformed, or contradictory',
   };
 }
 
@@ -109,7 +118,7 @@ export async function copyAcceptedCv({ prepDir, cvSource }) {
   const saved = [];
   if (cvSource === 'overleaf') {
     for (const name of ['main.tex', 'ats.tex']) {
-      const src = join(ROOT, '.workspace', 'overleaf', name);
+      const src = join(overleafDir(), name);
       if (!existsSync(src)) continue;
       await writeFile(join(dir, name), await readFile(src, 'utf8'));
       saved.push(name);
@@ -131,7 +140,7 @@ export async function restoreAcceptedCv({ prepDir, cvSource }) {
     for (const name of ['main.tex', 'ats.tex']) {
       const src = join(dir, name);
       if (!existsSync(src)) continue;
-      await writeFile(join(ROOT, '.workspace', 'overleaf', name), await readFile(src, 'utf8'));
+      await writeFile(join(overleafDir(), name), await readFile(src, 'utf8'));
       restored.push(name);
     }
   } else {
@@ -201,6 +210,7 @@ function toPublicReview(parsed, extra = {}) {
     mustFix: parsed.mustFix,
     shouldFix: parsed.shouldFix,
     gaps: parsed.gaps,
+    limitations: parsed.limitations || [],
     requirementCoverage: parsed.requirementCoverage,
     ranFixLoop: Boolean(extra.ranFixLoop),
     restored: Boolean(extra.restored),
@@ -234,19 +244,22 @@ export async function runReviewerPass({
     if (letterScope) result.letter = await readFile(join(prepDir, 'cover-letter.md'), 'utf8').catch(() => letter);
     return result;
   };
-  const inspect = async (checks = []) => {
+  const inspect = async (checks = [], retry = false) => {
     const finalName = await stageText(prepDir, scope);
     // Never reuse a report from a previous attempt or generation.
     await unlink(join(prepDir, reviewName)).catch((e) => { if (e.code !== 'ENOENT') throw e; });
     const protectedPaths = [...DOCUMENT_FILES.cv, ...DOCUMENT_FILES.letter].map((n) => join(prepDir, n));
-    if (cvSource === 'overleaf') protectedPaths.push(...['main.tex', 'ats.tex'].map((n) => join(ROOT, '.workspace', 'overleaf', n)));
+    if (cvSource === 'overleaf') protectedPaths.push(...['main.tex', 'ats.tex'].map((n) => join(overleafDir(), n)));
     const snapshot = new Map();
     for (const path of protectedPaths) snapshot.set(path, await readFile(path).catch((e) => { if (e.code !== 'ENOENT') throw e; return null; }));
     let agentError;
     try {
       await runAgent({ ...common, task: letterScope ? 'review-letter' : 'review-cv',
+        ...(retry ? { extraInstructions: [extraInstructions,
+          'Automatic review retry: complete the review using the supplied primary evidence and final document. Missing job details or optional inputs are non-blocking limitations; omit unsupported claims and use Posting fit: N/A with an unknown coverage row if needed. Do not request manual input for optional gaps. Follow the exact review output format. Do not approve if essential candidate evidence or final document checks are unavailable, if any unsupported claim remains, or if a required fix is unresolved.',
+        ].filter(Boolean).join('\n\n') } : {}),
         finalTextRel: `${relToRoot(prepDir)}/${finalName}`, repairChecks: checks,
-        sessionKey: `${stage}Review${checks.length ? 'Check' : ''}` });
+        sessionKey: `${stage}Review${checks.length ? 'Check' : ''}${retry ? 'Retry' : ''}` });
     } catch (e) { agentError = e; }
     let changed = false;
     for (const [path, before] of snapshot) {
@@ -259,7 +272,12 @@ export async function runReviewerPass({
     }
     if (changed) throw new Error('Reviewer changed a document; original documents restored');
     if (agentError) throw agentError;
-    return parseReviewMarkdown(await readReviewFile(prepDir, scope), scope);
+    const parsed = parseReviewMarkdown(await readReviewFile(prepDir, scope), scope);
+    if (parsed.verdict === 'not_reviewed' && !parsed.empty && !retry) {
+      emit('Reviewer returned an incomplete assessment. Retrying once with optional-input guidance.');
+      return inspect(checks, true);
+    }
+    return parsed;
   };
   try {
     await unlink(join(prepDir, reviewName)).catch((e) => { if (e.code !== 'ENOENT') throw e; });

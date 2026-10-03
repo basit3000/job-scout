@@ -202,4 +202,26 @@ describe('review context and repair boundaries', () => {
     assert.doesNotMatch(repair, /third to half|Every.*phrase|First screen/);
     assert.doesNotMatch(buildAgentBrief({ localRules: '' }), /Change about a third to half/);
   });
+
+  it('omits unavailable optional context without hiding missing primary evidence', async () => {
+    const options = { ...base, finalTextRel: 'final.md', notesRel: 'notes.md', scope: 'letter', letterRel: 'letter.md' };
+    const prompt = buildReviewerPrompt(options);
+    const missing = async path => {
+      if (['notes.md', base.gapsRel].includes(path)) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+      return `Primary input ${path}`;
+    };
+    const packet = await inlineReviewContext(prompt, missing, { optionalPaths: ['notes.md', base.gapsRel] });
+    assert.match(packet, /Optional input unavailable/);
+    assert.match(packet, /Primary input final.md/);
+    assert.match(packet, /Primary input letter.md/);
+    for (const path of [base.evidenceRel, 'final.md', 'letter.md']) {
+      await assert.rejects(inlineReviewContext(prompt, async p => {
+        if (p === path) throw Object.assign(new Error('essential missing'), { code: 'ENOENT' });
+        return 'input';
+      }, { optionalPaths: ['notes.md'] }), /essential missing/);
+    }
+    await assert.rejects(inlineReviewContext(prompt, async () => {
+      throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+    }, { optionalPaths: [base.briefRel] }), /permission denied/);
+  });
 });

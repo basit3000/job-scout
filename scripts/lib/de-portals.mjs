@@ -37,7 +37,7 @@ function decodeEntities(text) {
     .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)));
 }
 
-async function fetchText(url, { accept = 'text/html', timeoutMs = 8000 } = {}) {
+async function fetchText(url, { accept = 'text/html', timeoutMs = 8000, signal } = {}) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -48,7 +48,7 @@ async function fetchText(url, { accept = 'text/html', timeoutMs = 8000 } = {}) {
         'Accept-Language': 'en,de;q=0.9',
       },
       redirect: 'follow',
-      signal: ctrl.signal,
+      signal: signal ? AbortSignal.any([ctrl.signal, signal]) : ctrl.signal,
     });
     if (!res.ok) return { ok: false, status: res.status, text: '' };
     return { ok: true, status: res.status, text: await res.text() };
@@ -117,11 +117,12 @@ export function parseMunichJobHtml(html) {
   return pickDescription(source.match(/<article[\s\S]*?<\/article>/i)?.[0]);
 }
 
-async function fetchPegelDescription(id) {
+async function fetchPegelDescription(id, signal) {
   if (!id) return null;
   const res = await fetchText(`${PEGEL_BASE}/jobs/${encodeURIComponent(id)}`, {
     accept: 'application/json',
     timeoutMs: 8000,
+    signal,
   });
   if (!res.ok) return null;
   try {
@@ -133,15 +134,17 @@ async function fetchPegelDescription(id) {
   }
 }
 
-async function fetchDescriptionFromUrl(url, board) {
+async function fetchDescriptionFromUrl(url, board, signal) {
   if (!url) return null;
   try {
-    const host = new URL(url).hostname.replace(/^www\./, '');
-    if (/linkedin\.com$|indeed\.com$|glassdoor\./i.test(host)) return null;
+    const parsed = new URL(url);
+    if (!['https:', 'http:'].includes(parsed.protocol)) return null;
+    const host = parsed.hostname.replace(/^www\./, '');
+    if (/indeed\.com$|glassdoor\./i.test(host)) return null;
   } catch {
     return null;
   }
-  const res = await fetchText(url);
+  const res = await fetchText(url, { signal });
   if (!res.ok || !res.text) return null;
   if (board === 'nomado24') return parseNomadoJobHtml(res.text);
   if (board === 'munichstartup') return parseMunichJobHtml(res.text);
@@ -150,33 +153,38 @@ async function fetchDescriptionFromUrl(url, board) {
 
 /**
  * Fill a stored job that has no description (Details expand / re-fetch).
- * Returns plain text or null. Does not scrape LinkedIn/Indeed.
+ * Returns plain text or null from public pages/APIs; no login or paid fallback.
  */
-export async function hydrateJobDescription(job) {
+export function hasJobDescription(job) {
+  const text = String(job?.description || '').trim();
+  return Boolean(text && !(job?.board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(text)));
+}
+
+export async function hydrateJobDescription(job, { signal } = {}) {
   const existing = String(job?.description || '').trim();
   const board = job?.board;
-  if (existing && !(board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(existing))) return existing;
+  if (hasJobDescription(job)) return existing;
   try {
     if (board === 'arbeitsagentur') {
       const ref = job.nativeId || decodeURIComponent(new URL(job.url).pathname.split('/').pop());
-      return await fetchArbeitsagenturDescription(ref);
+      return await fetchArbeitsagenturDescription(ref, { signal });
     }
     if (board === 'pegel') {
-      const fromApi = await fetchPegelDescription(pegelIdFromJob(job));
+      const fromApi = await fetchPegelDescription(pegelIdFromJob(job), signal);
       if (fromApi) return fromApi;
     }
-    return await fetchDescriptionFromUrl(job?.url, board);
+    return await fetchDescriptionFromUrl(job?.url, board, signal);
   } catch {
     return null;
   }
 }
 
-export async function fetchArbeitsagenturDescription(ref) {
+export async function fetchArbeitsagenturDescription(ref, { signal } = {}) {
   if (!ref) return null;
   const code = encodeURIComponent(Buffer.from(String(ref)).toString('base64'));
   const res = await fetch(`${AA_BASE}/pc/v4/jobdetails/${code}`, {
     headers: { 'X-API-Key': AA_KEY, Accept: 'application/json', 'User-Agent': AA_UA },
-    signal: AbortSignal.timeout(12000),
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(12000)]) : AbortSignal.timeout(12000),
   });
   if (!res.ok) throw new Error(`Arbeitsagentur details HTTP ${res.status}`);
   const data = await res.json();

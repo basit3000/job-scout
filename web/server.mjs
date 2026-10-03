@@ -26,11 +26,11 @@ import { rankingEvidence } from '../scripts/lib/rank.mjs';
 import { createScoreCache } from '../scripts/lib/score-cache.mjs';
 const cachedScorer = createScoreCache(scoreJob);
 import { readPrepPack, readPrepFile, loadPrepFlagsIndex, prepFlagsForJob, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
-import { cancelCvTailorAgent } from '../scripts/lib/cv-agent.mjs';
+import { createPreparationRuns } from '../scripts/lib/preparation-runs.mjs';
+import { downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mjs';
 import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
 import { handleMemoryApi } from './memory-routes.mjs';
 import { GOOSE_TOOLS, validateGooseRequest } from '../scripts/lib/goose-tools.mjs';
-let gooseController = null;
 let batchController = null;
 import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
 import { detectAts } from '../scripts/lib/ats.mjs';
@@ -80,15 +80,11 @@ const fetchState = {
   buffer: [],
 };
 
+const prepRuns = createPreparationRuns({ onChange: () => invalidateJobsCache() });
 const prepState = {
-  running: false,
-  jobId: null,
-  startedAt: null,
-  stopping: false,
-  clients: new Set(),
-  buffer: [],
-  result: null,
-  error: null,
+  get running() { return prepRuns.busy; },
+  get jobId() { return prepRuns.snapshots()[0]?.jobId || null; },
+  get startedAt() { return prepRuns.snapshots()[0]?.startedAt || null; },
 };
 
 /**
@@ -216,7 +212,7 @@ async function runPrepBatch(jobsById, profile, saved, { extraInstructions, templ
           }
         }
         const fit = job.fit || scoreJob(job, profile);
-        const result = await runGoosePipeline({ job, profile, fit, savedAnswers: saved,
+        const result = await runGoosePipeline({ job, profile, fit, savedAnswers: saved, persistDescription: persistJobDescription,
           signal: batchController.signal,
           request: { templateIds, tools: ['inspect_job', 'inspect_cv', 'prepare_cv',
             ...(batchState.includeCoverLetter ? ['prepare_letter'] : []), 'inspect_reviews'],
@@ -427,25 +423,6 @@ function sseSend(res, event, data) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
-function broadcastPrep(event, data) {
-  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const client of prepState.clients) {
-    try {
-      client.write(payload);
-    } catch {
-      prepState.clients.delete(client);
-    }
-  }
-}
-
-function prepLog(line, stream = 'stdout') {
-  const entry = { stream, line: String(line), t: Date.now() };
-  prepState.buffer.push(entry);
-  if (prepState.buffer.length > 800) prepState.buffer.shift();
-  broadcastPrep('log', entry);
-  return entry;
-}
-
 function broadcast(event, data) {
   for (const client of [...fetchState.clients]) {
     try {
@@ -520,6 +497,7 @@ async function getStatus({ light = false } = {}) {
     prepRunning: Boolean(prepState.running),
     prepJobId: prepState.jobId,
     prepStartedAt: prepState.startedAt,
+    prepRuns: prepRuns.snapshots(),
     batch: batchSnapshot({ withItems: false }),
     readyCount,
     digestNewCount: digest?.newCount ?? 0,
@@ -569,7 +547,14 @@ function invalidateJobsCache() {
   jobsEnrichCache = { at: 0, data: null, inflight: null };
 }
 
-async function persistJobDescription(id, description) {
+let descriptionWrites = Promise.resolve();
+function persistJobDescription(id, description) {
+  const pending = descriptionWrites.then(() => writeJobDescription(id, description));
+  descriptionWrites = pending.catch(() => {});
+  return pending;
+}
+
+async function writeJobDescription(id, description) {
   const path = join(workspaceDir(), 'jobs.json');
   const data = await loadJson(path, null);
   if (!data?.jobs) return false;
@@ -630,7 +615,7 @@ async function enrichJobs({ force = false } = {}) {
         const manifest = flags.tailoredCv || flags.tailoredPdf || flags.coverLetter
           ? await loadJson(join(prepDir(job.id), 'generation.json'), null) : null;
         const freshnessOptions = { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter };
-        const freshness = (flags.tailoredCv || flags.tailoredPdf || flags.coverLetter) && savedTemplateIds(job.id).length
+        const freshness = (flags.tailoredCv || flags.tailoredPdf || flags.coverLetter) && (savedTemplateIds(job.id).length || cvSettings.source === 'overleaf')
           ? await withJobTemplate(job.id, null, async () => prepStatus(job, profile, await loadCvSettings(), freshnessOptions))
           : assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs }, freshnessOptions);
         const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
@@ -1110,7 +1095,6 @@ async function handleApi(req, res, url) {
   if (await handleCvTemplateApi(req, res, url, { json, readBody, busy: prepState.running || batchState.running })) return;
 
   if (req.method === 'POST' && path === '/api/prep') {
-    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
     const body = await readBody(req);
     let request;
     try { request = validateGooseRequest(body); cvOptionsInstructions(request.cvOptions, await readMemory());
@@ -1126,35 +1110,21 @@ async function handleApi(req, res, url) {
     const profile = await loadCandidateProfile();
     if (!profile) return json(res, 400, { error: 'Complete Memory setup first' });
     const savedAnswers = await loadSavedAnswers();
-    // Recheck after asynchronous reads before reserving the shared Prep slot.
-    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
+    if (batchState.running && batchState.items.some(item => item.id === job.id && ['pending', 'running'].includes(item.status))) {
+      return json(res, 409, { error: 'This job is already queued or running in Batch Prep.' });
+    }
     const fit = job.fit || scoreJob(job, profile);
-    gooseController = new AbortController();
-    const signal = gooseController.signal;
-    Object.assign(prepState, { running: true, jobId: job.id, startedAt: new Date().toISOString(),
-      stopping: false, buffer: [], result: null, error: null });
-    void (async () => {
-      try {
-        prepLog(`Goose agentic workflow: ${request.tools.join(', ')}`, 'meta');
-        const result = await runGoosePipeline({ job, profile, fit, savedAnswers, request, signal,
-          onEvent: (entry) => prepLog(entry.line, entry.stream) });
+    try {
+      const started = prepRuns.start(job.id, async (signal, log) => {
+        log(`Goose agentic workflow: ${request.tools.join(', ')}`);
+        const result = await runGoosePipeline({ job, profile, fit, savedAnswers, request, signal, persistDescription: persistJobDescription,
+          onEvent: (entry) => log(entry.line, entry.stream) });
         if (result.pack) await attachPrepPath(job, result.pack);
-        prepState.result = { ok: true, ...result, fit, mode: 'agentic', jobId: job.id, startedAt: prepState.startedAt };
-        broadcastPrep('done', prepState.result);
-      } catch (error) {
-        prepState.error = error.message;
-        prepLog(`Goose workflow ${signal.aborted ? 'cancelled' : 'failed'}: ${error.message}`, 'stderr');
-        prepState.result = { ok: false, cancelled: signal.aborted, error: error.message, jobId: job.id, startedAt: prepState.startedAt };
-        broadcastPrep('done', prepState.result);
-      } finally {
-        gooseController = null;
-        prepState.running = false;
-        prepState.stopping = false;
-        invalidateJobsCache();
-      }
-    })();
-    return json(res, 202, { ok: true, started: true, mode: 'agentic', jobId: job.id,
-      startedAt: prepState.startedAt, stream: '/api/prep/stream' });
+        return { ...result, fit, mode: 'agentic' };
+      });
+      return json(res, 202, { ok: true, started: true, mode: 'agentic', ...started,
+        stream: `/api/prep/stream?runId=${started.runId}` });
+    } catch (error) { return json(res, 409, { error: error.message }); }
   }
 
   // ---- Batch Prep -------------------------------------------------------
@@ -1178,9 +1148,6 @@ async function handleApi(req, res, url) {
     if (batchState.running) {
       return json(res, 409, { error: 'A batch is already running', batch: batchSnapshot({ withItems: false }) });
     }
-    if (prepState.running) {
-      return json(res, 409, { error: 'A single Prep run is in progress — wait for it to finish', jobId: prepState.jobId });
-    }
     const profile = await loadCandidateProfile();
     if (!profile) return json(res, 400, { error: 'Complete Memory setup first' });
     const enriched = await enrichJobs();
@@ -1192,7 +1159,7 @@ async function handleApi(req, res, url) {
       ? body.extraInstructions.trim().slice(0, 500)
       : '';
 
-    if (prepState.running || batchState.running) return json(res, 409, { error: 'Preparation is already running.' });
+    if (batchState.running || ids.some(id => prepRuns.activeForJob(id))) return json(res, 409, { error: 'A selected job is already preparing, or a batch is running.' });
     batchState.running = true;
     batchState.stopping = false;
     batchState.startedAt = new Date().toISOString();
@@ -1228,7 +1195,7 @@ async function handleApi(req, res, url) {
     }
     batchState.stopping = true;
     batchController?.abort();
-    const cancelled = await cancelCvTailorAgent();
+    const cancelled = Boolean(batchController);
     batchLog(
       cancelled
         ? 'Stop requested — cancelling the current agent run; remaining jobs will be skipped.'
@@ -1254,52 +1221,46 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (req.method === 'POST' && path === '/api/prep/open-folder') {
+    try {
+      if (req.headers.origin && new URL(req.headers.origin).host !== req.headers.host) {
+        return json(res, 403, { error: 'Open folders from the Job Scout app.' });
+      }
+      const body = await readBody(req);
+      if (typeof body.id !== 'string' || !body.id.trim()) return json(res, 400, { error: 'id is required' });
+      const { jobs } = await enrichJobs();
+      const job = jobs.find(job => job.id === body.id);
+      if (!job) return json(res, 404, { error: 'Job not found' });
+      const folder = await withJobTemplate(job.id, body.templateId, () => join(downloadsRoot(), jobDownloadFolder({
+        company: job.company, jobTitle: job.title, jobId: job.id,
+      })));
+      if (!(await stat(folder).catch(() => null))?.isDirectory()) {
+        return json(res, 404, { error: 'No saved download folder for this job yet. Complete preparation first.' });
+      }
+      const opened = await revealDownloadsFolder(folder);
+      if (!opened.ok) return json(res, 500, { error: `Could not open folder: ${opened.error}` });
+      return json(res, 200, { ok: true, folder });
+    } catch (error) { return json(res, 400, { error: error.message }); }
+  }
+
   if (req.method === 'POST' && path === '/api/prep/stop') {
-    if (!prepState.running) {
-      return json(res, 200, { ok: true, stopped: false, message: 'No prep run in progress' });
-    }
-    prepState.stopping = true;
-    gooseController?.abort(new Error('Goose workflow cancelled'));
-    const cancelled = await cancelCvTailorAgent();
-    prepLog(
-      cancelled
-        ? 'Stop requested — cancelling agent run…'
-        : 'Stop requested — agent cancel not supported; waiting for current step…',
-      'stderr',
-    );
-    return json(res, 200, { ok: true, stopped: cancelled });
+    try {
+      const body = await readBody(req);
+      const stopped = prepRuns.stop(body.runId);
+      return json(res, 200, { ok: true, stopped });
+    } catch (error) { return json(res, 400, { error: error.message }); }
   }
 
   if (req.method === 'GET' && path === '/api/prep/stream') {
+    const run = prepRuns.get(url.searchParams.get('runId'));
+    if (!run) return json(res, 404, { error: 'Preparation run not found. Use its runId.' });
     res.writeHead(200, {
       'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache, no-transform',
       connection: 'keep-alive',
     });
     res.write(': connected\n\n');
-    sseSend(res, 'status', {
-      running: Boolean(prepState.running),
-      jobId: prepState.jobId,
-      startedAt: prepState.startedAt,
-    });
-    for (const entry of prepState.buffer) sseSend(res, 'log', entry);
-    // Replay done only for an in-flight or just-finished run matching current jobId/startedAt
-    if (!prepState.running && prepState.result?.startedAt === prepState.startedAt) {
-      sseSend(res, 'done', prepState.result);
-    } else if (
-      !prepState.running
-      && prepState.error
-      && prepState.startedAt
-    ) {
-      sseSend(res, 'done', {
-        ok: false,
-        error: prepState.error,
-        jobId: prepState.jobId,
-        startedAt: prepState.startedAt,
-      });
-    }
-    prepState.clients.add(res);
-    req.on('close', () => prepState.clients.delete(res));
+    prepRuns.subscribe(run, res);
     return;
   }
 
@@ -1343,7 +1304,7 @@ async function handleApi(req, res, url) {
               const exported = await withJobTemplate(id, url.searchParams.get('template'), () => exportPrepDownloads(job, profile));
               folderHint = exported?.absoluteDir || '';
               if (url.searchParams.get('open') === '1' && folderHint) {
-                revealDownloadsFolder(folderHint);
+                await revealDownloadsFolder(folderHint);
               }
             }
           } catch {

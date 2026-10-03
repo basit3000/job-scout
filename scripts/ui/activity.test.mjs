@@ -32,7 +32,11 @@ test('activity remains visible and actionable through search and Prep lifecycles
   const pagination = { page: 1, pages: 1, pageSize: 10, total: jobs.length };
   const status = { marketId: 'DE', setup: { needsSetup: false }, cv: { source: 'local' }, sheets: { configured: false }, fetchRunning: false, prepRunning: false, digestNewCount: 0 };
   let failSearch = false;
+  let failFolder = false;
+  const folderRequests = [];
   let prepStartedAt;
+  let prepRunId;
+  const stopRequests = [];
   let searches = 0;
   let personalCvOptions = false;
   let templates = [{ id: 'default', name: 'Current CV format' }];
@@ -58,15 +62,25 @@ test('activity remains visible and actionable through search and Prep lifecycles
       const body = request.postDataJSON();
       data = await inspectAtsPdf(Buffer.from(body.pdf, 'base64'), body.keywords);
     }
+    else if (path === '/api/prep/open-folder') {
+      folderRequests.push(request.postDataJSON());
+      if (failFolder) { code = 500; data = { error: 'Synthetic folder launch failure' }; }
+      else data = { ok: true, folder: 'downloads/Example Company/Example Role' };
+    }
     else if (path === '/api/fetch') {
       searches++;
       if (failSearch) { code = 500; data = { error: 'Search provider unavailable' }; }
       else { status.fetchRunning = true; status.fetchStartedAt = new Date().toISOString(); data = { startedAt: status.fetchStartedAt }; }
-    } else if (path === '/api/fetch/stop' || path === '/api/prep/stop') data = { ok: true };
+    } else if (path === '/api/fetch/stop' || path === '/api/prep/stop') {
+      if (path === '/api/prep/stop') stopRequests.push(request.postDataJSON());
+      data = { ok: true };
+    }
     else if (path === '/api/prep') {
       prepRequests.push(request.postDataJSON());
       prepStartedAt = new Date().toISOString(); status.prepStartedAt = prepStartedAt; status.prepJobId = jobs[0].id; status.prepRunning = true;
-      data = { startedAt: prepStartedAt, jobId: jobs[0].id };
+      prepRunId = `run-${prepRequests.length}`;
+      data = { runId: prepRunId, startedAt: prepStartedAt, jobId: request.postDataJSON().id, running: true };
+      status.prepRuns = [...(status.prepRuns || []), data];
     } else { unexpected.push(path); data = {}; }
     await route.fulfill({ status: code, contentType: 'application/json', body: JSON.stringify(data) });
   });
@@ -78,11 +92,21 @@ test('activity remains visible and actionable through search and Prep lifecycles
       close() { this.readyState = 2; }
     };
   });
-  const emit = (url, type, data) => page.evaluate(({ url, type, data }) => {
+  const emit = (url, type, data) => {
+    if (url === '/api/prep/stream') {
+      data = { ...data, runId: data.runId || prepRunId };
+      url += `?runId=${encodeURIComponent(data.runId)}`;
+      if (type === 'done') {
+        status.prepRuns = (status.prepRuns || []).filter(run => run.runId !== data.runId);
+        status.prepRunning = status.prepRuns.length > 0;
+      }
+    }
+    return page.evaluate(({ url, type, data }) => {
     const stream = window.testStreams.findLast((s) => s.url === url && s.readyState !== 2);
     if (!stream) throw new Error(`Missing stream: ${url}`);
     stream.dispatchEvent(new MessageEvent(type, { data: JSON.stringify(data) }));
-  }, { url, type, data });
+    }, { url, type, data });
+  };
   const textIs = (selector, text) => page.waitForFunction(({ selector, text }) => document.querySelector(selector)?.textContent.includes(text), { selector, text });
   const waitReady = () => page.waitForFunction(() => !document.getElementById('runBtn').disabled);
   await page.goto(`http://127.0.0.1:${server.address().port}`);
@@ -148,12 +172,25 @@ test('activity remains visible and actionable through search and Prep lifecycles
     await page.locator('#prepModalRecreate').click();
     await textIs('#activityTitle', 'Preparing documents');
     status.prepRunning = false;
-    await emit('/api/prep/stream', 'done', { ok: true, startedAt: prepStartedAt, workflow: { status: 'completed', calls: [], summary: 'Documents reviewed.', auditPath: 'demo/run.json' }, pack: { jobId: jobs[0].id, relativeDir: 'Example Company', hasPdf: true } });
+    await emit('/api/prep/stream', 'done', { ok: true, startedAt: prepStartedAt, workflow: { status: 'completed', calls: [], summary: 'Documents reviewed.', auditPath: 'demo/run.json' }, pack: { jobId: jobs[0].id, relativeDir: 'Example Company', hasPdf: true,
+      review: { cv: { verdict: 'pass', scores: { ats: 8, recruiterScan: 8, postingFit: null }, limitations: ['Full job description unavailable.'] } } } });
     await textIs('#activityTitle', 'Preparation complete');
     assert.equal(await page.locator('#prepResultsDialog').getAttribute('open'), null, 'completion does not steal focus');
     await page.locator('#activityActions').getByRole('button', { name: 'View results' }).click();
     await page.locator('#prepResultsDialog[open]').waitFor();
     await textIs('#prepView', 'Documents reviewed.');
+    await textIs('#prepView', 'fit not assessed');
+    await textIs('#prepView', 'Full job description unavailable.');
+    assert.equal(await page.locator('.prep-review.revise').count(), 0, 'optional limitations are not a failed review');
+    await page.locator('#openCompanyFolder').click();
+    await textIs('#prepView [data-folder-status]', 'Folder window requested: downloads/Example Company/Example Role');
+    assert.equal(folderRequests.at(-1).id, jobs[0].id);
+    assert.equal(await page.locator('#openCompanyFolder').isEnabled(), true);
+    failFolder = true;
+    await page.locator('#openCompanyFolder').click();
+    await textIs('#prepView [data-folder-status]', 'Could not open folder: Synthetic folder launch failure');
+    assert.equal(await page.locator('#openCompanyFolder').isEnabled(), true);
+    failFolder = false;
     await page.locator('#backToLog').click();
     await page.locator('#activityDrawer[open]').waitFor();
     assert.equal(await page.locator('#prepResultsDialog').getAttribute('open'), null);
@@ -164,9 +201,11 @@ test('activity remains visible and actionable through search and Prep lifecycles
 
   await t.test('reloading reconnects Prep and mobile drawer fits the viewport', async () => {
     status.prepRunning = true; status.prepStartedAt = new Date().toISOString(); prepStartedAt = status.prepStartedAt;
+    prepRunId = 'reconnect-run';
+    status.prepRuns = [{ runId: prepRunId, jobId: jobs[0].id, startedAt: prepStartedAt, running: true }];
     await page.reload();
     await textIs('#activityTitle', 'Preparing documents');
-    await page.waitForFunction(() => window.testStreams.some((s) => s.url === '/api/prep/stream'));
+    await page.waitForFunction(() => window.testStreams.some((s) => s.url.startsWith('/api/prep/stream?runId=')));
     await emit('/api/prep/stream', 'status', { running: true, startedAt: prepStartedAt });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('#activityOpenBtn').click();
@@ -182,6 +221,24 @@ test('activity remains visible and actionable through search and Prep lifecycles
     status.prepRunning = false;
     await emit('/api/prep/stream', 'done', { ok: false, cancelled: true, startedAt: prepStartedAt, error: 'Cancelled' });
     await textIs('#activityTitle', 'Preparation stopped');
+  });
+  await t.test('parallel Prep streams reconnect and Stop targets only the chosen job', async () => {
+    const startedAt = new Date().toISOString();
+    status.prepRuns = jobs.slice(0, 2).map((job, index) => ({ runId: `parallel-${index}`, jobId: job.id, startedAt, running: true }));
+    status.prepRunning = true;
+    await page.reload();
+    await textIs('#activityCount', '2 running');
+    await page.locator('#activityOpenBtn').click();
+    await page.locator('#activityItems [data-activity-action="prep:demo-0:stop"]').click();
+    assert.deepEqual(stopRequests.at(-1), { runId: 'parallel-0' });
+    await emit('/api/prep/stream', 'done', { runId: 'parallel-0', startedAt, ok: false, cancelled: true });
+    await textIs('#activityCount', '1 running');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#jobList [data-prep]').nth(1).isDisabled(), true);
+    await emit('/api/prep/stream', 'done', { runId: 'parallel-1', startedAt, ok: true,
+      workflow: { status: 'completed', calls: [], summary: 'Reviewed.', auditPath: 'demo/run.json' } });
+    await textIs('[data-prep-job="demo-1"] [data-prep-status]', 'Preparation complete');
+    assert.equal(await page.locator('#jobList [data-prep]').nth(1).isEnabled(), true);
   });
   await t.test('a missed completion is recovered from the search stream snapshot', async () => {
     await page.locator('#runBtn').click();

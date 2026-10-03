@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createGooseToolBridge, validateGooseRequest } from './goose-tools.mjs';
 import { runGoose } from './goose-runtime.mjs';
-import { runGooseCoordinator } from './goose-pipeline.mjs';
+import { runGooseCoordinator, recoverJobDescription } from './goose-pipeline.mjs';
 import { assessPrep, prepFingerprint, generateDocuments } from './prep-state.mjs';
 import { suggestedGoosePrompt } from '../../web/public/goose-prep.js';
 
@@ -15,6 +15,29 @@ async function rpc(bridge, method, params = {}, headers = {}) {
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }) });
   return { status: response.status, body: await response.json() };
 }
+
+test('missing posting recovery persists public details and tolerates unavailable optional sources', async () => {
+  const job = { id: 'fixture:missing', board: 'arbeitsagentur', description: 'Beruf: Engineer' };
+  const saved = [];
+  const events = [];
+  const options = { onEvent: event => events.push(event.line), hydrate: async () => 'Build and test Python APIs.',
+    persistDescription: async (...args) => { saved.push(args); return true; } };
+  const recovered = await recoverJobDescription(job, options);
+  assert.equal(recovered.description, 'Build and test Python APIs.');
+  assert.deepEqual(saved, [[job.id, recovered.description]]);
+  assert.equal(job.description, 'Beruf: Engineer', 'original snapshot is not mutated');
+  assert.equal(await recoverJobDescription(recovered, { hydrate: () => assert.fail('must not refetch a complete posting') }), recovered);
+  for (const hydrate of [async () => null, async () => { throw new Error('offline'); }]) {
+    assert.equal(await recoverJobDescription(job, { ...options, hydrate }), job);
+  }
+  assert.equal(await recoverJobDescription(job, { ...options, persistDescription: async () => false }), job);
+  assert.ok(events.some(line => /job fit may remain unassessed/.test(line)));
+  const controller = new AbortController();
+  await assert.rejects(recoverJobDescription(job, { signal: controller.signal,
+    hydrate: async () => { controller.abort(new Error('cancelled')); return 'Recovered description'; },
+    persistDescription: () => assert.fail('cancelled recovery must not save'),
+  }), /cancelled/);
+});
 
 test('workflow validation rejects empty/unknown tools and invalid prompts', () => {
   for (const body of [{}, { tools: [], prompt: 'Review' }, { tools: ['shell'], prompt: 'Review' },
@@ -73,6 +96,28 @@ test('document calls are sequential and retrying a completed write is idempotent
   await rpc(bridge, 'tools/call', { name: 'prepare_cv' });
   assert.equal(calls, 1);
   assert.equal(bridge.calls[0].status, 'done');
+});
+
+test('inspection calls overlap, block writes, and are all drained on finish', async t => {
+  const release = Promise.withResolvers();
+  const firstStarted = Promise.withResolvers();
+  const secondStarted = Promise.withResolvers();
+  const bridge = await createGooseToolBridge({ tools: ['inspect_job', 'inspect_cv', 'prepare_cv'], handlers: {
+    inspect_job: async () => { firstStarted.resolve(); await release.promise; return {}; },
+    inspect_cv: async () => { secondStarted.resolve(); await release.promise; return {}; },
+    prepare_cv: async () => { throw new Error('write must not start during inspection'); },
+  } });
+  t.after(async () => { release.resolve(); await bridge.close(); });
+  const first = rpc(bridge, 'tools/call', { name: 'inspect_job' });
+  const second = rpc(bridge, 'tools/call', { name: 'inspect_cv' });
+  await Promise.all([firstStarted.promise, secondStarted.promise]);
+  assert.equal(bridge.calls.filter(call => call.status === 'running').length, 2);
+  assert.equal((await rpc(bridge, 'tools/call', { name: 'prepare_cv' })).body.result.isError, true);
+  const finished = bridge.finish();
+  release.resolve();
+  await finished;
+  for (const result of await Promise.all([first, second])) assert.equal(result.body.result.isError, undefined);
+  assert.ok(bridge.calls.every(call => call.status === 'done'));
 });
 
 test('cancelled runs reject further tool calls; failures remain in the audit', async (t) => {
@@ -148,11 +193,13 @@ function fakeGoose(source, capture = () => {}) {
 }
 
 test('Goose sends long prompts on stdin and joins fragmented stream text', async () => {
-  const prompt = 'x'.repeat(40_000);
+  const prompt = 'Review inputs start\n' + 'x'.repeat(40_000) + '\nMemory evidence in the middle\n' + 'x'.repeat(40_000) + '\nReview inputs end';
   const lines = [];
   const result = await runGoose({ binary: process.execPath, prompt, extensionUrl: 'http://127.0.0.1:1/mcp/test',
     onEvent: (event) => lines.push(event.line),
-    spawnImpl: fakeGoose(`process.stdin.resume(); process.stdin.on('end', () => {
+    spawnImpl: fakeGoose(`let input = ''; process.stdin.setEncoding('utf8'); process.stdin.on('data', chunk => input += chunk); process.stdin.on('end', () => {
+      const expected = 'Review inputs start\\n' + 'x'.repeat(40_000) + '\\nMemory evidence in the middle\\n' + 'x'.repeat(40_000) + '\\nReview inputs end';
+      if (input !== expected) process.exit(3);
       for (const text of ['hel','lo',' world']) console.log(JSON.stringify({type:'message', message:{role:'assistant',content:[{type:'text',text}]}}));
     });`, (_bin, args, opts) => {
       assert.equal(args.includes(prompt), false);

@@ -105,6 +105,13 @@ describe('cv-verify: parsing', () => {
     assert.ok(fresh.includes('10,000'));
     assert.ok(fresh.includes('5 years'));
   });
+
+  it('recognizes sourced percentages in LaTeX without licensing different metrics', () => {
+    const corpus = corpusFor(String.raw`Reduced latency by 40\%.`);
+    assert.deepEqual(newNumbers('Reduced latency by 40%.', corpus), []);
+    assert.ok(newNumbers('Reduced latency by 45%.', corpus).includes('45%'));
+    assert.ok(newNumbers('Managed a team of 40.', corpus).includes('team of 40'));
+  });
 });
 
 describe('cv-verify: tex gate', () => {
@@ -117,15 +124,91 @@ describe('cv-verify: tex gate', () => {
     `\\section*{Experience}\n\\role{${title}}{${org}}{${dates}}`);
   const corpus = corpusFor(ATS, JSON.stringify(experience));
 
+  it('compares visible LaTeX identity text across equivalent formatting', () => {
+    const record = { title: 'Developer', org: 'Example & Co', from: '06/2024', to: 'Present' };
+    const memory = { facts: { experience: [record] } };
+    const before = addRole(record.title, String.raw`Example \& Co`, '06/2024 -- Present');
+    for (const org of [String.raw`\mbox{Example \& Co}`, String.raw`\textit{Example}~\&~\textbf{Co}`, String.raw`\textbf{\emph{Example \& Co}}`]) {
+      const after = addRole(record.title, org, String.raw`06/2024 \textendash{} Present`);
+      assert.deepEqual(verifyTexEdit({ before, after, corpus }).hard, []);
+      assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory }).hard, []);
+      const invented = after.replace('Example', 'Invented');
+      assert.match(verifyTexEdit({ before, after: invented, corpus, memory }).hard.join('\n'), /line changed|new role/);
+    }
+    const boxed = addRole(record.title, String.raw`\mbox{Example \& Co}`, '06/2024 -- Present');
+    assert.match(verifyTexEdit({ before: boxed, after: boxed.replace('Example', 'Invented'), corpus }).hard.join('\n'), /line changed/);
+    for (const dates of ['06/2024 – Present', '06/2024 — Present', '06/2024 --- Present']) {
+      assert.deepEqual(verifyTexEdit({ before, after: addRole(record.title, String.raw`Example \& Co`, dates), corpus }).hard, []);
+    }
+    const changedDate = before.replace('06/2024 -- Present', '05/2024 -- Present');
+    assert.match(verifyTexEdit({ before, after: changedDate, corpus }).hard.join('\n'), /line changed/);
+  });
+
+  it('accepts only the same Memory record location in either supported layout', () => {
+    const memory = { facts: { experience: [{ ...experience[0], location: 'Example City' }] } };
+    const after = addRole('Independent Developer', 'Example Tool, Example City', '06/2024 -- Present');
+    assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory }).hard, []);
+    assert.match(verifyTexEdit({ before: ATS, after: after.replace('Example City', 'Other City'), corpus, memory }).hard.join('\n'), /new role/);
+    for (const location of ['', 'Example City']) {
+      const modern = MAIN.replace('\\section{Experience}',
+        `\\section{Experience}\n\\cventry{06/2024 -- Present}{Independent Developer}{Example Tool}{${location}}{}{}`);
+      assert.deepEqual(verifyTexEdit({ before: MAIN, after: modern, corpus, memory }).hard, []);
+    }
+  });
+
+  it('accepts whitespace before section arguments without bypassing bullet preservation', () => {
+    const after = addRole('Independent Developer', 'Example Tool', '06/2024 -- Present')
+      .replaceAll('\\section*{', '\\section* {');
+    const settings = validatePromptSettings({ format: { sectionOrder: ['Experience', 'Education', 'Projects', 'Skills'] } });
+    assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory, settings }).hard, []);
+    const dropped = after.replace('  \\item Review REST API contracts for the React front-end.\n', '');
+    assert.match(verifyTexEdit({ before: after, after: dropped, corpus, memory, settings }).hard.join('\n'), /bullets dropped/);
+  });
+
   it('allows a new role only when a complete Memory record supports it', () => {
-    for (const org of ['Example Tool', 'Personal: Example Tool']) {
+    for (const org of ['Example Tool', 'Personal: Example Tool', 'Example Tool (Personal)', 'Example Tool (Personal project)']) {
       const after = addRole('Independent Developer', org, '06/2024 -- Present');
       assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory }).hard, []);
       assert.match(verifyTexEdit({ before: ATS, after, corpus }).hard.join('\n'), /new role line/);
+      const modern = MAIN.replace('\\section{Experience}',
+        `\\section{Experience}\n\\cventry{06/2024 -- Present}{Independent Developer}{${org}}{}{}{}`);
+      assert.deepEqual(verifyTexEdit({ before: MAIN, after: modern, corpus, memory }).hard, []);
+      assert.match(verifyTexEdit({ before: MAIN, after: modern, corpus }).hard.join('\n'), /new entry line/);
     }
-    const after = MAIN.replace('\\section{Experience}', String.raw`\section{Experience}
-\cventry{06/2024 -- Present}{Independent Developer}{Personal: Example Tool}{}{}{}`);
-    assert.deepEqual(verifyTexEdit({ before: MAIN, after, corpus, memory }).hard, []);
+  });
+
+  it('compares personal attribution on either identity field without licensing other qualifiers', () => {
+    const record = { title: 'Tool Maintainer', org: 'Example Utility', from: '03/2021', to: '08/2023', location: 'Sample Town' };
+    const memory = { facts: { experience: [record] } };
+    const corpus = corpusFor(ATS, MAIN, JSON.stringify(record));
+    const dates = `${record.from} -- ${record.to}`;
+    const labels = value => [value, `${value} / Personal`, `${value}/personal project`, `${value} (Personal)`, `Personal: ${value}`];
+    for (const title of labels(record.title)) for (const org of labels(record.org)) {
+      for (const location of ['', record.location]) {
+        const after = addRole(title, location ? `${org}, ${location}` : org, dates);
+        assert.deepEqual(verifyTexEdit({ before: ATS, after, corpus, memory }).hard, []);
+        const modern = MAIN.replace('\\section{Experience}',
+          `\\section{Experience}\n\\cventry{${dates}}{${title}}{${org}}{${location}}{}{}`);
+        assert.deepEqual(verifyTexEdit({ before: MAIN, after: modern, corpus, memory }).hard, []);
+      }
+    }
+    for (const [title, org, when] of [
+      [`${record.title} / Founder`, record.org, dates],
+      [`Senior ${record.title} / Personal`, record.org, dates],
+      [record.title, `${record.org} / Full-time`, dates],
+      [`${record.title} / Personal`, 'Different Utility', dates],
+      [`${record.title} / Personal`, record.org, '03/2020 -- 08/2023'],
+      [record.title, `${record.org} / Personal, Other Town`, dates],
+    ]) {
+      assert.match(verifyTexEdit({ before: ATS, after: addRole(title, org, when), corpus, memory }).hard.join('\n'), /new role line/);
+    }
+    const after = addRole(`${record.title} / Personal`, record.org, dates);
+    for (const invalid of [null, { facts: { experience: [{ ...record, to: '' }] } },
+      { facts: { experience: [{ ...record, org: 'Elsewhere' }, { ...record, title: 'Other role' }] } }]) {
+      assert.match(verifyTexEdit({ before: ATS, after, corpus, memory: invalid }).hard.join('\n'), /new role line/);
+    }
+    const original = addRole(record.title, record.org, dates);
+    assert.match(verifyTexEdit({ before: original, after, corpus, memory }).hard.join('\n'), /line changed or removed/);
   });
 
   it('rejects mixed records, invented identities, incomplete dates and changed existing roles', () => {
@@ -134,6 +217,12 @@ describe('cv-verify: tex gate', () => {
       ['Independent Developer', 'Unknown Org', '06/2024 -- Present'],
       ['Independent Developer', 'Example Tool', '01/2022 -- Present'],
       ['Independent Developer', 'Example Tool', '06/2024 --'],
+      ['Engineer', 'Example Tool (Personal)', '06/2024 -- Present'],
+      ['Independent Developer', 'Unknown Org (Personal)', '06/2024 -- Present'],
+      ['Independent Developer', 'Example Tool (Personal)', '01/2022 -- Present'],
+      ['Independent Developer', 'Example Tool (Personal)', '06/2024 --'],
+      ['Independent Developer', 'Example Tool (Full-time)', '06/2024 -- Present'],
+      ['Independent Developer', 'Example Tool (Founder)', '06/2024 -- Present'],
     ]) {
       assert.match(verifyTexEdit({ before: ATS, after: addRole(...args), corpus, memory }).hard.join('\n'), /new role line/);
     }
@@ -142,6 +231,7 @@ describe('cv-verify: tex gate', () => {
     assert.match(verifyTexEdit({ before: ATS, after, corpus, memory: supportedChange }).hard.join('\n'), /role line changed or removed/);
     const missingDates = { facts: { experience: [{ title: 'Independent Developer', org: 'Example Tool' }] } };
     assert.match(verifyTexEdit({ before: ATS, after: addRole('Independent Developer', 'Example Tool', '06/2024 -- Present'), corpus, memory: missingDates }).hard.join('\n'), /new role line/);
+    assert.match(verifyTexEdit({ before: ATS, after: addRole('Independent Developer', 'Example Tool (Personal)', '06/2024 -- Present'), corpus, memory: missingDates }).hard.join('\n'), /new role line/);
   });
 
   it('does not license education or unknown locations with an experience record', () => {
@@ -243,6 +333,16 @@ describe('cv-verify: tex gate', () => {
 });
 
 describe('cv-verify: markdown + letter gates', () => {
+  it('accepts heading typography while preserving identity, section and dates', () => {
+    const before = '## Experience\n### Developer | Example Org | 05/2024 -- Present\n- Build APIs.\n## Education\n### Example University\n';
+    const after = before.replace('Developer | Example Org | 05/2024 -- Present', '**DEVELOPER** | Example  Org | 05/2024 – Present');
+    const corpus = corpusFor(before);
+    assert.deepEqual(verifyMarkdownCv({ before, after, corpus }).hard, []);
+    for (const changed of [after.replace('Example  Org', 'Other Org'), after.replace('05/2024', '06/2024'), after.replace('**DEVELOPER**', '**Manager**'), after.replace('## Experience', '## Projects')]) {
+      assert.ok(verifyMarkdownCv({ before, after: changed, corpus }).hard.some(h => /entry .*changed|entry heading/.test(h)));
+    }
+  });
+
   it('rejects a new employer heading and unsourced numbers in cv.md', () => {
     const before = '# Jane\n\n## Experience\n\n### Software Developer, Acme GmbH (2024–)\n\n- Built the API.\n\n## Education\n\n## Projects\n\n## Skills\n';
     const after = before.replace('### Software Developer, Acme GmbH (2024–)', '### Software Developer, Globex (2024–)').replace('Built the API.', 'Built the API for 3 million users.');

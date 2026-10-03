@@ -118,7 +118,7 @@ export function dropInterestsSection(tex) {
 
 export function experienceItemCount(tex) {
   const m = String(tex ?? '').match(
-    /\\section\*?\{[^}]*(?:Experience|Employment)[^}]*\}([\s\S]*?)(?=\\section|\s*\\end\{document\})/i,
+    /\\section\*?\s*\{[^}]*(?:Experience|Employment)[^}]*\}([\s\S]*?)(?=\\section|\s*\\end\{document\})/i,
   );
   if (!m) return 0;
   return (m[1].match(/\\item\b/g) || []).length;

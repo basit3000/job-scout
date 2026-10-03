@@ -51,8 +51,8 @@ export function personalCvRules(policy = {}) {
   if (!policy.enabled) return '';
   return ['## Personal CV policy (overrides generic style rules)',
     policy.allowExperienceSelection
-      ? 'Keep the complete original Experience bullet library in candidate memory. The tailored CV may shorten, combine, reorder or omit archived bullets for relevance; preserve every employer, official title, date and qualification. If a source bullet is absent from the memory library, preserve it in the CV and report that memory needs updating. Never change memory during generation.' : '',
-    policy.summaryWhenHelpful ? 'A short factual summary before Experience is optional when it adds useful context. Omit it when it repeats the headline or bullets. Do not add it routinely.' : '',
+      ? 'Experience selection is enabled. Condensing, combining, reordering or excluding a source bullet requires an existing copy in the Memory experience library. Retain all employment identities, official titles, dates and qualifications. Keep any unarchived bullet in the document and report the missing archive entry. This workflow must not edit Memory.' : '',
+    policy.summaryWhenHelpful ? 'If the candidate enables a summary, include one only when it provides supported context beyond the existing headline and experience bullets.' : '',
     policy.allowFillerWhenUseful ? 'Avoid filler and stock phrases, but allow them when they fit naturally and help the sentence. Judge in context; do not remove them mechanically or fail a review for their presence alone.' : '',
     'Per-application title, keyword and preferred-city choices take priority over saved defaults. Changes must remain factually supported.',
   ].filter(Boolean).join('\n');

@@ -31,7 +31,7 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   const resume = '# Test Candidate\ncandidate@example.com\n\n## Experience\n### Engineer | Example\n2022 – Present\n- Built Python services and SQL databases.\n\n## Education\n### Computer Science | University\n2020\n\n## Skills\nPython, SQL\n';
   await writeFile(join(root, 'cv', 'resume.md'), resume);
   const job = { id: 'fixture:1', title: 'Backend Engineer', company: 'Example', location: 'Berlin, Germany', description: 'Build Python services and SQL databases.', postedAt: new Date().toISOString(), lastSeenAt: new Date().toISOString(), url: 'https://example.com/job/1' };
-  await writeFile(join(root, '.workspace', 'jobs.json'), JSON.stringify({ jobs: [job, { ...job, id: 'fixture:2', title: 'Backend Engineer Platform', url: 'https://example.com/job/2' }, { ...job, id: 'old', title: 'Backend Engineer Legacy', url: 'https://example.com/job/old', postedAt: '2020-01-01' }] }));
+  await writeFile(join(root, '.workspace', 'jobs.json'), JSON.stringify({ jobs: [job, { ...job, id: 'fixture:2', title: 'Backend Engineer Platform', description: '', board: 'indeed', url: 'https://www.indeed.com/viewjob?jk=fixture2' }, { ...job, id: 'old', title: 'Backend Engineer Legacy', url: 'https://example.com/job/old', postedAt: '2020-01-01' }] }));
   await writeFile(join(root, 'state', 'decisions.json'), JSON.stringify({ decisions: [{ id: 'old', decision: 'applied', title: 'Backend Engineer Legacy', date: '2020-01-01' }] }));
 
   // Substitute only the external renderer in the isolated copy. Routes, tailoring,
@@ -57,6 +57,15 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.ok(wordStart >= 0 && wordEnd > wordStart);
   await writeFile(letterPath, letterSource.slice(0, wordStart)
     + 'function docxToPdfViaWord() { return { ok: false }; }\n' + letterSource.slice(wordEnd));
+  // Replace only the desktop launcher; the folder route resolves real saved files.
+  const downloadsPath = join(root, 'scripts/lib/cv-downloads.mjs');
+  const downloadsSource = await readFile(downloadsPath, 'utf8');
+  const launchStart = downloadsSource.indexOf('export async function revealDownloadsFolder(');
+  assert.ok(launchStart >= 0);
+  await writeFile(downloadsPath, downloadsSource.slice(0, launchStart) + `export async function revealDownloadsFolder(dir) {
+    await writeFile(join(ROOT, '.workspace/opened-folder.txt'), dir);
+    return { ok: true, dir };
+  }\n`);
   // Fake only model processes; keep the MCP bridge, document gates and publication real.
   await writeFile(join(root, 'scripts/lib/goose-runtime.mjs'), `
     import { readFile, writeFile } from 'node:fs/promises';
@@ -65,14 +74,26 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
     export const resolveGooseBinary = async () => process.execPath;
     export const withGooseContext = (signal, fn) => fn();
     export const cancelGooseRuns = () => false;
-    export async function runGoose({prompt,extensionUrl}) {
+    export async function runGoose({prompt,extensionUrl,signal}) {
+      while (extensionUrl && await readFile(join(ROOT,'.workspace/hold-coordinator'),'utf8').catch(()=>'')) {
+        signal?.throwIfAborted();
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
       if (await readFile(join(ROOT,'.workspace/fail-agent'),'utf8').catch(()=>'')) throw new Error('Synthetic Goose failure');
       if (!extensionUrl) {
         const dir = join(ROOT, prompt.match(/\\.workspace\\/prep-staging\\/[a-f0-9-]+/)[0]);
-        if (prompt.includes('review-context.md')) {
-          const letter = prompt.includes('letter-review-context.md');
+        if (/^Prep (CV|cover letter) reviewer/.test(prompt)) {
+          if (!prompt.includes('SOURCE ') || !prompt.includes('"skills":') || !prompt.includes('Complete test CV')) {
+            throw new Error('Reviewer did not receive complete inline Memory and rendered document inputs');
+          }
+          const letter = prompt.startsWith('Prep cover letter reviewer');
+          const limited = prompt.includes('_Job description unavailable.');
+          const coverage = limited
+            ? ${JSON.stringify(REVIEW_COVERAGE.replace('| Build APIs | required | supported | Memory: Engineer at Example, Built APIs | Experience, Built APIs |', '| Posting unavailable | unknown | unknown | Requirements unknown | Not included |'))}
+            : ${JSON.stringify(REVIEW_COVERAGE)};
           await writeFile(join(dir, letter ? 'cover-letter-review.md' : 'review.md'),
-            'Verdict: pass\\nATS: 9/10\\nPosting fit: 9/10\\nRecruiter scan: 9/10\\nCover letter: 9/10\\n\\n## Must fix\\n- _none_\\n' + ${JSON.stringify(REVIEW_COVERAGE)});
+            'Verdict: pass\\nATS: 9/10\\nPosting fit: ' + (limited ? 'N/A' : '9/10') + '\\nRecruiter scan: 9/10\\nCover letter: 9/10\\n\\n## Must fix\\n- _none_\\n' + coverage
+            + (limited ? '\\n## Review limitations\\n- Full job description unavailable.\\n' : ''));
         } else if (!prompt.startsWith('Cover letter tailor')) {
           await writeFile(join(dir,'cv.md'), await readFile(join(ROOT,'cv/resume.md'),'utf8'));
         }
@@ -104,9 +125,16 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.equal((await request('/api/jobs')).pagination.total, 2);
   assert.equal((await request('/api/jobs?scope=history')).pagination.total, 3);
   assert.equal((await request('/api/tracker')).total, 1);
+  const missingFolder = await fetch(`http://127.0.0.1:${port}/api/prep/open-folder`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: job.id }),
+  });
+  assert.equal(missingFolder.status, 404);
   async function prep(id, tools = ['inspect_job','inspect_cv','prepare_cv','inspect_reviews'], templateIds) {
     const started=await request('/api/prep',{id,tools,templateIds,prompt:'Prepare and review the selected documents using only supported candidate facts.'});
-    const response=await fetch(`http://127.0.0.1:${port}/api/prep/stream`);
+    return finishPrep(started);
+  }
+  async function finishPrep(started) {
+    const response=await fetch(`http://127.0.0.1:${port}${started.stream}`);
     const reader=response.body.getReader();let text='';
     try {
       while(true) {
@@ -117,10 +145,51 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
       }
     } finally {await reader.cancel();}
   }
+  await writeFile(join(root, '.workspace/hold-coordinator'), '1');
+  const [parallelA, parallelB] = await Promise.all(['fixture:1', 'fixture:2'].map(id => request('/api/prep', {
+    id, tools: ['inspect_job'], prompt: 'Read the selected posting.',
+  })));
+  assert.notEqual(parallelA.runId, parallelB.runId);
+  const live = await request('/api/status?light=1');
+  assert.equal(live.prepRuns.length, 2);
+  const duplicate = await fetch(`http://127.0.0.1:${port}/api/prep`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ id: 'fixture:1', tools: ['inspect_job'], prompt: 'Read again.' }) });
+  assert.equal(duplicate.status, 409);
+  await request('/api/prep/stop', { runId: parallelA.runId });
+  const cancelled = await finishPrep(parallelA);
+  assert.equal(cancelled.cancelled, true);
+  assert.equal(cancelled.runId, parallelA.runId);
+  assert.ok((await request('/api/status?light=1')).prepRuns.some(run => run.runId === parallelB.runId));
+  await writeFile(join(root, '.workspace/hold-coordinator'), '');
+  const completed = await finishPrep(parallelB);
+  assert.equal(completed.ok, true);
+  assert.equal(completed.runId, parallelB.runId);
+  await writeFile(join(root, '.workspace/hold-coordinator'), '1');
+  const cvRuns = await Promise.all(['fixture:1', 'fixture:2'].map(id => request('/api/prep', {
+    id, tools: ['prepare_cv'], prompt: 'Prepare a reviewed CV using confirmed evidence.',
+  })));
+  assert.equal((await request('/api/status?light=1')).prepRuns.length, 2);
+  await writeFile(join(root, '.workspace/hold-coordinator'), '');
+  const cvResults = await Promise.all(cvRuns.map(finishPrep));
+  for (const [index, result] of cvResults.entries()) {
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.pack.needsReview, false);
+    assert.equal(result.jobId, `fixture:${index + 1}`);
+    assert.equal(result.pack.review.cv.verdict, 'pass');
+  }
+  assert.notEqual(cvResults[0].pack.dir, cvResults[1].pack.dir);
+  assert.notEqual(cvResults[0].pack.downloadFolderAbs, cvResults[1].pack.downloadFolderAbs);
+  assert.equal(cvResults[1].pack.review.cv.scores.postingFit, null);
+  assert.deepEqual(cvResults[1].pack.review.cv.limitations, ['Full job description unavailable.']);
   const first=await prep('fixture:1');
   assert.equal(first.ok,true,first.error);
   assert.equal(first.pack.needsReview,false);
   assert.ok((await readdir(first.pack.downloadFolderAbs)).includes('Test Candidate CV.pdf'));
+  const savedFiles = await readdir(first.pack.downloadFolderAbs);
+  const opened = await request('/api/prep/open-folder', { id: job.id });
+  assert.equal(opened.folder, first.pack.downloadFolderAbs);
+  assert.equal(await readFile(join(root, '.workspace/opened-folder.txt'), 'utf8'), opened.folder);
+  assert.deepEqual(await readdir(first.pack.downloadFolderAbs), savedFiles, 'opening does not export files again');
   const second=await prep('fixture:2');
   assert.equal(second.ok,true,second.error);
   assert.notEqual(first.pack.downloadFolderAbs,second.pack.downloadFolderAbs);
@@ -175,6 +244,8 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   const reopened = await request(`/api/prep/${encodeURIComponent(job.id)}`);
   assert.equal(reopened.variants.length, 2);
   assert.equal(reopened.templateId, 'compact');
+  assert.equal((await request('/api/prep/open-folder', { id: job.id })).folder, custom.downloadFolderAbs);
+  assert.equal((await request('/api/prep/open-folder', { id: job.id, templateId: 'default' })).folder, original.downloadFolderAbs);
   assert.equal((await request('/api/ready')).total, 2, 'current custom format remains ready after reopening');
   const snapshot = await readFile(join(custom.dir, 'cv.pdf'));
   await writeFile(join(root, '.workspace/overflow'), '1');
@@ -196,12 +267,25 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   for (let i = 0; i < 200; i++) { batch = await request('/api/prep/batch'); if (!batch.running) break; await new Promise(r => setTimeout(r, 20)); }
   assert.equal(batch.items[0].status, 'skipped', batch.items[0].error);
   assert.equal((await request('/api/prep/fixture%3A2')).templateId, 'default');
-  // A later variant requiring review cannot report the whole request as ready.
+  // The parent default pack runs first; its failure stops queued child formats.
   await writeFile(join(root, '.workspace/overflow'), 'default');
   const partial = await prep('fixture:2', undefined, ['compact', 'default']);
   assert.equal(partial.ok, true, partial.error);
-  assert.equal(partial.pack.variants[0].needsReview, false);
-  assert.equal(partial.pack.variants[1].needsReview, true);
+  assert.equal(partial.pack.variants.length, 1);
+  assert.equal(partial.pack.variants[0].templateId, 'default');
+  assert.equal(partial.pack.variants[0].needsReview, true);
   assert.equal(partial.pack.needsReview, true);
   assert.equal((await request('/api/prep/fixture%3A2')).templateId, 'default', 'failed multi-format run preserves previous primary selection');
+  await writeFile(join(root, '.workspace/overflow'), '');
+  const spacious = { ...compact, id: 'spacious', name: 'Spacious', layout: { ...compact.layout, namePt: 30 } };
+  await writeFile(join(root, 'prompts/local.json'), JSON.stringify({ templates: [compact, spacious] }));
+  const siblings = await prep(job.id, undefined, ['spacious', 'compact']);
+  assert.equal(siblings.ok, true, siblings.error);
+  assert.equal(siblings.pack.needsReview, false);
+  assert.deepEqual(siblings.pack.variants.map(variant => variant.templateId), ['spacious', 'compact']);
+  for (const [index, variant] of siblings.pack.variants.entries()) {
+    assert.equal(variant.review.cv.verdict, 'pass');
+    const html = await (await fetch(`http://127.0.0.1:${port}${variant.downloadCvHtml}`)).text();
+    assert.match(html, new RegExp(`font-size: ${index === 0 ? 30 : 24}pt`));
+  }
 });

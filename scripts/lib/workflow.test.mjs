@@ -9,6 +9,7 @@ import { scoreJob } from './fit.mjs';
 import { currentSearchState } from './current-search.mjs';
 import { extractPdfText } from './pdf-text.mjs';
 import { withMatchingAnswers } from './match-requirements.mjs';
+import { withCvTemplate } from './cv-template-context.mjs';
 
 import { pdfFixture } from '../test-helpers/pdf-fixture.mjs';
 
@@ -39,6 +40,28 @@ test('different jobs at one company retain their own exported CV and letter', as
 const profile = { name: 'Test Candidate', targetRole: 'Backend Engineer', seniority: 'mid',
   search: { titles: ['Backend Engineer'] }, skills: { strong: ['Python', 'SQL', 'Docker', 'AWS'] } };
 const job = { id: 'fixture:1', title: 'Backend Engineer', company: 'Example', description: 'Build Python SQL Docker AWS services.', url: 'https://example.com/job' };
+
+test('sibling format packs generate concurrently while same and parent packs stay locked', async t => {
+  const root = await temporary(t);
+  const release = Promise.withResolvers();
+  const started = [Promise.withResolvers(), Promise.withResolvers()];
+  const options = { root, job, profile, settings: { source: 'local' }, scopes: ['cv'], inspect: async () => ({ cv: { needsReview: false, reasons: [] } }) };
+  const formats = ['a', 'b'].map(id => ({ id, maxPages: 1, sectionOrder: [] }));
+  const runs = formats.map((format, index) => withCvTemplate(format, () => generateDocuments(options, async dir => {
+    await writeFile(join(dir, 'cv.md'), format.id);
+    started[index].resolve();
+    await release.promise;
+    return {};
+  })));
+  try {
+    await Promise.all(started.map(item => item.promise));
+    await assert.rejects(withCvTemplate(formats[0], () => generateDocuments(options, async () => ({}))), /already running/);
+    await assert.rejects(withCvTemplate(null, () => generateDocuments(options, async () => ({}))), /already running/);
+  } finally { release.resolve(); }
+  const results = await Promise.all(runs);
+  assert.notEqual(results[0].dir, results[1].dir);
+  for (const [index, result] of results.entries()) assert.equal(await readFile(join(result.dir, 'cv.md'), 'utf8'), formats[index].id);
+});
 
 test('overflow and failed replacements preserve both the accepted CV and complete draft', async (t) => {
   const root = await temporary(t);

@@ -496,6 +496,33 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function openSavedFolder(button, id, templateId) {
+  let status = button.nextElementSibling;
+  if (!status?.hasAttribute('data-folder-status')) {
+    status = document.createElement('span');
+    status.dataset.folderStatus = '';
+    status.className = 'meta';
+    status.setAttribute('role', 'status');
+    button.after(status);
+  }
+  button.disabled = true;
+  status.textContent = 'Opening folder…';
+  try {
+    if (!id) throw new Error('Job reference is missing. Reopen the saved preparation results.');
+    const result = await api('/api/prep/open-folder', {
+      method: 'POST', body: JSON.stringify({ id, templateId }),
+    });
+    // The server confirms a launch request, not that a desktop window is visible.
+    status.textContent = `Folder window requested: ${result.folder}`;
+    appendLog(`Folder window requested: ${result.folder}`);
+    return result;
+  } catch (error) {
+    status.textContent = `Could not open folder: ${error.message}`;
+    appendLog(status.textContent, 'stderr');
+    return null;
+  } finally { button.disabled = false; }
+}
+
 function jobSnapshot(job) {
   if (!job) return null;
   return {
@@ -1060,7 +1087,7 @@ function renderJob(job, { compact = false } = {}) {
           ? `<a class="btn small" data-cv href="/api/prep/${encodeURIComponent(job.id)}/cv.html" target="_blank" rel="noopener">CV</a>
              ${
                job.tailoredPdfMain || job.tailoredPdfAts || job.tailoredPdf
-                 ? `<button type="button" class="btn small" data-save-folder>Save folder</button>`
+                 ? `<button type="button" class="btn small" data-open-folder>Open Folder</button>`
                  : ''
              }`
           : ''
@@ -1133,16 +1160,8 @@ function renderJob(job, { compact = false } = {}) {
       await runPrepFlow(job);
     });
 
-    el.querySelector('[data-save-folder]')?.addEventListener('click', async () => {
-      try {
-        const res = await api('/api/prep/open-folder', {
-          method: 'POST',
-          body: JSON.stringify({ id: job.id }),
-        });
-        appendLog(`Saved + opened: ${res.folder}`);
-      } catch (err) {
-        appendLog(`Save folder failed: ${err.message}`, 'stderr');
-      }
+    el.querySelector('[data-open-folder]')?.addEventListener('click', event => {
+      void openSavedFolder(event.currentTarget, job.id);
     });
 
     el.querySelector('[data-copy-pack]')?.addEventListener('click', async () => {
@@ -1457,9 +1476,9 @@ function openStatusModal(job) {
 }
 
 /** Reconnects to the server's buffered events without starting another workflow. */
-function waitForPrepDone(startedAt, job) {
+function waitForPrepDone(startedAt, job, runId) {
   return new Promise((resolve, reject) => {
-    const es = new EventSource('/api/prep/stream');
+    const es = new EventSource(`/api/prep/stream?runId=${encodeURIComponent(runId)}`);
     let settled = false;
     const finish = (fn, value) => {
       if (settled) return;
@@ -1470,7 +1489,7 @@ function waitForPrepDone(startedAt, job) {
     es.addEventListener('log', (ev) => {
       try {
         const entry = JSON.parse(ev.data);
-        appendLog(entry.line || '', entry.stream || 'stdout', false);
+        appendLog(`${job.company || job.title}: ${entry.line || ''}`, entry.stream || 'stdout', false);
       } catch {
         /* ignore */
       }
@@ -1479,6 +1498,7 @@ function waitForPrepDone(startedAt, job) {
       try {
         const parsed = JSON.parse(ev.data);
         // Ignore stale completions from a previous run
+        if (runId && parsed.runId !== runId) return;
         if (startedAt && parsed.startedAt && parsed.startedAt !== startedAt) return;
         finish(resolve, parsed);
       } catch (err) {
@@ -1487,10 +1507,10 @@ function waitForPrepDone(startedAt, job) {
     });
     es.addEventListener('status', (ev) => {
       const snapshot = JSON.parse(ev.data);
-      if (snapshot.startedAt !== startedAt) {
+      if (snapshot.runId !== runId || snapshot.startedAt !== startedAt) {
         finish(reject, new Error('This run is no longer available. Check the job’s documents before preparing again.'));
       } else if (snapshot.running) {
-        updatePrepTask(job, { message: 'Preparing documents. You can keep browsing.' });
+        updatePrepTask(job, { message: snapshot.queued ? 'Queued. Waiting for a preparation slot.' : 'Preparing documents. You can keep browsing.' });
       }
     });
     es.onerror = () => {
@@ -1582,19 +1602,21 @@ async function runPrepFlow(job, opts = {}) {
     const started = await api('/api/prep', {
       method: 'POST', body: JSON.stringify({ id: job.id, ...choice }),
     });
-    await watchPrep(job, started.startedAt);
+    await watchPrep(job, started.startedAt, started.runId);
   } catch (error) { failPrep(job, error); }
 }
 
 function updatePrepTask(job, patch) {
   const id = `prep:${job.id}`;
+  const runId = patch.starting ? null : patch.runId || prepTasks.get(job.id)?.runId;
   const task = activity.update(id, {
     ...patch,
+    runId,
     jobId: job.id,
     title: `${patch.title || 'Preparing documents'} · ${job.company ? `${job.company} — ` : ''}${job.title}`,
     stop: patch.starting ? null : async () => {
       activity.update(id, { stopping: true, message: 'Stop requested. Waiting for the current step to cancel…' });
-      try { await api('/api/prep/stop', { method: 'POST', body: '{}' }); }
+      try { await api('/api/prep/stop', { method: 'POST', body: JSON.stringify({ runId }) }); }
       catch (error) { activity.update(id, { stopping: false, message: `Could not stop: ${error.message}` }); }
     },
   });
@@ -1621,12 +1643,12 @@ function failPrep(job, error) {
   updatePrepTask(job, { status: 'error', title: 'Preparation failed', message: error.message, actionLabel: 'Try Prep again', action: () => runPrepFlow(job) });
 }
 
-function watchPrep(job, startedAt) {
-  if (prepWatchers.has(startedAt)) return prepWatchers.get(startedAt);
-  updatePrepTask(job, { status: 'running', title: 'Preparing documents', message: 'The document workflow is running. You can keep browsing.', startedAt, stopping: false });
+function watchPrep(job, startedAt, runId) {
+  if (prepWatchers.has(runId)) return prepWatchers.get(runId);
+  updatePrepTask(job, { status: 'running', title: 'Preparing documents', message: 'The document workflow is running. You can keep browsing.', startedAt, runId, stopping: false, starting: false });
   const watch = (async () => {
     try {
-      const result = await waitForPrepDone(startedAt, job);
+      const result = await waitForPrepDone(startedAt, job, runId);
       if (result.cancelled) {
         updatePrepTask(job, { status: 'stopped', title: 'Preparation stopped', message: 'The workflow was cancelled. Previously accepted documents are preserved.', actionLabel: 'Prepare again', action: () => runPrepFlow(job) });
       } else {
@@ -1637,9 +1659,9 @@ function watchPrep(job, startedAt) {
       }
       await refreshAll();
     } catch (error) { failPrep(job, error); }
-    finally { prepWatchers.delete(startedAt); }
+    finally { prepWatchers.delete(runId); }
   })();
-  prepWatchers.set(startedAt, watch);
+  prepWatchers.set(runId, watch);
   return watch;
 }
 
@@ -1673,7 +1695,7 @@ function reviewScoreBits(scores) {
   if (!scores) return '';
   const parts = [
     scores.ats != null ? `ATS ${scores.ats}/10` : '',
-    scores.postingFit != null ? `fit ${scores.postingFit}/10` : '',
+    scores.postingFit != null ? `fit ${scores.postingFit}/10` : 'fit not assessed',
     scores.recruiterScan != null ? `scan ${scores.recruiterScan}/10` : '',
     scores.coverLetter != null ? `letter ${scores.coverLetter}/10` : '',
   ].filter(Boolean);
@@ -1692,9 +1714,13 @@ function reviewSectionHtml(label, block, href) {
   const mustHtml = must.length
     ? `<ul>${must.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
     : '';
-  return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(reviewScoreBits(block.scores))}${escapeHtml(loop)}${
+  const scores = reviewScoreBits(block.scores);
+  const scoreLabel = verdict === 'Not reviewed' && scores ? ` · provisional scores${scores}` : scores;
+  const limitations = (block.limitations || []).length
+    ? `<p><strong>Review limitations:</strong></p><ul>${block.limitations.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>` : '';
+  return `<p><strong>${escapeHtml(label)}:</strong> ${escapeHtml(verdict)}${escapeHtml(scoreLabel)}${escapeHtml(loop)}${
     href ? ` · <a href="${escapeAttr(href)}" target="_blank" rel="noopener">Open</a>` : ''
-  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}${renderRequirementCoverage(block.requirementCoverage)}`;
+  }</p>${block.error ? `<p>${escapeHtml(block.error)}</p>` : ''}${mustHtml}${limitations}${renderRequirementCoverage(block.requirementCoverage)}`;
 }
 
 function reviewPanel(review, jobId) {
@@ -1736,7 +1762,7 @@ function showPrep(data) {
     ${olLine ? `<p class="meta">${escapeHtml(olLine)}</p>` : ''}
     ${reviewPanel(pack.review, pack.jobId || data.jobId)}
     <div class="prep-actions">
-      <button type="button" class="btn small primary-link" id="saveCompanyFolder">Save PDFs to company folder</button>
+      <button type="button" class="btn small primary-link" id="openCompanyFolder">Open Folder</button>
       <button type="button" class="btn small" id="generateCoverLetter">Generate cover letter</button>
       ${cvMain || cvPdf ? `<a class="btn small" href="${escapeAttr(cvMain || cvPdf)}" target="_blank" rel="noopener">Preview Main</a>` : ''}
       ${cvAts ? `<a class="btn small" href="${escapeAttr(cvAts)}" target="_blank" rel="noopener">Preview ATS</a>` : ''}
@@ -1751,7 +1777,7 @@ function showPrep(data) {
           ? `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
               pack.downloadFolderAbs,
             )}</code>`
-          : 'Folder not written yet — click <strong>Save PDFs to company folder</strong>.'
+          : 'Files are saved automatically after successful preparation.'
       }
     </p>
     ${pack.downloadError ? `<p class="meta error">Download folder error: ${escapeHtml(pack.downloadError)}</p>` : ''}
@@ -1761,33 +1787,22 @@ function showPrep(data) {
     <button type="button" class="btn ghost" id="backToLog">View activity</button>
   `;
 
-  async function saveAndOpenCompanyFolder() {
+  async function openCompanyFolder(button) {
     const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || '')
       .match(/\/api\/prep\/([^/]+)\//)?.[1];
     const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
-    if (!id) {
-      appendLog('Save folder: missing job id — run Prep again.', 'stderr');
-      return;
-    }
-    const res = await api('/api/prep/open-folder', {
-      method: 'POST',
-      body: JSON.stringify({ id }),
-    });
+    const res = await openSavedFolder(button, id, pack.templateId);
+    if (!res) return;
     const pathsEl = $('companyFolderPaths');
     if (pathsEl) {
       pathsEl.innerHTML = `<strong>Saved under project root:</strong><br/><code>${escapeHtml(
         res.folder || '',
       )}</code>`;
     }
-    appendLog(`Saved + opened: ${res.folder}`);
   }
 
-  $('saveCompanyFolder')?.addEventListener('click', async () => {
-    try {
-      await saveAndOpenCompanyFolder();
-    } catch (err) {
-      appendLog(`Save folder failed: ${err.message}`, 'stderr');
-    }
+  $('openCompanyFolder')?.addEventListener('click', event => {
+    void openCompanyFolder(event.currentTarget);
   });
   function prepJobRef() {
     const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
@@ -2388,11 +2403,10 @@ async function refreshStatus() {
     applyBatchSnapshot({ ...s.batch, items: state.batch?.startedAt === s.batch.startedAt ? state.batch.items || [] : [] });
     if (s.batch.running) connectBatchStream();
   }
-  if (s.prepRunning && s.prepStartedAt && !prepWatchers.has(s.prepStartedAt)) {
-    const existing = prepTasks.get(s.prepJobId);
-    if (!existing || existing.startedAt !== s.prepStartedAt) {
-      const job = state.jobs?.find((item) => item.id === s.prepJobId) || { id: s.prepJobId, title: 'Current job' };
-      void watchPrep(job, s.prepStartedAt);
+  for (const run of s.prepRuns || []) {
+    if (!prepWatchers.has(run.runId)) {
+      const job = state.jobs?.find(item => item.id === run.jobId) || { id: run.jobId, title: 'Current job' };
+      void watchPrep(job, run.startedAt, run.runId);
     }
   }
   els.alerts.innerHTML = alerts.map((a) => `<div class="alert">${escapeHtml(a)}</div>`).join('');
@@ -3128,18 +3142,8 @@ els.applyAssistOpen?.addEventListener('click', () => {
   const url = els.applyAssistOpen?.dataset.url || applyAssistContext.job?.url;
   if (url) window.open(url, '_blank', 'noopener');
 });
-els.applyAssistOpenFolder?.addEventListener('click', async () => {
-  const id = applyAssistContext.job?.id;
-  if (!id) return;
-  try {
-    const res = await api('/api/prep/open-folder', {
-      method: 'POST',
-      body: JSON.stringify({ id }),
-    });
-    appendLog(`Opened: ${res.folder}`);
-  } catch (err) {
-    appendLog(`Open folder failed: ${err.message}`, 'stderr');
-  }
+els.applyAssistOpenFolder?.addEventListener('click', event => {
+  void openSavedFolder(event.currentTarget, applyAssistContext.job?.id);
 });
 els.savePortalsBtn.addEventListener('click', async () => {
   const boards = [...els.portalsList.querySelectorAll('input[name="portal"]:checked')].map(

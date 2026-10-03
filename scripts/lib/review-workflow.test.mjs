@@ -41,6 +41,49 @@ test('review must be written by the current attempt and reports unavailable revi
   assert.match(unavailable.error, /offline/);
 });
 
+test('optional missing posting recovers through one reviewer retry for CV and letter without rewriting', async t => {
+  const unknownCoverage = REVIEW_COVERAGE.replace('| Build APIs | required | supported | Memory: Engineer at Example, Built APIs | Experience, Built APIs |',
+    '| Posting unavailable | unknown | unknown | Requirements unknown | Not included |');
+  const limitedPass = pass.replace('Posting fit: 8/10', 'Posting fit: N/A').replace(REVIEW_COVERAGE, unknownCoverage)
+    + '\n## Review limitations\n- Full posting unavailable.\n';
+  for (const scope of ['cv', 'letter']) {
+    const dir = await fixture(t);
+    await writeFile(join(dir, 'cover-letter.md'), 'Original letter');
+    await writeFile(join(dir, 'cover-letter.pdf'), pdfFixture(['Original letter']));
+    const report = limitedPass + (scope === 'letter' ? '\nCover letter: 8/10\n' : '');
+    let calls = 0;
+    const result = await runReviewerPass({ scope, job, prepDir: dir, runAgent: async options => {
+      assert.equal(options.repair, undefined);
+      if (calls) assert.match(options.extraInstructions, /Automatic review retry/);
+      await writeFile(join(dir, scope === 'cv' ? 'review.md' : 'cover-letter-review.md'),
+        calls++ ? report : report.replace('Verdict: pass', 'Verdict: needs_input'));
+    } });
+    assert.equal(calls, 2);
+    assert.equal(result.verdict, 'pass');
+    assert.equal(result.ranFixLoop, false);
+    assert.equal(result.scores.postingFit, null);
+    assert.deepEqual(result.limitations, ['Full posting unavailable.']);
+    assert.equal((await inspectDocuments(dir, [scope]))[scope].needsReview, false);
+    const summary = JSON.parse(await readFile(join(dir, 'review-summary.json'), 'utf8'));
+    assert.deepEqual(summary[scope].limitations, result.limitations);
+    assert.equal(await readFile(join(dir, 'cv.md'), 'utf8'), 'Original CV');
+    assert.equal(await readFile(join(dir, 'cover-letter.md'), 'utf8'), 'Original letter');
+  }
+});
+
+test('unavailable essential evidence remains blocked after the bounded reviewer retry', async t => {
+  const dir = await fixture(t);
+  let calls = 0;
+  const result = await runReviewerPass({ job, prepDir: dir, runAgent: async () => {
+    calls++;
+    await writeFile(join(dir, 'review.md'), 'Verdict: needs_input\n## Review limitations\n- Essential Memory evidence unavailable.');
+  } });
+  assert.equal(calls, 2);
+  assert.equal(result.verdict, 'not_reviewed');
+  assert.match(result.error, /Essential Memory evidence unavailable/);
+  assert.equal((await inspectDocuments(dir, ['cv'])).cv.needsReview, true);
+});
+
 test('review follows fitting, and one repair is rendered and verified before passing', async (t) => {
   const dir = await fixture(t);
   const order = [];

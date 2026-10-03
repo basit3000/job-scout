@@ -72,8 +72,8 @@ test('writers, reviewers and repairs receive consistent personal exceptions whil
   assert.doesNotMatch(buildAgentBrief({ localRules: '' }), /Never drop an Experience bullet/);
   for (const builder of [buildAgentBrief, buildReviewerBrief, buildRepairBrief]) {
     const brief = builder({ localRules: '', policy: enabled });
-    assert.match(brief, /complete original Experience bullet library/);
-    assert.match(brief, /summary before Experience is optional/);
+    assert.match(brief, /requires an existing copy in the Memory experience library/);
+    assert.match(brief, /candidate enables a summary/);
     assert.doesNotMatch(brief, /Never drop an Experience bullet|No extra summary paragraph|no lost Experience/);
   }
 });

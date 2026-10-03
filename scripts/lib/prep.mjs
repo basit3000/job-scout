@@ -126,7 +126,7 @@ export function buildJobPostingMd(job) {
 
 ## Description
 
-${job.description || '_No description captured — open the URL._'}
+${job.description || '_Job description unavailable. Continue with supported candidate evidence; record job-fit assessment limitations._'}
 `;
 }
 
@@ -489,6 +489,7 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
 
   const agentMeta = await runCvTailorAgent({
     job,
+    signal: settings.signal,
     prepDir: dir,
     profile,
     extraInstructions,

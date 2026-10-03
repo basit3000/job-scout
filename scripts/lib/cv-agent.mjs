@@ -11,6 +11,7 @@ import { appendAgentAttempt } from './agent-usage.mjs';
 import { resolveGooseBinary, runGoose, cancelGooseRuns } from './goose-runtime.mjs';
 import { readMemorySync, memoryEvidence, withMemorySnapshot } from './memory.mjs';
 import { artifactContext } from './artifact-context.mjs';
+import { overleafDir } from './overleaf-workspace.mjs';
 import { cvPreferences } from './cv-preferences.mjs';
 import { promptSettings } from './prompt-settings.mjs';
 import { buildAgentBrief, buildAgentPrompt, buildCoverLetterAgentBrief, buildCoverLetterAgentPrompt,
@@ -75,7 +76,7 @@ async function stageOverleaf(emit, signal) {
   }
   emit('Reading the current online Overleaf master; archiving the previous working checkout…', 'meta');
   const sync = await syncOverleaf({ signal });
-  emit(`Overleaf ${sync.action} — .workspace/overleaf`, 'meta');
+  emit(`Overleaf ${sync.action} — ${relToRoot(overleafDir())}`, 'meta');
   return sync;
 }
 
@@ -175,7 +176,7 @@ async function runCvTailorAgentWithMemory({
       const tailoredMd = join(prepDir, 'cv.md');
       if ((letterTask || reviewLetter) && existsSync(tailoredMd)) cvBits.push(await readFile(tailoredMd, 'utf8'));
       for (const name of !cvBits.length && cvSource === 'overleaf' ? ['ats.tex', 'main.tex'] : []) {
-        const p = join(ROOT, '.workspace', 'overleaf', name);
+        const p = join(overleafDir(), name);
         if (existsSync(p)) cvBits.push(await readFile(p, 'utf8'));
       }
       if (!cvBits.length && existsSync(tailoredMd)) cvBits.push(await readFile(tailoredMd, 'utf8'));
@@ -219,7 +220,7 @@ async function runCvTailorAgentWithMemory({
 
   const cvMdAbs = join(prepDir, 'cv.md');
   const cvRel = existsSync(cvMdAbs) ? `${prepRel}/cv.md`
-    : cvSource === 'overleaf' ? '.workspace/overleaf/main.tex and .workspace/overleaf/ats.tex' : 'cv/resume.md';
+    : cvSource === 'overleaf' ? `${relToRoot(overleafDir())}/main.tex and ${relToRoot(overleafDir())}/ats.tex` : 'cv/resume.md';
   const qualityAbs = join(prepDir, 'quality-report.md');
   const qualityRel = existsSync(qualityAbs) ? `${prepRel}/quality-report.md` : '';
   let notesRel = '';
@@ -241,7 +242,7 @@ async function runCvTailorAgentWithMemory({
       gapsRel,
       writingRulesRel,
       qualityRel,
-      overleafRel: '.workspace/overleaf',
+      overleafRel: relToRoot(overleafDir()),
       cvSource,
       cvRel,
       letterRel: `${prepRel}/cover-letter.md`,
@@ -278,7 +279,7 @@ async function runCvTailorAgentWithMemory({
         evidenceRel,
         gapsRel,
         writingRulesRel,
-        overleafRel: '.workspace/overleaf',
+        overleafRel: relToRoot(overleafDir()),
         cvSource,
         profileName: profile?.name,
         extraInstructions: instr,
@@ -287,11 +288,12 @@ async function runCvTailorAgentWithMemory({
       });
 
   if (reviewTask) {
-    const packet = await inlineReviewContext(prompt);
-    // A context file avoids Windows command-line length limits.
+    const packet = await inlineReviewContext(prompt, undefined, { optionalPaths: [gapsRel, qualityRel, notesRel].filter(Boolean) });
+    // Keep a private audit copy; runGoose sends the full prompt on stdin.
+    // Asking the worker to read this file can truncate the evidence in tool output.
     const contextName = reviewLetter ? 'letter-review-context.md' : 'cv-review-context.md';
     await writeFile(join(prepDir, contextName), packet);
-    prompt = `Read ${prepRel}/${contextName} once and follow its reviewer task. All inputs are included there. Write only the specified review file.`;
+    prompt = packet;
   }
 
   const promptName = reviewCv
@@ -316,7 +318,7 @@ async function runCvTailorAgentWithMemory({
 
   const startedAt = Date.now();
   try {
-    const resultText = await runGoose({ prompt, model: modelSel.id, onEvent });
+    const resultText = await runGoose({ prompt, model: modelSel.id, onEvent, signal });
     const meta = { ok: true, provider: 'goose', model: modelSel.id || null,
       status: 'finished', durationMs: Date.now() - startedAt, usage: null,
       usageUnavailable: 'Goose provider usage is not normalized', resultText: resultText.slice(0, 4000),
@@ -342,7 +344,7 @@ export async function seedPrepForAgent(prepDir, job, extraInstructions = '') {
 
 ## Description
 
-${job.description || '_No description captured — open the URL._'}
+${job.description || '_Job description unavailable. Continue with supported candidate evidence; record job-fit assessment limitations._'}
 `;
   await writeFile(join(prepDir, 'job-posting.md'), jobPosting.endsWith('\n') ? jobPosting : `${jobPosting}\n`);
   const instr = String(extraInstructions || '').trim();

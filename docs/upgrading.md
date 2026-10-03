@@ -82,10 +82,26 @@ form. `state/memory.example.json` supplies the neutral initial structure.
 
 ## Update custom integrations
 
+Preparation automatically attempts to retrieve missing job descriptions from public
+sources. If unavailable, writers use supported candidate evidence and reviewers
+complete the document checks with explicit limitations. Missing optional notes,
+keyword analysis or unknown answers do not require manual intervention. Unknown
+claims are omitted, never filled with invented facts. Job fit can be `N/A`; this
+does not mean that the candidate meets the role's requirements.
+
+Incomplete reviewer output gets one automatic review retry. Missing essential
+candidate evidence, unreadable documents, unsupported claims and unresolved
+required fixes still prevent acceptance. Existing failed packs are not silently
+approved; recreate them to use this behavior. Review JSON now includes
+`limitations`, and `scores.postingFit` may be `null` on a passing limited review.
+
 - Read `state/memory.json`, or import `loadCandidateProfile()` / `loadSavedAnswers()`
   from the runtime modules. Do not read or write retired `profile.json` copies.
 - Submit `POST /api/prep` with `{ id, tools, prompt }`. Tool names come from
-  `GET /api/goose`. Follow `/api/prep/stream` for results.
+  `GET /api/goose`. The response includes `runId` and a run-specific `stream` URL;
+  follow that URL for progress and results. Send `{ runId }` to
+  `POST /api/prep/stop` to cancel only that run. `/api/status` lists active and
+  queued runs in `prepRuns` for reconnecting after a browser refresh.
 - Letters use the same endpoint with `prepare_letter` selected. Batches use
   `/api/prep/batch`; all batches run Goose.
 - There is no export to earlier schemas or two-way synchronization. To return to

@@ -12,6 +12,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { ROOT } from './common.mjs';
+import { overleafDir as overleafWorkspaceDir } from './overleaf-workspace.mjs';
 import { experienceItemCount } from './tex-fit.mjs';
 import {
   findStyleIssues,
@@ -108,7 +109,7 @@ function texSections(tex) {
   const doc = src.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
   const body = doc ? doc[1] : src;
   const out = [];
-  const re = /\\section\*?\{/g;
+  const re = /\\section\*?\s*\{/g;
   const starts = [];
   let m;
   while ((m = re.exec(body))) starts.push(m.index);
@@ -136,12 +137,30 @@ function normText(s) {
     .toLowerCase();
 }
 
+/** Formatting wrappers retain their visible contents when comparing entry facts. */
+function normFactText(value) {
+  let text = String(value ?? '');
+  const wrapper = /\\(?:mbox|textbf|textit|emph|textrm|textsf|texttt|textnormal)\s*\{/g;
+  let match;
+  while ((match = wrapper.exec(text))) {
+    const group = readBraceGroup(text, match.index + match[0].length - 1);
+    if (!group) continue;
+    text = text.slice(0, match.index) + group.arg + text.slice(group.end);
+    wrapper.lastIndex = match.index;
+  }
+  return normText(text
+    .replace(/\\text(?:en|em)dash\b(?:\{\})?/g, '-')
+    .replace(/\\([%&#$_])/g, '$1')
+    .replace(/~/g, ' ')
+    .replace(/-{2,}/g, '-'));
+}
+
 /** Entry facts: employers, titles, dates, degrees — the lines that must never change. */
 export function extractTexFacts(tex) {
   const src = stripComments(tex);
   const facts = [];
   const push = (kind, parts) => {
-    const norm = parts.map(normText).filter(Boolean).join(' | ');
+    const norm = parts.map(normFactText).filter(Boolean).join(' | ');
     if (norm) facts.push({ kind, text: norm });
   };
   for (const m of src.matchAll(/\\role\s*\{/g)) {
@@ -159,18 +178,34 @@ export function extractTexFacts(tex) {
   return facts;
 }
 
+/** Personal-project attribution can accompany either identity field. Other
+ * qualifiers remain significant, as do dates, locations and the original CV. */
+function experienceFactKey({ kind, text }) {
+  const parts = text.split(' | ');
+  const fields = kind === 'role' && parts.length === 3 ? [0, 1]
+    : kind === 'entry' && (parts.length === 3 || parts.length === 4) ? [1, 2] : [];
+  for (const index of fields) {
+    parts[index] = parts[index]
+      .replace(/^personal(?: project)?:\s*/, '')
+      .replace(/\s*(?:\(personal(?: project)?\)|\/\s*personal(?: project)?)(?=,|$)/g, '')
+      .trim();
+  }
+  return `${kind}:${parts.join(' | ')}`;
+}
+
 /** Match complete confirmed records, never fields pooled across different jobs. */
 function memoryExperienceFacts(memory) {
   const supported = new Set();
   for (const entry of memory?.facts?.experience || []) {
     if (!entry || !['title', 'org', 'from', 'to'].every(key => typeof entry[key] === 'string' && entry[key].trim())) continue;
     const dates = `${entry.from} -- ${entry.to}`;
-    // "Personal:" retains project attribution; it does not add an employer.
-    for (const org of [entry.org, `Personal: ${entry.org}`]) {
-      const role = [entry.title, org, dates].map(normText).join(' | ');
-      supported.add(`role:${role}`);
-      const modern = [dates, entry.title, org, entry.location || ''].map(normText).filter(Boolean).join(' | ');
-      supported.add(`entry:${modern}`);
+    const locations = ['', ...(typeof entry.location === 'string' && entry.location.trim() ? [entry.location] : [])];
+    for (const location of locations) {
+      const roleOrg = location ? `${entry.org}, ${location}` : entry.org;
+      const role = [entry.title, roleOrg, dates].map(normFactText).join(' | ');
+      supported.add(experienceFactKey({ kind: 'role', text: role }));
+      const modern = [dates, entry.title, entry.org, location].map(normFactText).filter(Boolean).join(' | ');
+      supported.add(experienceFactKey({ kind: 'entry', text: modern }));
     }
   }
   return supported;
@@ -301,10 +336,11 @@ export function newNumbers(text, corpus) {
   }
   // "7 years", "team of 12", "40%": the whole phrase must exist somewhere in the corpus,
   // because the bare digit almost always does (dates, phone numbers).
-  const norm = (s) => s.toLowerCase().replace(/\s+/g, ' ').trim();
+  const norm = (s) => s.toLowerCase().replace(/\\%/g, '%').replace(/\s+/g, ' ').trim();
+  const evidence = norm(corpus.text);
   for (const m of String(text ?? '').matchAll(SUSPECT_CLAIM_RE)) {
     const phrase = norm(m[0]);
-    if (corpus.text.includes(phrase)) continue;
+    if (evidence.includes(phrase)) continue;
     if (!out.includes(phrase)) out.push(phrase);
   }
   return out;
@@ -356,7 +392,7 @@ export function verifyTexEdit({ before, after, corpus, fileName = 'cv.tex', poli
     }
     for (const f of afterFacts) {
       const key = `${f.kind}:${f.text}`;
-      if (!beforeSet.has(f.text) && !(experienceFacts.has(key) && supported.has(key))) {
+      if (!beforeSet.has(f.text) && !(experienceFacts.has(key) && supported.has(experienceFactKey(f)))) {
         hard.push(`${prefix}new ${f.kind} line not on the original CV or supported by a complete Memory experience record: "${f.text}"`);
       }
     }
@@ -449,6 +485,13 @@ export function keywordCoverage({ job, tex, evidenceText = '', profile = {} }) {
   return { inBullets, skillsOnly, missing, notEvidenced: analysis.gaps, requirements: analysis.requirements || [] };
 }
 
+function normMarkdownHeading(heading) {
+  return heading.replace(/(\*\*|__)(.+?)\1/g, '$2')
+    .replace(/--+|–|—/g, '-')
+    .replace(/\s*-\s*/g, ' - ')
+    .replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = null, settings = defaultPromptSettings() }) {
   const hard = [];
   const soft = [];
@@ -462,9 +505,9 @@ export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = 
   const orderIssue = sectionOrderIssue(headings, settings.format.sectionOrder);
   if (orderIssue) hard.push(`cv.md: ${orderIssue}`);
 
-  const beforeHeads = new Set((String(before || '').match(/^###\s+[^\n]+/gm) || []).map((s) => s.toLowerCase().trim()));
+  const beforeHeads = new Set((String(before || '').match(/^###\s+[^\n]+/gm) || []).map(normMarkdownHeading));
   if (beforeHeads.size) {
-    const afterHeads = (md.match(/^###\s+[^\n]+/gm) || []).map((s) => s.toLowerCase().trim());
+    const afterHeads = (md.match(/^###\s+[^\n]+/gm) || []).map(normMarkdownHeading);
     for (const h of afterHeads) {
       if (!beforeHeads.has(h)) hard.push(`cv.md: entry heading not on the original CV: "${h.replace(/^###\s+/, '')}"`);
     }
@@ -475,8 +518,9 @@ export function verifyMarkdownCv({ before, after, corpus, policy = {}, memory = 
   for (const name of ['Experience', 'Education']) {
     const original = sectionBody(before, name);
     const edited = sectionBody(md, name);
+    const editedHeadings = new Set((edited.match(/^###\s+.+$/gm) || []).map(normMarkdownHeading));
     for (const heading of original.match(/^###\s+.+$/gm) || []) {
-      if (!edited.split('\n').includes(heading)) hard.push(`cv.md: ${name} entry removed or changed: ${heading}`);
+      if (!editedHeadings.has(normMarkdownHeading(heading))) hard.push(`cv.md: ${name} entry removed or changed: ${heading}`);
     }
     const originalBullets = (original.match(/^\s*[-*]\s+.+$/gm) || []).map(s => s.replace(/^\s*[-*]\s+/, '').trim());
     const canSelect = policy.allowExperienceSelection && experienceIsArchived(originalBullets, memory);
@@ -635,7 +679,7 @@ export async function snapshotCvSources({ prepDir, cvSource }) {
   const saved = [];
   if (cvSource === 'overleaf') {
     for (const name of ['main.tex', 'ats.tex']) {
-      const src = join(ROOT, '.workspace', 'overleaf', name);
+      const src = join(overleafWorkspaceDir(), name);
       if (!existsSync(src)) continue;
       await writeFile(join(dir, name), await readFile(src, 'utf8'));
       saved.push(name);
@@ -655,7 +699,7 @@ async function loadSnapshot(prepDir, name) {
 }
 
 /**
- * Run the gate after the CV agent. Reverts `.workspace/overleaf/*.tex` (or leaves cv.md
+ * Run the gate after the CV agent. Reverts the active job's Overleaf sources (or leaves cv.md
  * untouched but flagged) on hard failures. Returns a summary and writes quality-report.md.
  */
 export async function verifyCvAfterAgent({
@@ -668,7 +712,7 @@ export async function verifyCvAfterAgent({
   emit = () => {},
   root = ROOT,
 }) {
-  const overleafDir = join(root, '.workspace', 'overleaf');
+  const overleafDir = overleafWorkspaceDir(root);
   const memory = readMemorySync(root);
   const policy = cvPreferences(memory);
   const before = {};
@@ -787,7 +831,7 @@ export async function verifyLetterAfterAgent({
   // Without a snapshot (letter-only run) the live CV files are the fact source.
   if (!beforeTexts.length) {
     for (const n of cvSource === 'overleaf' ? ['main.tex', 'ats.tex'] : []) {
-      const t = await readIf(join(ROOT, '.workspace', 'overleaf', n));
+      const t = await readIf(join(overleafWorkspaceDir(), n));
       if (t) beforeTexts.push(t);
     }
   }

@@ -34,6 +34,23 @@ Cover letter: 8/10
 ` + REVIEW_COVERAGE;
 
 describe('parseReviewMarkdown', () => {
+  it('accepts explicitly limited CV and letter reviews without a fabricated job-fit score', () => {
+    const coverage = REVIEW_COVERAGE.replace('| Build APIs | required | supported | Memory: Engineer at Example, Built APIs | Experience, Built APIs |',
+      '| Posting requirements unavailable | unknown | unknown | Cannot assess missing requirements | Not included |');
+    const limited = 'Verdict: pass\nATS: 8/10\nPosting fit: N/A\nRecruiter scan: 8/10\nCover letter: 8/10\n\n## Must fix\n- _none_\n\n## Review limitations\n- Full job description unavailable.\n' + coverage;
+    for (const scope of ['cv', 'letter']) {
+      const result = parseReviewMarkdown(limited, scope);
+      assert.equal(result.verdict, 'pass');
+      assert.equal(result.scores.postingFit, null);
+      assert.deepEqual(result.limitations, ['Full job description unavailable.']);
+      for (const malformed of [limited.replace('Posting fit: N/A', ''),
+        limited.replace('## Review limitations\n- Full job description unavailable.', ''),
+        limited.replace(coverage, REVIEW_COVERAGE), limited.replace('- _none_', '- Unsupported claim remains.'),
+        limited.replace(scope === 'cv' ? 'ATS: 8/10' : 'Cover letter: 8/10', '')]) {
+        assert.equal(parseReviewMarkdown(malformed, scope).verdict, 'not_reviewed');
+      }
+    }
+  });
   it('reads verdict, scores, and must-fix bullets', () => {
     const r = parseReviewMarkdown(SAMPLE);
     assert.equal(r.verdict, 'revise');
@@ -57,6 +74,18 @@ describe('parseReviewMarkdown', () => {
     const r = parseReviewMarkdown(`Verdict: pass\nATS: 9/10\nPosting fit: 8/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_\n\n## Should fix\n- Shorten bullet 3.\n` + REVIEW_COVERAGE);
     assert.equal(r.verdict, 'pass');
     assert.equal(r.shouldFix.length, 1);
+  });
+
+  it('reports incomplete reviewer inputs without approving or requesting document repair', () => {
+    for (const section of ['## Review limitations\n- Memory input was truncated.', '## Should fix\n- Review limitation: Memory input was truncated.']) {
+      const review = `Verdict: needs_input\nATS: 8/10\nPosting fit: 5/10\nRecruiter scan: 8/10\n\n## Must fix\n- _none_\n\n${section}\n` + REVIEW_COVERAGE;
+      const result = parseReviewMarkdown(review);
+      assert.equal(result.verdict, 'not_reviewed');
+      assert.deepEqual(result.mustFix, []);
+      assert.equal(result.scores.ats, 8);
+      assert.match(result.error, /could not complete.*Memory input was truncated/);
+    }
+    assert.match(parseReviewMarkdown('Verdict: needs_input').error, /missing or incomplete/);
   });
 });
 

@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile, copyFile, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, dirname } from 'node:path';
-import { run, loadDotEnv, workspaceDir } from './common.mjs';
+import { run, loadDotEnv } from './common.mjs';
 import { stageFinalDocumentText, reviewStatusReason } from './review-documents.mjs';
 import { compileTexToPdf, htmlFileToPdf, countPdfPages } from './pdf.mjs';
 import { overleafTexToHtml } from './tex-html.mjs';
@@ -19,12 +19,10 @@ import {
 import { checkAtsText, extractPdfText } from './pdf-text.mjs';
 import { cvPreferences } from './cv-preferences.mjs';
 import { refreshOverleafCheckout } from './overleaf-refresh.mjs';
+import { overleafDir } from './overleaf-workspace.mjs';
+export { overleafDir } from './overleaf-workspace.mjs';
 
 loadDotEnv();
-
-export function overleafDir() {
-  return join(workspaceDir(), 'overleaf');
-}
 
 export function overleafConfigured() {
   loadDotEnv();
@@ -58,7 +56,7 @@ export async function syncOverleaf({ signal } = {}) {
       'Overleaf not configured. Add OVERLEAF_GIT_TOKEN and OVERLEAF_PROJECT_ID to .env',
     );
   }
-  return refreshOverleafCheckout({ remote: gitUrl(), workspace: workspaceDir(), signal });
+  return refreshOverleafCheckout({ remote: gitUrl(), workspace: dirname(overleafDir()), signal });
 }
 
 async function listTexFiles(dir) {
@@ -391,7 +389,7 @@ export async function assembleOverleafAfterAgent({
   const emit = (line, stream = 'meta') => {
     if (typeof onEvent === 'function') onEvent({ stream, line: String(line), t: Date.now() });
   };
-  // Do not pull — the agent just edited `.workspace/overleaf`. A pull would
+  // Do not pull — the agent just edited this job's checkout. A pull would
   // stash those edits and waste the tailor pass.
   emit('Fitting Overleaf CVs to the configured page limit…');
   const fit = await fitOverleafCvsToOnePage(job, { prepDir });

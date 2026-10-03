@@ -19,6 +19,8 @@ function add(label, value) {
 const profileText = await optional('profile.json');
 const memoryText = await optional('state/memory.json');
 const memory = memoryText ? JSON.parse(memoryText) : null;
+const localPromptText = await optional('prompts/local.json');
+const localPrompts = localPromptText ? JSON.parse(localPromptText.replace(/^\uFEFF/, '')) : {};
 const legacyProfile = profileText ? JSON.parse(profileText) : {};
 const profile = memory?.facts || legacyProfile;
 // Keep checking retired source identities as well as current canonical values.
@@ -34,6 +36,26 @@ for (const entry of profile.experience || []) {
   add('candidate client', entry.client);
 }
 for (const entry of profile.education || []) add('candidate school', entry.school);
+for (const entry of profile.projects || []) {
+  for (const key of ['name', 'url', 'repository', 'repo']) add('candidate project', entry[key]);
+}
+// Long private text is checked independently of identity fields. Short generic
+// values (skill names, fonts, yes/no answers, etc.) are not personal identifiers.
+function addPrivateText(label, value) {
+  if (typeof value === 'string' && value.trim().length >= 40) {
+    add(label, value);
+    for (const line of value.split(/\r?\n/)) if (line.trim().length >= 40) add(label, line);
+  } else if (value && typeof value === 'object') {
+    for (const item of Object.values(value)) addPrivateText(label, item);
+  }
+}
+addPrivateText('private candidate preference', memory?.preferences);
+addPrivateText('private saved answer', memory?.answers);
+addPrivateText('private prompt instruction', localPrompts.instructions);
+for (const template of localPrompts.templates || []) {
+  if (String(template.id || '').length >= 12) add('private template ID', template.id);
+  if (String(template.name || '').length >= 12) add('private template name', template.name);
+}
 for (const value of [memory?.facts?.background?.techStack, memory?.facts?.background?.coverLetterNotes,
   memory?.preferences?.agentRules, memory?.preferences?.writingRules]) {
   if (value) add('private memory content', value);

@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { access, cp, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { ROOT, loadJson, prepDir, workspaceDir } from './common.mjs';
 import { artifactContext } from './artifact-context.mjs';
 import { extractPdfText } from './pdf-text.mjs';
@@ -8,9 +8,10 @@ import { reviewStatusReason } from './review-documents.mjs';
 import { readMemory, memoryInputs } from './memory.mjs';
 import { promptSettings, pageLimit } from './prompt-settings.mjs';
 import { currentCvTemplate } from './cv-template-context.mjs';
+import { overleafDir, jobOverleafDir, withJobOverleaf } from './overleaf-workspace.mjs';
 
 const MANIFEST = 'generation.json';
-const activeJobs = new Set();
+const activePacks = new Set();
 const CV_FILES = ['cv.md', 'cv.html', 'cv.pdf', 'cv-ats.pdf', 'cv-main.pdf', 'instructions.md', 'review.md', 'cv-final-text.md', 'overleaf-source.json', 'overleaf-push.json'];
 const LETTER_FILES = ['cover-letter.md', 'cover-letter.html', 'cover-letter.pdf', 'cover-letter.docx', 'cover-letter-review.md', 'letter-final-text.md'];
 const readText = (path) => readFile(path, 'utf8').catch(() => '');
@@ -26,12 +27,13 @@ function canonical(value) {
 
 export async function loadPrepInputs(settings = {}, root = ROOT) {
   const sources = settings.source === 'overleaf'
-    ? (await readdir(join(root, '.workspace', 'overleaf')).catch(() => []))
+    ? (await readdir(overleafDir(root)).catch(() => []))
       .filter((name) => name.endsWith('.tex')).sort().map((name) => `.workspace/overleaf/${name}`)
     : [await exists(join(root, 'cv', 'resume.md')) ? 'cv/resume.md' : 'cv/resume.txt'];
   const memory = await readMemory(root);
   const paths = [...sources, 'cv/cover-letter.md'];
-  return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(join(root, p))]))),
+  return { ...Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await readText(
+    p.startsWith('.workspace/overleaf/') ? join(overleafDir(root), p.slice('.workspace/overleaf/'.length)) : join(root, p))]))),
     ...memoryInputs(memory), 'prompts/settings': JSON.stringify({ ...promptSettings(root), templates: [] }),
     'cv-template': JSON.stringify(currentCvTemplate()) };
 }
@@ -64,6 +66,13 @@ export function assessPrep(manifest, context, { cv = true, letter = true, instru
 }
 
 export async function prepStatus(job, profile, settings, options = {}) {
+  if (settings.source === 'overleaf' && await exists(jobOverleafDir(job.id))) {
+    return withJobOverleaf(job.id, () => readPrepStatus(job, profile, settings, { ...options, inputs: undefined }));
+  }
+  return readPrepStatus(job, profile, settings, options);
+}
+
+async function readPrepStatus(job, profile, settings, options) {
   const inputs = options.inputs || await loadPrepInputs(settings);
   const manifest = await loadJson(join(prepDir(job.id), MANIFEST), null);
   const state = assessPrep(manifest, { job, profile, settings, inputs }, options);
@@ -103,9 +112,15 @@ export async function inspectDocuments(dir, scopes) {
  */
 export async function generateDocuments({ job, profile, settings, instructions = '', mode, scopes,
   root = workspaceDir(), inspect = inspectDocuments }, generate) {
-  if (activeJobs.has(job.id)) throw new Error('Preparation is already running for this job');
-  const accepted = root === workspaceDir() ? prepDir(job.id) : join(root, 'prep', createHash('sha256').update(job.id).digest('hex'));
-  activeJobs.add(job.id);
+  const base = join(root, 'prep', createHash('sha256').update(job.id).digest('hex'));
+  const template = currentCvTemplate();
+  const accepted = root === workspaceDir() ? prepDir(job.id) : template ? join(base, 'templates', template.id) : base;
+  const absolute = resolve(accepted);
+  const lock = process.platform === 'win32' ? absolute.toLowerCase() : absolute;
+  if ([...activePacks].some(path => path === lock || path.startsWith(lock + sep) || lock.startsWith(path + sep))) {
+    throw new Error('Preparation is already running for this job format or its parent pack');
+  }
+  activePacks.add(lock);
   const history = join(root, 'prep-history', randomUUID());
   const staged = join(root, 'prep-staging', randomUUID());
   let hadAccepted = false;
@@ -161,5 +176,5 @@ export async function generateDocuments({ job, profile, settings, instructions =
       err.message += ` (draft preserved at ${failed})`;
     }
     throw err;
-  } finally { activeJobs.delete(job.id); }
+  } finally { activePacks.delete(lock); }
 }

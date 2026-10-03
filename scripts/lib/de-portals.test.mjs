@@ -21,7 +21,25 @@ import {
   extractJsonLdJobDescription,
   fetchArbeitnow,
   resetArbeitnowCache,
+  hydrateJobDescription,
 } from './de-portals.mjs';
+
+describe('public description recovery', () => {
+  it('reads structured LinkedIn posting data without authentication and tolerates unavailable pages', async (t) => {
+    const requests = [];
+    t.mock.method(globalThis, 'fetch', async (url, options) => {
+      requests.push({ url, options });
+      return new Response('<script type="application/ld+json">{"@type":"JobPosting","description":"Build Python APIs and test backend services."}</script>');
+    });
+    const job = { board: 'linkedin', url: 'https://www.linkedin.com/jobs/view/12345' };
+    assert.equal(await hydrateJobDescription(job), 'Build Python APIs and test backend services.');
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].options.headers.Authorization, undefined);
+    assert.equal(requests[0].options.headers.Cookie, undefined);
+    t.mock.method(globalThis, 'fetch', async () => new Response('Sign in', { status: 403 }));
+    assert.equal(await hydrateJobDescription(job), null);
+  });
+});
 
 describe('stepstone portal', () => {
   it('builds DE search URLs', () => {

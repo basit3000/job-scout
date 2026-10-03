@@ -31,6 +31,33 @@ Use Memory's preview/confirm flow for candidate changes. Each workflow gets one
 snapshot. Old profile/answer/note files are imported only by `npm run memory:migrate`;
 the runtime does not fall back to them. See [upgrading](docs/upgrading.md).
 
+## Local-only privacy and personalization
+
+This is a standing requirement for every change; the user does not need to repeat
+it. Personal information and personalized content must remain in ignored local
+storage. Never copy them into Git-tracked files, stage or commit them, or publish
+them to remote repositories, PR descriptions, issues, release notes or attachments.
+
+- Keep candidate facts, contacts, work history, project identities and saved
+  answers in `state/memory.json`. Keep personal wording, tone, punctuation,
+  section order, typography, margins and other document-format choices in the
+  existing private configuration, including `prompts/local.json`. Imported CV
+  references and extracted formatting rules belong in ignored `cv/templates/`.
+- Tracked code may implement configurable features and generic defaults, but
+  must not bake in the current user's choices. Source, tests, examples, docs,
+  agent instructions and bundled templates must be candidate-neutral. Use
+  fictional fixtures; do not copy private prose or formatting profiles into
+  tests, even after replacing names.
+- Audit the actual diff, new publishable files and Git index before declaring
+  changes safe to publish. Confirm private paths are both ignored and untracked;
+  `.gitignore` does not protect a file already tracked. Run the privacy checks
+  below and inspect preferences and template changes manually as well.
+- If private material is found, preserve any unique content in ignored local
+  storage before replacing the tracked copy with neutral content. Report affected
+  paths without quoting private values. Distinguish working-tree cleanup from
+  the index and existing remote history; never claim history was cleaned unless
+  it was actually addressed.
+
 ## Setup and checks
 
 Windows: `./setup.ps1`, `./goose.ps1 configure`, `./start.ps1`.

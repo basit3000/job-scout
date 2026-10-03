@@ -37,7 +37,8 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
   const calls = [];
   const completedWrites = new Map();
   const pending = new Set();
-  let busy = false;
+  let activeReads = 0;
+  let activeWrite = false;
   let accepting = true;
   const callTool = async (name, args = {}) => {
     signal?.throwIfAborted();
@@ -47,9 +48,10 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
     if (!args || typeof args !== 'object' || Array.isArray(args) || Object.keys(args).length) throw new Error('This tool takes no arguments');
     // Retries cannot silently regenerate and replace the same documents twice.
     if (completedWrites.has(name)) return completedWrites.get(name);
-    if (busy) throw new Error('Another tool is running. Call tools sequentially.');
+    if (activeWrite || (tool.writes && activeReads)) throw new Error('Another tool is running. Document tools must run sequentially after inspections.');
     if (calls.length >= maxCalls) throw new Error('Tool call limit reached');
-    busy = true;
+    if (tool.writes) activeWrite = true;
+    else activeReads++;
     const entry = { tool: name, status: 'running', startedAt: new Date().toISOString() };
     calls.push(entry);
     onEvent({ stream: 'meta', line: `Goose tool: ${tool.label}`, t: Date.now() });
@@ -64,7 +66,11 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
       entry.status = 'failed'; entry.error = error.message;
       onEvent({ stream: 'stderr', line: `Goose tool failed: ${tool.label}: ${error.message}`, t: Date.now() });
       throw error;
-    } finally { entry.finishedAt = new Date().toISOString(); busy = false; }
+    } finally {
+      entry.finishedAt = new Date().toISOString();
+      if (tool.writes) activeWrite = false;
+      else activeReads--;
+    }
   };
   const server = createServer(async (req, res) => {
     const reply = (status, payload) => {

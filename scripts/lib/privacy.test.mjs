@@ -48,3 +48,48 @@ test('privacy check blocks personal content in working files and staged snapshot
     await rm(dir,{recursive:true,force:true});
   }
 });
+
+test('privacy check catches private prompts, preferences, answers and template identifiers', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'scout-private-settings-'));
+  const git = args => run('git', args, { cwd: dir, windowsHide: true });
+  const check = args => run(process.execPath, [script, ...args], { cwd: dir, windowsHide: true });
+  const prompt = 'Synthetic private instruction for a fictional candidate: use a distinctive invented document style.';
+  const preference = 'Synthetic private preference: put the fictional research portfolio ahead of other sections.';
+  const answer = 'Synthetic private application answer with fictional circumstances requiring confirmation.';
+  const template = { id: 'template-synthetic-private-123', name: 'Fictional Private Layout' };
+  const project = 'Fictional Private Project';
+  try {
+    await git(['init', '--quiet']);
+    await mkdir(join(dir, 'state'));
+    await mkdir(join(dir, 'prompts'));
+    await writeFile(join(dir, '.gitignore'), 'state/\nprompts/local.json\ncv/templates/\n');
+    await writeFile(join(dir, 'state/memory.json'), JSON.stringify({ facts: { projects: [{ name: project }] },
+      preferences: { tailoringNotes: preference }, answers: { availability: answer } }));
+    await writeFile(join(dir, 'prompts/local.json'), JSON.stringify({ instructions: { cv: prompt }, templates: [template] }));
+    await writeFile(join(dir, 'example.md'), 'Generic template support without private settings.');
+    await git(['add', '.']);
+    assert.match((await check([])).stdout, /passed/);
+    for (const [value, label] of [[prompt, 'private prompt instruction'], [preference, 'private candidate preference'],
+      [answer, 'private saved answer'], [template.id, 'private template ID'], [template.name, 'private template name'],
+      [project, 'candidate project']]) {
+      await writeFile(join(dir, 'example.md'), value);
+      await assert.rejects(check([]), error => {
+        assert.ok(error.stderr.includes(`example.md: ${label}`));
+        assert.ok(!error.stderr.includes(value), 'private values must not appear in diagnostic output');
+        return true;
+      });
+    }
+    await git(['add', 'example.md']);
+    await writeFile(join(dir, 'example.md'), 'Clean working copy.');
+    assert.match((await check([])).stdout, /passed/);
+    await assert.rejects(check(['--staged']), error => /candidate project/.test(error.stderr));
+    await git(['add', 'example.md']);
+    await mkdir(join(dir, 'cv/templates'), { recursive: true });
+    await writeFile(join(dir, 'cv/templates/formatting-rules.md'), 'Synthetic private layout.');
+    await git(['add', '-f', 'cv/templates/formatting-rules.md']);
+    await assert.rejects(check(['--staged']), error => /private\/generated file/.test(error.stderr));
+  } finally {
+    assert.equal(dirname(resolve(dir)), resolve(tmpdir()));
+    await rm(dir, { recursive: true, force: true });
+  }
+});

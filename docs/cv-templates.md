@@ -11,7 +11,23 @@ Word template** to upload a `.docx` (up to 8 MB), name the format, set a page li
 and extract its formatting. The preview uses fictional sample content. Inspect it
 before generating documents. Each result goes through Goose writing, factual
 validation, rendering, review and repair. Previously accepted versions survive
-failed replacements. Generation stops if a selected version needs attention.
+failed replacements. Independent imported formats run up to two at a time, each
+with its own writer, rendering and review sequence. If selected, **Current CV
+format** finishes first because its pack contains the other format folders.
+The original selection order still determines the primary CV. If a format fails
+or needs attention, queued formats stop and already-running formats finish before
+the workflow returns. Cancellation reaches every active Goose worker.
+
+Independent inspection tools may also run concurrently. Cover-letter preparation
+waits for CV preparation so it can use the selected tailored CV. A single CV's
+writing, rendering, review and possible repair remain sequential.
+
+You can start preparation for several jobs. Two individual runs execute at once;
+additional jobs queue automatically. Each has its own Activity progress, results
+and Stop action. The same job cannot be prepared twice simultaneously. Jobs
+reserved by an active batch cannot also be started individually. Each job uses
+its own private Overleaf checkout under `.workspace/overleaf-jobs/`, so separate
+CV writers, renderers and repairs cannot overwrite another job's sources.
 
 Imports extract page dimensions, margins, font, type sizes, color, heading case,
 rules, paragraph spacing, bullet indents and recognized section order. The host

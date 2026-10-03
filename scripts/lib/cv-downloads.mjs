@@ -5,7 +5,7 @@
  */
 
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { ROOT } from './common.mjs';
@@ -228,20 +228,16 @@ export async function exportCoverLetterDownloads({
 }
 
 /** Open company folder in Explorer (Windows) / Finder / xdg-open. */
-export function revealDownloadsFolder(dir) {
+export async function revealDownloadsFolder(dir, { platform = process.platform, spawnImpl = spawn } = {}) {
   if (!dir || !existsSync(dir)) return { ok: false, error: 'Folder not found' };
   try {
-    if (process.platform === 'win32') {
-      spawn('cmd', ['/c', 'start', '', dir], {
-        detached: true,
-        stdio: 'ignore',
-        windowsHide: true,
-      }).unref();
-    } else if (process.platform === 'darwin') {
-      spawn('open', [dir], { detached: true, stdio: 'ignore' }).unref();
-    } else {
-      spawn('xdg-open', [dir], { detached: true, stdio: 'ignore' }).unref();
-    }
+    const command = platform === 'win32' ? 'explorer.exe' : platform === 'darwin' ? 'open' : 'xdg-open';
+    await new Promise((accept, reject) => {
+      // This is the user-requested folder window, not a background helper.
+      const child = spawnImpl(command, [resolve(dir)], { detached: true, stdio: 'ignore', windowsHide: false, shell: false });
+      child.once('error', reject);
+      child.once('spawn', () => { child.unref(); accept(); });
+    });
     return { ok: true, dir };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };

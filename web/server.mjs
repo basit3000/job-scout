@@ -11,6 +11,7 @@ import { handleAtsApi } from './ats-routes.mjs';
 import { paginate, digestItems } from '../scripts/lib/list-pagination.mjs';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { createServer } from 'node:http';
+import { enforceLocalBoundary } from './local-boundary.mjs';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -20,7 +21,7 @@ import { dirname } from 'node:path';
 
 import { ROOT, loadJson, loadDotEnv, loadMarket, listMarketIds, workspaceDir, pickDescription } from '../scripts/lib/common.mjs';
 import { loadDecisions, recordDecision, patchDecision, VALID_DECISIONS } from '../scripts/lib/decisions.mjs';
-import { dedupeJobs, clusterByCompany } from '../scripts/lib/dedupe.mjs';
+import { clusterByCompany } from '../scripts/lib/dedupe.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
 import { rankingEvidence } from '../scripts/lib/rank.mjs';
 import { createScoreCache } from '../scripts/lib/score-cache.mjs';
@@ -372,11 +373,8 @@ function json(res, status, body, extraHeaders = {}) {
   res.end(JSON.stringify(body));
 }
 
-const CORS_APPLY = {
-  'access-control-allow-origin': '*',
-  'access-control-allow-methods': 'GET, POST, OPTIONS',
-  'access-control-allow-headers': 'content-type',
-};
+// Assistance uses the explicit, embedded pack bookmarklet; no cross-origin API.
+const CORS_APPLY = {};
 
 const applyAssistState = { latest: null };
 
@@ -604,7 +602,8 @@ async function enrichJobs({ force = false } = {}) {
     const score = matchingProfile ? cachedScorer(matchingProfile, evidenceText) : () => null;
     const raw = data.jobs ?? [];
     const before = raw.length;
-    const deduped = dedupeJobs(raw);
+    // Keep historical rows addressable: they may own distinct documents/decisions.
+    const deduped = raw;
     const jobs = [];
     // Yield between small groups so cold archive scoring cannot freeze status/navigation.
     for (let offset = 0; offset < deduped.length; offset += 25) {
@@ -1602,6 +1601,7 @@ function serveFile(res, filePath) {
 
 const server = createServer(async (req, res) => {
   try {
+    if (!enforceLocalBoundary(req, res)) return;
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
     if (url.pathname.startsWith('/api/')) {
       await handleApi(req, res, url);
@@ -1623,7 +1623,8 @@ server.on('error', (err) => {
   throw err;
 });
 
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
+  if (process.send) process.send({ port: server.address().port });
   const url = `http://localhost:${PORT}`;
   console.log(`Job Scout UI → ${url}`);
   console.log(`ROOT: ${ROOT}`);

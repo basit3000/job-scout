@@ -167,6 +167,7 @@ export function normalise(job, market) {
     board: job.board ?? null,
     via: job.via ?? null,
     nativeId: job.nativeId ?? null,
+      requisitionId: job.requisitionId ?? job.requisition_id ?? null,
     title: clean(job.title),
     company: clean(job.company) || 'unknown',
     location: clean(job.location) || null,

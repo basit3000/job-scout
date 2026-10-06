@@ -129,6 +129,13 @@ describe('xing portal', () => {
 });
 
 describe('kimeta / heise PPA portals', () => {
+  it('uses the publication label without mistaking discovery or update times for posting dates', () => {
+    const offer = { documentId: 'fictional-123', title: 'Example role', offerUrl: 'https://jobs.example.org/123', firstFound: '2026-10-01', lastChange: '2026-10-06' };
+    assert.equal(mapPpaOffer(offer).postedAt, null);
+    const dated = mapPpaOffer({ ...offer, publishedString: 'vor 5 Tagen' });
+    assert.equal(dated.postedAtApproximate, true);
+    assert.ok(Math.abs((Date.now() - Date.parse(dated.postedAt)) / 86400000 - 5) < 0.01);
+  });
   it('builds search URLs', () => {
     assert.equal(
       ppaSearchUrl('https://www.kimeta.de', { what: 'Softwareentwickler', where: 'Berlin', radiusKm: 50 }),

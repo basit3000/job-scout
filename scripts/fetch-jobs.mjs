@@ -1,4 +1,5 @@
 import { loadCandidateProfile } from './lib/memory.mjs';
+import { sourceSignals, postingAge } from './lib/job-signals.mjs';
 // Country-configurable job fetch. Default: JobSpy (free). Apify only with --allow-paid.
 //
 //   node scripts/fetch-jobs.mjs
@@ -29,7 +30,6 @@ import {
   isJobInMarket,
   runApifyActor,
   workspaceDir,
-  daysSince,
   pickDescription,
 } from './lib/common.mjs';
 import { assertNoPlaceholders, isPlaceholder } from './lib/placeholders.mjs';
@@ -130,7 +130,7 @@ function buildApifyBoards(market) {
         country: market.shortName,
         remote: j.isRemote ?? null,
         url: j.applyUrl || j.url,
-        postedAt: j.postedDate ?? null,
+        ...sourceSignals({ ...j, board: 'bayt' }),
         employmentType: j.employmentType ?? null,
         salary: j.salaryText
           || (j.salaryMin != null
@@ -174,7 +174,7 @@ function buildApifyBoards(market) {
         country: market.shortName,
         remote: /remote/i.test(String(j.workplaceType ?? j.location ?? '')) || null,
         url: j.applyUrl || j.jobUrl || j.url,
-        postedAt: j.postedDate ?? null,
+        ...sourceSignals({ ...j, board: 'linkedin', url: j.jobUrl || j.url }),
         employmentType: j.employmentType ?? null,
         salary: j.salary ?? null,
         seniority: j.seniorityLevel ?? null,
@@ -218,7 +218,7 @@ function buildApifyBoards(market) {
         country: market.shortName,
         remote: j.remote ?? j.isRemote ?? null,
         url: j.url ?? j.jobUrl ?? j.link,
-        postedAt: j.datePosted ?? j.postedAt ?? j.pubDate ?? null,
+        ...sourceSignals({ ...j, board: 'indeed', postedAt: j.datePosted ?? j.postedAt ?? j.pubDate, url: j.url || j.jobUrl }),
         employmentType: j.jobType ?? j.employmentType ?? null,
         salary: j.salary ?? j.salaryText ?? null,
         description: pickDescription(j.description, j.jobDescription, j.descriptionText, j.descriptionHtml),
@@ -244,7 +244,7 @@ async function fetchViaApify(board, query, opts, market, apifyBoards) {
   });
 }
 
-function jobspyPayload(boards, query, { limit, maxAgeDays, linkedinFetchDescription }, market) {
+function jobspyPayload(boards, query, { limit, maxAgeDays, linkedinFetchDescription, linkedinFetchApplicants }, market) {
   const where = query.where || market.defaultLocation;
   return {
     boards,
@@ -255,6 +255,7 @@ function jobspyPayload(boards, query, { limit, maxAgeDays, linkedinFetchDescript
     // Full LinkedIn JDs mean one extra page load per listing. Default off; other
     // boards still carry descriptions, and merge keeps the longest copy.
     linkedinFetchDescription: Boolean(linkedinFetchDescription),
+    linkedinFetchApplicants: linkedinFetchApplicants !== false,
     countryIndeed: market.jobspyCountryIndeed,
     country: market.shortName,
     currency: market.currency,
@@ -533,6 +534,7 @@ async function main() {
     value('--concurrency', config.fetchConcurrency ?? process.env.FETCH_CONCURRENCY),
   );
   const linkedinFetchDescription = config.linkedinFetchDescription === true;
+  const linkedinFetchApplicants = config.linkedinFetchApplicants !== false;
 
   console.log(`Market: ${market.name} (${market.id})`);
   console.log(`Strategy: ${strategy}`);
@@ -576,10 +578,10 @@ async function main() {
       fetchedAt,
       previousFetchedAt: baseline?.generatedAt ?? null,
     })
-      .map((job) => ({
-        ...job,
-        ageDays: job.postedAt ? daysSince(job.postedAt) : job.ageDays ?? null,
-      }))
+      .map((job) => {
+        const dated = !job.postedAt && job.ageDays != null ? { ...job, ...sourceSignals(job) } : job;
+        return { ...dated, ageDays: postingAge(dated) };
+      })
       .sort((a, b) => (a.ageDays ?? 999) - (b.ageDays ?? 999));
 
     const newIds = fresh
@@ -749,6 +751,7 @@ async function main() {
           maxAgeDays: filters.maxAgeDays,
           boardConfig,
           linkedinFetchDescription,
+          linkedinFetchApplicants,
         };
         let usedApify = false;
         let queryGotJobs = false;

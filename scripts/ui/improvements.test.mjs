@@ -25,7 +25,9 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
   let memory = { schemaVersion: 1, revision: 1, facts: { name: 'Fictional Candidate', targetRole: 'Backend Engineer', links: { email: 'candidate@example.org' }, skills: { strong: ['Python', 'SQL'] }, experience: [], education: [] }, preferences: {}, answers: { needsSponsorship: '' } };
   let schedules = [], confirmed = 0, imported = 0, emailExports = 0;
   const templates = [{ id: 'default', name: 'Current CV format' }];
-  const job = { id: 'fictional-job', company: 'Example Workshop', title: 'Backend Engineer', location: 'London', url: 'https://jobs.example.org/fictional', ageDays: 1 };
+  const job = { id: 'fictional-job', company: 'Example Workshop', title: 'Backend Engineer', location: 'London', url: 'https://jobs.example.org/fictional', ageDays: 5, postedAtApproximate: true,
+    applicants: { count: 25, relation: 'less-than', label: 'Under 25 applicants', source: 'linkedin', observedAt: '2026-10-06T12:00:00Z' },
+    fit: { verdict: 'Worth a shot', score: 60, opportunity: { bonus: 7, reasons: ['Posted about 5 days ago', 'Low reported applicant count'] } } };
   const base = `http://127.0.0.1:${server.address().port}`;
   await page.route('**/*', async route => {
     const req = route.request(), url = new URL(req.url());
@@ -61,7 +63,12 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
     return route.fulfill({ contentType: 'application/json', body: JSON.stringify(data) });
   });
   await mkdir(resolve('.workspace/demo'), { recursive: true });
-  await page.goto(base); await page.getByRole('tab', { name: 'Memory', exact: true }).click();
+  await page.goto(base);
+  await page.waitForSelector('.job .job-facts');
+  assert.match(await page.locator('.job .job-facts').first().textContent(), /Posted about 5d ago/);
+  assert.match(await page.locator('.job .job-facts').first().textContent(), /Under 25 applicants/);
+  assert.match(await page.getByText('Opportunity +7', { exact: true }).first().getAttribute('title'), /not views/);
+  await page.getByRole('tab', { name: 'Memory', exact: true }).click();
   await page.getByRole('button', { name: 'Add experience', exact: true }).click();
   const entry = page.getByRole('button', { name: 'Add experience', exact: true }).locator('..').locator('fieldset').last();
   await entry.locator('input').first().fill('Fictional role');

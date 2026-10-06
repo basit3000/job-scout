@@ -7,6 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { artifactContext } from './artifact-context.mjs';
 import { currentCvTemplateId } from './cv-template-context.mjs';
+import { sourceSignals, postingAge } from './job-signals.mjs';
 
 export const run = promisify(execFile);
 export const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -161,6 +162,7 @@ export async function listMarketIds() {
 }
 
 export function normalise(job, market) {
+  const signals = sourceSignals(job);
   return {
     id: job.id,
     source: job.source,
@@ -174,8 +176,8 @@ export function normalise(job, market) {
     country: job.country ?? market?.shortName ?? null,
     remote: job.remote ?? null,
     url: job.url ?? null,
-    postedAt: job.postedAt ?? null,
-    ageDays: daysSince(job.postedAt),
+    ...signals,
+    ageDays: postingAge(signals),
     employmentType: job.employmentType ?? null,
     salary: job.salary ?? null,
     seniority: job.seniority ?? null,

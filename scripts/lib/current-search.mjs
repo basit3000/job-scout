@@ -1,4 +1,5 @@
-import { daysSince, isJobInMarket } from './common.mjs';
+import { isJobInMarket } from './common.mjs';
+import { postingAge } from './job-signals.mjs';
 import { matchesTitlePatterns } from './title-matching.mjs';
 
 const patterns = (items = []) => items.filter((p) => p && !String(p).includes('YOUR_')).map((p) => new RegExp(p, 'i'));
@@ -6,7 +7,7 @@ const patterns = (items = []) => items.filter((p) => p && !String(p).includes('Y
 /** Filter the view, never the archive or tracker. Not seen again is not closed. */
 export function currentSearchState(job, profile, config, market) {
   const reasons = [];
-  const ageDays = job.postedAt ? daysSince(job.postedAt) : null;
+  const ageDays = postingAge(job);
   const limit = config.filters?.maxAgeDays ?? profile.constraints?.maxAgeDays ?? 30;
   if (ageDays != null && ageDays > limit) reasons.push(`Older than ${limit} days`);
   const include = patterns(profile.search?.includeTitlePatterns);

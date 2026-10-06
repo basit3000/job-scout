@@ -1,5 +1,6 @@
 /** Conservative vacancy identity shared by fetching and the UI. */
 import { createHash } from 'node:crypto';
+import { latestApplicants } from './job-signals.mjs';
 
 export function normalizeCompany(name) {
   return String(name ?? '')
@@ -109,6 +110,10 @@ function mergeInto(winner, loser) {
     employmentType: firstFilled(winner.employmentType, loser.employmentType),
     location: firstFilled(winner.location, loser.location),
     postedAt: firstFilled(winner.postedAt, loser.postedAt),
+    postedAtApproximate: winner.postedAt ? winner.postedAtApproximate : loser.postedAtApproximate,
+    postedAtText: winner.postedAt ? winner.postedAtText : loser.postedAtText,
+    scrapedAt: laterIso(winner.scrapedAt, loser.scrapedAt),
+    applicants: latestApplicants(winner.applicants, loser.applicants),
     nationality: firstFilled(winner.nationality, loser.nationality),
     yearsExperience: firstFilled(winner.yearsExperience, loser.yearsExperience),
     requisitionId: firstFilled(requisition(winner), requisition(loser)),

@@ -1,5 +1,6 @@
 /** Heuristic fit score against state/memory.json (and optional evidence text). */
 import { analyzeKeywordGaps } from './cv-keywords.mjs';
+import { opportunityFor } from './job-signals.mjs';
 import { assessRequirements } from './match-requirements.mjs';
 import { titleVariants, matchesTitlePatterns } from './title-matching.mjs';
 export const FIT_VERDICTS = ['Strong', 'Worth a shot', 'Stretch', 'No'];
@@ -243,8 +244,11 @@ export function scoreJob(job, profile, evidenceText = '', options = {}) {
     detail: experienceChecks.map((r) => r.label + ': ' + r.evidence).join('; '),
   });
 
+  const opportunity = opportunityFor(job, options.now ?? Date.now());
   return {
     verdict,
+    opportunity,
+    priorityScore: score + opportunity.bonus,
     score,
     matched: unique(matched),
     gaps: unique(gaps),

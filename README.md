@@ -109,6 +109,30 @@ on-screen for manual submission. Uncertain outcomes are never automatically retr
 
 ## Job fit and reranking
 
+Results show posting age and reported applicant counts when a source supplies them.
+Relative dates (including English and German labels) are anchored to the fetch time
+and marked approximate. Unknown dates and counts stay unknown. Counts retain their
+source, observation date, and bounds such as “under 25” or “over 200”; they are not
+view counts or verified completed applications across all boards.
+
+**Fit + opportunity** sorts by fit verdict first, then fit score plus a bonus of at
+most eight points. Posts up to 3/7/14 days old receive 3/2/1 points. A reported count
+of at most 25 (or “under 26”) adds 3 points for posts under three days old, or 5 for
+posts 3–30 days old. Counts must have been observed within seven days; unknown,
+stale, and lower-bound counts receive no count bonus. The fit score and eligibility
+verdict remain unchanged. The opportunity badge explains the bonus; CLI shortlists
+use the same ranking. The normal search age limit still applies.
+
+JobSpy and Apify adapters retain available date/count fields. Free LinkedIn searches
+also try public detail pages for counts (at most 20 pages per query, a 20-second
+budget for starting requests, five-second request timeout, no retries, stop on
+blocking). Missing or blocked metadata never discards the job. Set
+`linkedinFetchApplicants: false` in ignored `search-profile.json` to skip these
+extra requests. Full LinkedIn descriptions remain independently controlled by
+`linkedinFetchDescription`. Other boards and employer feeds supply dates where
+available, but usually do not expose applicant counts. A new fetch collects these
+observations; existing saved jobs are not automatically enriched.
+
 ### Additional employer searches
 
 Enable **Company careers** in Portals to search the `companies` watchlist in your

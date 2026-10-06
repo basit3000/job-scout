@@ -1,4 +1,4 @@
-/** Results-list sort comparators. Fit ranking is unchanged; date sorts are display-only. */
+/** Verdict first, then fit plus a bounded opportunity bonus. */
 
 const FIT_RANK = { Strong: 0, 'Worth a shot': 1, Stretch: 2, No: 3 };
 const DAY_MS = 86_400_000;
@@ -23,7 +23,8 @@ export function compareFit(a, b) {
   const av = FIT_RANK[a.fit?.verdict] ?? 9;
   const bv = FIT_RANK[b.fit?.verdict] ?? 9;
   if (av !== bv) return av - bv;
-  return (b.fit?.score ?? 0) - (a.fit?.score ?? 0);
+  return (b.fit?.priorityScore ?? b.fit?.score ?? 0) - (a.fit?.priorityScore ?? a.fit?.score ?? 0)
+    || (b.fit?.score ?? 0) - (a.fit?.score ?? 0);
 }
 
 function comparePosted(a, b, newestFirst, nowMs) {

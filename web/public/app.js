@@ -1044,7 +1044,8 @@ function renderJob(job, { compact = false } = {}) {
   const facts = [
     job.location,
     job.remote === true ? 'Remote' : null,
-    job.ageDays != null ? `Posted ${job.ageDays}d ago` : 'Posting date unknown',
+    job.ageDays != null ? `Posted ${job.postedAtApproximate ? 'about ' : ''}${job.ageDays}d ago` : 'Posting date unknown',
+    job.applicants ? `${job.applicants.label} · ${formatBoard(job.applicants.source)} · observed ${new Date(job.applicants.observedAt).toLocaleDateString()}` : 'Applicant count unavailable',
     job.currentSearch?.lastSeenAt ? `Last seen ${new Date(job.currentSearch.lastSeenAt).toLocaleDateString()}` : null,
     job.board ? `${formatBoard(job.board)}${job.via ? ` via ${job.via}` : ''}` : null,
     job.salary,
@@ -1074,6 +1075,7 @@ function renderJob(job, { compact = false } = {}) {
           : ''
       }
       ${job.isNew ? '<span class="pill new">New</span>' : ''}
+      ${fit?.opportunity?.bonus ? `<span class="pill" title="${escapeAttr(fit.opportunity.reasons.join('; ') + '. Reported counts are not views or verified completed applications. Fit verdict stays unchanged.')}">Opportunity +${fit.opportunity.bonus}</span>` : ''}
       ${langLabel ? `<span class="pill lang-${escapeAttr(written)}">${escapeHtml(langLabel)}</span>` : ''}
       ${job.germanRequired && written === 'en' ? '<span class="pill lang-de">German required</span>' : ''}
       ${atsPill(job.ats)}

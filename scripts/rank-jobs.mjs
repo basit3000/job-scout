@@ -30,11 +30,13 @@ function renderShortlist(ranked, meta, summary) {
   for (const job of ranked) {
     push(`## ${i}. ${job.title} — ${job.company}`);
     push();
-    push(`**${job.fit}** · score ${job.score} · ${job.location || '—'} · ${job.ageDays != null ? `${job.ageDays}d ago` : 'date unknown'}`);
+    push(`**${job.fit}** · score ${job.score} · ${job.location || '—'} · ${job.ageDays != null ? `${job.postedAtApproximate ? 'about ' : ''}${job.ageDays}d ago` : 'date unknown'}`);
     push();
     push(job.blurb);
     push();
     if (job.why?.length) push(`Why: ${job.why.join(' · ')}`);
+    if (job.applicants) push(`Reported applicants: ${job.applicants.label} (${job.applicants.source}; observed ${job.applicants.observedAt})`);
+    if (job.opportunity?.bonus) push(`Opportunity +${job.opportunity.bonus}: ${job.opportunity.reasons.join('; ')}`);
     if (job.flags?.length) push(`Flags: ${job.flags.join(', ')}`);
     push(`Apply: ${job.url}`);
     push(`ID: \`${job.id}\``);
@@ -65,7 +67,7 @@ async function main() {
   const cvText = rankingEvidence(inputs);
   const jobs = bundle.jobs.map((job) => {
     const currentSearch = currentSearchState(job, profile, config, market);
-    return { ...job, ageDays: currentSearch.ageDays, currentSearch };
+    return { ...job, currentSearch };
   }).filter((job) => flag('--history') || job.currentSearch.current);
   const ranked = rankJobs(jobs, withMatchingAnswers(profile, await loadSavedAnswers()), cvText).slice(0, limit);
   const summary = summariseRanking(ranked);
@@ -77,7 +79,7 @@ async function main() {
     targetRole: bundle.targetRole,
     generatedAt: new Date().toISOString(),
     strategy: bundle.strategy,
-    rankingVersion: 2,
+    rankingVersion: 3,
     scope: flag('--history') ? 'history' : 'current',
   };
 

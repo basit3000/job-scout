@@ -14,6 +14,7 @@
  */
 
 import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription, locationMentionsExcluded } from './common.mjs';
+import { postingDate } from './job-signals.mjs';
 import { withRateLimitRetry } from './fetch-resilience.mjs';
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
@@ -619,7 +620,7 @@ export async function fetchPegel(query, { limit }, market) {
         country: market.shortName,
         remote,
         url,
-        postedAt: j.postedAt || j.firstSeenAt || null,
+        postedAt: j.postedAt || null,
         employmentType: j.contractTypeRaw || null,
         salary,
         seniority: j.seniorityRaw || null,
@@ -867,6 +868,7 @@ export async function fetchStepstone(query, { limit }, market) {
         remote: parsed.remote,
         url: `${STEPSTONE_ORIGIN}${parsed.href}`,
         postedAt: parsed.postedAt,
+        postedAtApproximate: true,
         description: parsed.description,
       };
       const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
@@ -1039,7 +1041,7 @@ export function mapPpaOffer(offer) {
     company: offer.companyName ? decodeEntities(offer.companyName) : null,
     location: loc ? decodeEntities(loc) : null,
     url,
-    postedAt: offer.firstFound || offer.lastChange || parseStepstoneAgo(offer.publishedString),
+    ...postingDate(offer.publishedString),
     description: snippet ? stripHtml(decodeEntities(snippet)).slice(0, 4000) : null,
     remote: /remote|home[\s-]?office|homeoffice/i.test(`${loc || ''} ${snippet}`),
     employmentType: Array.isArray(offer.hours) ? offer.hours.join(', ') : offer.hours || null,
@@ -1090,6 +1092,7 @@ async function fetchPpaPortal(origin, board, query, { limit }, market) {
         remote: parsed.remote,
         url: parsed.url,
         postedAt: parsed.postedAt,
+        postedAtApproximate: parsed.postedAtApproximate,
         employmentType: parsed.employmentType,
         description: parsed.description,
       };

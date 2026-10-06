@@ -14,6 +14,7 @@ import math
 import sys
 from datetime import datetime, timezone
 from urllib.parse import quote
+from job_signals import enrich_linkedin_signals
 
 
 class _WarnCapture(logging.Handler):
@@ -159,6 +160,7 @@ def scrape_config(cfg, scrape_jobs):
                         "remote": bool(remote) if remote is not None else None,
                         "url": url,
                         "postedAt": iso(cleaned.get("date_posted")),
+                        "applicantCount": next((cleaned.get(key) for key in ("applicant_count", "applicants_count", "num_applicants", "applicants") if cleaned.get(key) is not None), None),
                         "employmentType": cleaned.get("job_type"),
                         "salary": salary_text(cleaned, default_currency),
                         "seniority": cleaned.get("job_level"),
@@ -169,7 +171,8 @@ def scrape_config(cfg, scrape_jobs):
                     }
                 )
 
-        warnings = warn_capture.messages[-8:]
+        signal_warnings = enrich_linkedin_signals(jobs) if cfg.get("linkedinFetchApplicants", True) and any(j.get("board") == "linkedin" for j in jobs) else []
+        warnings = (warn_capture.messages + signal_warnings)[-8:]
         soft_error = None
         if not jobs and warnings:
             soft_error = "; ".join(dict.fromkeys(warnings))

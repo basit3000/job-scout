@@ -31,6 +31,9 @@ export function rankJobs(jobs, profile, cvText = '', options = {}) {
     return {
       ...job,
       score: fit.score,
+      priorityScore: fit.priorityScore,
+      opportunity: fit.opportunity,
+      ageDays: fit.opportunity.ageDays,
       fit: fit.verdict,
       blurb: shortDescription(job.description),
       why: (fit.reasons ?? []).slice(0, 3),
@@ -42,8 +45,8 @@ export function rankJobs(jobs, profile, cvText = '', options = {}) {
     };
   }).sort((a, b) => {
     const byFit = compareFit(
-      { fit: { verdict: a.fit, score: a.score } },
-      { fit: { verdict: b.fit, score: b.score } },
+      { fit: { verdict: a.fit, score: a.score, priorityScore: a.priorityScore } },
+      { fit: { verdict: b.fit, score: b.score, priorityScore: b.priorityScore } },
     );
     if (byFit !== 0) return byFit;
     return (a.ageDays ?? 999) - (b.ageDays ?? 999);

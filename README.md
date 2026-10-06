@@ -4,6 +4,25 @@ Local job search, application tracking, and agentic CV preparation. Node serves 
 UI at **http://localhost:4040**; Python/JobSpy fetches free listings. No database or
 Docker is required.
 
+**Version 2.10.0 improvements:** hardened loopback access and
+vacancy identity, guarded application sessions, structured profile/content imports,
+document editing, quality benchmarks, multi-market watchlists, optional semantic
+retrieval, daily schedules, notifications, interview preparation and email drafts.
+Portal automation remains experimental and has not been live-submission verified.
+See [implementation checklist](docs/implementation-progress.md).
+
+| Capability | Availability and verification |
+| --- | --- |
+| Search, tracker, Memory, Goose document review, Word formats, Overleaf | Existing features preserved; regression-tested |
+| LinkedIn, Greenhouse, Lever, Ashby form assistance | Experimental; offline browser fixtures only; [support matrix](docs/reliability.md) |
+| Structured profile, PDF/DOCX content import, document editor | Implemented; local/browser fixtures; [editing guide](docs/editing.md) |
+| Daily schedules and notifications | Implemented; restart/DST fixtures; [scheduling](docs/scheduling.md) |
+| Quality benchmark and semantic retrieval | Mocked contract/retrieval tests; opt-in real model; [evaluation guide](docs/quality-and-discovery.md) |
+| Interview prep and email drafts | Implemented; evidence/MIME/HTTP fixtures; [guide](docs/interview-and-email.md) |
+
+![Fictional discovery walkthrough](docs/screenshots/discovery.png)
+Screenshots contain fictional data. Reproduce them with [the offline demo](docs/demo.md).
+
 **Version 2 uses Goose for every AI workflow and `state/memory.json` for candidate
 information.** There is no Fast mode, provider selector, or legacy memory syncing.
 Existing users: follow [Upgrading](docs/upgrading.md) before starting this version.
@@ -84,8 +103,9 @@ workers have file tools; a prompt restriction is not an operating-system sandbox
 
 Other tabs provide new matches, ready documents, application history, saved answers,
 memory and board selection. Recruiter agent lookup and unanswered application
-questions also use Goose. **Fill submits LinkedIn Easy Apply when clicked**; other
-boards are filled for you to inspect and submit yourself.
+questions also use Goose. **Fill now starts a dry run.** Review the form and select
+**Submit LinkedIn application** explicitly to submit Easy Apply. Other boards remain
+on-screen for manual submission. Uncertain outcomes are never automatically retried.
 
 ## Job fit and reranking
 
@@ -112,7 +132,9 @@ not a complete crawl of that employer's careers site. Public feed options are
 `personio` and `greenhouse` (with `tenant`); `amazon` accepts an optional
 `searchTerm`; `jsonld` accepts `careersUrl` and `jobLinkPattern` for same-origin
 job links containing structured JobPosting data. Keep watchlists in the private
-configuration, not candidate facts. Other markets are currently unsupported.
+configuration, not candidate facts. Direct feeds support other configured markets
+when location evidence matches; indirect Arbeitsagentur employer search remains
+Germany-only. Unsupported combinations report errors, not empty success.
 
 Arbeitsagentur fetches full posting details for matching, including requirements.
 If detail retrieval fails, the listing is retained with unknown requirements.
@@ -196,7 +218,8 @@ of tracked files. Then explain which master documents and job packs need updatin
 ```
 
 One-off task instructions belong in the Goose prompt. Save a preference only when
-it should affect future jobs. The Memory editor is a JSON editor, not a chat agent.
+it should affect future jobs. Memory offers structured forms and advanced JSON,
+both using preview/confirmation. Readable resume imports propose content for review.
 
 ## Configuration and privacy
 
@@ -224,6 +247,9 @@ Before sharing changes:
 
 ```bash
 npm test
+npm run test:activity
+npm run test:improvements
+npm run benchmark
 npm run privacy
 npm run privacy -- --staged
 ```

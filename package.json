@@ -1,6 +1,6 @@
 {
   "name": "job-scout",
-  "version": "2.9.0",
+  "version": "2.10.0",
   "private": true,
   "type": "module",
   "description": "Local multi-country job scout — CLI + web UI",
@@ -15,6 +15,8 @@
     "privacy": "node scripts/check-privacy.mjs",
     "test": "node --test \"scripts/lib/*.test.mjs\"",
     "test:activity": "node --test scripts/ui/activity.test.mjs",
+    "test:improvements": "node --test scripts/ui/improvements.test.mjs",
+    "demo": "node --test scripts/ui/improvements.test.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "benchmark:real": "node scripts/benchmark.mjs --real-model",
     "preversion": "npm test && npm run privacy"

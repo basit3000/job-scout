@@ -1,5 +1,23 @@
 # Upgrade to Job Scout 2
 
+## Version 2.10.0 migration notes
+
+Restart the local server after updating. No archive or candidate migration is
+required; existing IDs, preparation packs and decisions are retained. Old archive
+rows are not destructively consolidated. Re-fetching may recover vacancies that
+older deduplication omitted, but lost records cannot be reconstructed automatically.
+
+The server now binds to loopback and rejects foreign Host/Origin requests. External
+integrations must use the app's embedded-pack bookmarklet or local JSON requests;
+wildcard candidate-data CORS is removed. Fill defaults to dry-run; explicit LinkedIn
+submission is a separate action. Setup, Saved answers and imports require a Memory
+preview/confirmation. API clients should use `/api/memory/preview` then `/api/memory`.
+
+Schedules, embeddings and external alerts are opt-in. No external credentials or
+scheduled searches are created by upgrading. See [editing](editing.md),
+[reliability](reliability.md), [scheduling](scheduling.md) and
+[interview/email](interview-and-email.md) for new workflows.
+
 This is a one-way upgrade. Version 2 supports Goose and the current memory format
 only. Older endpoints, Fast mode, direct provider adapters and compatibility-file
 generation have been removed.

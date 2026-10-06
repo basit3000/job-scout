@@ -1,5 +1,7 @@
 import { createMemoryEditor } from './memory-editor.js';
 import { openDocumentEditor } from './document-editor.js';
+import { openDiscovery } from './discovery.js';
+document.getElementById('openDiscovery')?.addEventListener('click', openDiscovery);
 import { mountAtsCheck } from './ats-check.js';
 import { openPrepModal } from './prep-modal.js';
 import { renderCvTemplates, selectedCvTemplates } from './cv-templates.js';

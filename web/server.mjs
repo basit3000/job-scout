@@ -15,6 +15,7 @@ import { enforceLocalBoundary } from './local-boundary.mjs';
 import { runApplicationSession, readApplicationSession, cancelApplicationSession, applicationFingerprint, SUPPORTED_APPLICATION_PORTALS } from '../scripts/lib/application-session.mjs';
 import { createApplicationAdapter } from '../scripts/lib/application-portal.mjs';
 import { semanticSearch } from '../scripts/lib/semantic-match.mjs';
+import { createDiscoveryScheduler, sendExternalNotification } from '../scripts/lib/discovery-scheduler.mjs';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -706,6 +707,13 @@ async function handleApi(req, res, url) {
     const config = await loadJson(SEARCH_PROFILE, {});
     const { jobs } = await enrichJobs();
     return json(res, 200, await semanticSearch({ jobs: jobs.filter(job => job.currentSearch?.current !== false), profile: await loadCandidateProfile() || {}, query: body.query, config: config.semantic }));
+  }
+  if (path === '/api/discovery') {
+    try {
+      if (req.method === 'GET') return json(res, 200, { ...await discovery.snapshot(), externalConfigured: Boolean(process.env.JOB_SCOUT_NOTIFICATION_WEBHOOK) });
+      if (req.method === 'POST') return json(res, 200, await discovery.configure(await readBody(req)));
+      return json(res, 405, { error: 'Method not allowed' });
+    } catch (error) { return json(res, 400, { error: error.message }); }
   }
 
   if (req.method === 'GET' && path === '/api/setup') {
@@ -1469,6 +1477,7 @@ async function handleApi(req, res, url) {
     }
     const body = await readBody(req);
     const args = [join(ROOT, 'scripts', 'fetch-jobs.mjs')];
+    if (fetchState.child) return json(res, 409, { error: 'A fetch is already running' });
     if (body.market) args.push('--market', String(body.market).toUpperCase());
     if (body.allowPaid) {
       args.push('--allow-paid');
@@ -1644,6 +1653,26 @@ const server = createServer(async (req, res) => {
   }
 });
 
+const discovery = createDiscoveryScheduler({
+  busy: () => Boolean(fetchState.child) || prepState.running || batchState.running,
+  observe: async () => {
+    const data = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
+    const profile = await loadCandidateProfile();
+    const decisions = await loadDecisions();
+    return { jobs: data.jobs.map(job => ({ id: job.id, meaningful: profile && ['Strong', 'Worth a shot'].includes(scoreJob(job, profile).verdict) })),
+      followUps: decisions.decisions.filter(item => item.followUpDate && !['closed','rejected','accepted','skipped'].includes(item.decision)) };
+  },
+  runSearch: async schedule => {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/fetch`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ market: schedule.market, allowPaid: schedule.allowPaid, replace: false }) });
+    if (!response.ok) throw new Error('Scheduled search could not start');
+    const child = fetchState.child;
+    if (child) await new Promise((resolve, reject) => { child.once('close', code => code === 0 ? resolve() : reject(new Error('Search failed'))); child.once('error', reject); });
+    else if (fetchState.lastCode !== 0) throw new Error('Search failed');
+  },
+  external: sendExternalNotification,
+});
+
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
     console.error(`Port ${PORT} is already in use — Job Scout may already be running at http://localhost:${PORT}`);
@@ -1659,6 +1688,11 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Job Scout UI → ${url}`);
   console.log(`ROOT: ${ROOT}`);
   openBrowser(url);
+  // Opt-in schedules only execute while this server is running. No OS service.
+  const pollDiscovery = () => discovery.tick().catch(() => {});
+  pollDiscovery();
+  const timer = setInterval(pollDiscovery, 30000); timer.unref();
+  server.on('close', () => clearInterval(timer));
 });
 
 function openBrowser(url) {

@@ -38,7 +38,7 @@ All fixtures use fictional information.
   exact-citation, MIME and draft-only HTTP fixtures. Real model/Gmail checks pending.
 - [x] 8. CI definitions, full docs, fictional screenshots/demo and final privacy audit.
 - [ ] Owner licence selection: no existing licence; MIT recommended, none assigned.
-- [ ] Execute CI on GitHub after the owner-authorized push; remote results pending.
+- [x] Remote CI passes on Windows/Linux with Node 22/24 after the corrective follow-up.
 
 ## Final local verification (2026-10-06)
 
@@ -68,7 +68,7 @@ All fixtures use fictional information.
 | 5 | Multi-market source fixtures; cached semantic retrieval and hard exclusions | Representative public feeds and an installed embedding model |
 | 6 | DST, restart, no-overlap and alert-consent fixtures | Long-running scheduled search and authorized webhook delivery |
 | 7 | Exact evidence citations, attachment freshness, unsent MIME and Gmail HTTP mock | Real interview generation and authorized Gmail draft creation |
-| 8 | Windows local suites, CI configuration, documentation and screenshot demo | Remote Windows/Linux CI execution; owner licence choice |
+| 8 | Windows local suites, remote Windows/Linux Node 22/24 CI, documentation and screenshot demo | Owner licence choice |
 
 ## Inputs needed to finish live validation
 
@@ -84,8 +84,8 @@ All fixtures use fictional information.
 - External integrations: authorized HTTPS webhook plus explicit enablement; Gmail OAuth
   access token with compose scope and explicit draft-creation consent. Neither configured
   or used by this task. Tokens, endpoints and logs belong in ignored local storage.
-- GitHub/licence: push is now authorized; remote CI results and owner's licence
-  selection remain pending.
+- GitHub/licence: push and remote CI verification complete; owner's licence selection
+  remains pending.
 
 ## Publication preparation
 
@@ -100,9 +100,7 @@ All fixtures use fictional information.
 - Annotated tag: `v2.10.0`. Branch/tag push verification and subsequent remote CI
   results are recorded in the publication task result; no live integrations exercised.
 
-## Deliberate scope limits
-
-### CI follow-up
+## CI follow-up
 
 - [x] Inspected all four failed jobs from the first remote run.
 - [x] Corrected lowercase market fixture paths by using the canonical market loader.
@@ -110,7 +108,12 @@ All fixtures use fictional information.
 - [x] CI explicitly selects its Python executable; Windows installer tests isolate
   PowerShell 5.1 module lookup from an inherited PowerShell 7 environment.
 - [x] Local follow-up verification: 359 tests, 14 browser checks and 7/7 benchmark cases.
-- [ ] Remote Windows/Linux Node 22/24 rerun; results pending the corrective push.
+- [x] All four remote Windows/Linux Node 22/24 jobs pass for correction `d5c58e5`
+  (GitHub Actions run `37482583641`).
+  Windows runs all 359 tests; Linux intentionally skips the three Windows installer
+  tests. Both browser suites, benchmark and privacy checks also pass on all four jobs.
+
+## Deliberate scope limits
 
 PDF/DOCX import proposes readable source text and uniquely detected email; it does
 not guess structured employment or OCR scans. Markdown document editing preserves

@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { explicitTokenUsage } from './agent-usage.mjs';
 import { dirname, delimiter, join } from 'node:path';
 import { ROOT, run } from './common.mjs';
 
@@ -40,7 +41,7 @@ export function cancelGooseRuns() {
 // File/stdin prompts avoid Windows command-line limits. Each invocation is a
 // fresh Goose session, using the user's existing provider and authentication.
 export async function runGoose({ prompt, cwd = ROOT, model = '', extensionUrl,
-  onEvent = () => {}, signal = context.getStore()?.signal, timeoutMs = 20 * 60_000,
+  onEvent = () => {}, onUsage = () => {}, signal = context.getStore()?.signal, timeoutMs = 20 * 60_000,
   maxTurns = 12, binary, env = {}, spawnImpl = spawn, builtins = true } = {}) {
   signal?.throwIfAborted();
   const bin = binary || await resolveGooseBinary();
@@ -73,6 +74,8 @@ export async function runGoose({ prompt, cwd = ROOT, model = '', extensionUrl,
       if (!line.trim()) return;
       try {
         const event = JSON.parse(line);
+        const usage = explicitTokenUsage(event.usage);
+        if (usage) onUsage(usage);
         // Only display assistant text; tool inputs can contain whole private packets.
         const message = event.message;
         if (message?.content?.some((block) => block.type === 'toolRequest' || block.type === 'toolResponse')) {

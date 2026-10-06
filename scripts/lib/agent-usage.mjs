@@ -1,5 +1,12 @@
 // Preserve every attempt, including failed and cancelled runs. Provider counters
 // are reported as received; cache/reasoning counters are not added to totals.
+export function explicitTokenUsage(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const inputTokens = raw.inputTokens ?? raw.input_tokens;
+  const outputTokens = raw.outputTokens ?? raw.output_tokens;
+  if (![inputTokens, outputTokens].every(value => Number.isSafeInteger(value) && value >= 0)) return null;
+  return { inputTokens, outputTokens };
+}
 export function summarizeUsage(attempts = []) {
   const known = attempts.filter((a) => Number.isFinite(a.usage?.inputTokens) && Number.isFinite(a.usage?.outputTokens));
   const counters = ['inputTokens', 'outputTokens', 'cacheReadTokens', 'cacheWriteTokens', 'totalTokens', 'reasoningTokens'];

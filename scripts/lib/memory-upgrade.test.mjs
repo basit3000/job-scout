@@ -34,7 +34,11 @@ test('clean source copy uses only memory through first setup, restart, and stand
     import {applySetup,getSetupStatus} from './scripts/lib/setup-state.mjs';
     import {readMemory,updateMemory} from './scripts/lib/memory.mjs';
     assert.equal((await getSetupStatus()).needsSetup,true);
-    await applySetup({name:'Example Candidate',targetRole:'Engineer',market:'GB',email:'example@example.com',searchTitles:'Engineer',skills:'Python'});
+    const setup = {name:'Example Candidate',targetRole:'Engineer',market:'GB',email:'example@example.com',searchTitles:'Engineer',skills:'Python'};
+    await assert.rejects(applySetup(setup), /Preview again/);
+    const preview = await applySetup({...setup,previewOnly:true});
+    await applySetup({...setup,confirmation:preview.confirmation});
+    assert.deepEqual((await readMemory()).facts.experience, []);
     assert.equal((await getSetupStatus()).needsSetup,false);
     assert.equal((await readMemory()).facts.name,'Example Candidate');
     await updateMemory(m=>{m.facts.headline='Updated from memory';m.answers.needsSponsorship='No';return m;});
@@ -60,7 +64,9 @@ test('clean source copy uses only memory through first setup, restart, and stand
     await writeFile('search-profile.json',JSON.stringify(config));
     await unlink('cv/resume.md');
     assert.equal((await getSetupStatus()).hasResume,false);
-    await applySetup({name:'Example Candidate',targetRole:'Engineer',market:'GB',email:'example@example.com',searchTitles:'Engineer',skills:'Python'});
+    const setup = {name:'Example Candidate',targetRole:'Engineer',market:'GB',email:'example@example.com',searchTitles:'Engineer',skills:'Python'};
+    const preview = await applySetup({...setup,previewOnly:true});
+    await applySetup({...setup,confirmation:preview.confirmation});
     await assert.rejects(readFile('cv/resume.md'), /ENOENT/);
     assert.equal(JSON.parse(await readFile('search-profile.json','utf8')).cv.source,'overleaf');
     assert.ok(await readFile('cv/cover-letter.md','utf8'));

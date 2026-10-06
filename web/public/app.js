@@ -1,4 +1,5 @@
 import { createMemoryEditor } from './memory-editor.js';
+import { openDocumentEditor } from './document-editor.js';
 import { mountAtsCheck } from './ats-check.js';
 import { openPrepModal } from './prep-modal.js';
 import { renderCvTemplates, selectedCvTemplates } from './cv-templates.js';
@@ -1783,7 +1784,8 @@ function showPrep(data) {
       ${cvHtml ? `<a class="btn small" href="${escapeAttr(cvHtml)}" target="_blank" rel="noopener">Open CV.html</a>` : ''}
       ${apply ? `<a class="btn small primary-link" href="${escapeAttr(apply)}" target="_blank" rel="noopener">Apply (opens job)</a>` : ''}
       ${pack.jobId ? `<button type="button" class="btn small" id="copyApplyPack">Copy pack</button>
-      <button type="button" class="btn small" id="fillApplyForm">Fill</button>` : ''}
+      <button type="button" class="btn small" id="fillApplyForm">Fill</button>
+      <button type="button" class="btn small" id="editPreparedDocument">Edit document</button>` : ''}
     </div>
     <p class="meta" id="companyFolderPaths">
       ${
@@ -1840,6 +1842,7 @@ function showPrep(data) {
       appendLog(`Fill failed: ${err.message}`, 'stderr');
     }
   });
+  $('editPreparedDocument')?.addEventListener('click', () => openDocumentEditor(prepJobRef()));
   $('generateCoverLetter')?.addEventListener('click', async () => {
     const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
       .match(/\/api\/prep\/([^/]+)\//)?.[1];
@@ -3085,8 +3088,20 @@ els.saveAnswersBtn.addEventListener('click', async () => {
     answers[key] = input?.value ?? '';
   }
   try {
-    await api('/api/saved-answers', { method: 'PUT', body: JSON.stringify({ answers }) });
-    appendLog('Saved answers updated');
+    const { memory } = await api('/api/memory');
+    const sections = { facts: memory.facts, preferences: memory.preferences, answers: memory.answers };
+    for (const [key, value] of Object.entries(answers)) {
+      if (['phone', 'linkedin', 'github', 'portfolio'].includes(key)) { sections.facts.links ||= {}; sections.facts.links[key] = value; }
+      else sections.answers[key] = value;
+    }
+    const preview = await api('/api/memory/preview', { method: 'POST', body: JSON.stringify(sections) });
+    const dialog = document.createElement('dialog');
+    const heading = document.createElement('h2'); heading.textContent = 'Confirm saved-answer changes';
+    const content = document.createElement('pre'); content.textContent = JSON.stringify({ before: preview.before, after: preview.after }, null, 2);
+    const confirm = document.createElement('button'); confirm.textContent = 'Confirm and save';
+    const cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+    confirm.onclick = async () => { try { await api('/api/memory', { method: 'PUT', body: JSON.stringify({ ...sections, confirmation: preview.confirmation }) }); dialog.remove(); appendLog('Saved answers updated'); } catch (error) { appendLog(error.message, 'stderr'); } };
+    cancel.onclick = () => dialog.remove(); dialog.append(heading, content, confirm, cancel); document.body.append(dialog); dialog.showModal();
   } catch (err) {
     appendLog(err.message, 'stderr');
   }
@@ -3248,6 +3263,16 @@ els.setupForm?.addEventListener('submit', async (ev) => {
   };
   els.setupSubmit.disabled = true;
   try {
+    const preview = await api('/api/setup/preview', { method: 'POST', body: JSON.stringify(payload) });
+    const confirmation = await new Promise(resolve => {
+      const dialog = document.createElement('dialog'); const title = document.createElement('h2'); title.textContent = 'Review profile setup';
+      const content = document.createElement('pre'); content.textContent = JSON.stringify({ before: preview.before, after: preview.after }, null, 2);
+      const save = document.createElement('button'); save.textContent = 'Confirm setup'; const cancel = document.createElement('button'); cancel.textContent = 'Cancel';
+      const finish = value => { dialog.remove(); resolve(value); }; save.onclick = () => finish(preview.confirmation); cancel.onclick = () => finish(null); dialog.oncancel = () => finish(null);
+      dialog.append(title, content, save, cancel); document.body.append(dialog); dialog.showModal();
+    });
+    if (!confirmation) return;
+    payload.confirmation = confirmation;
     const res = await api('/api/setup', { method: 'POST', body: JSON.stringify(payload) });
     state.status = res.status || (await api('/api/status'));
     showSetup(false);

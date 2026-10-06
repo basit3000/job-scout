@@ -33,9 +33,10 @@ import { createPreparationRuns } from '../scripts/lib/preparation-runs.mjs';
 import { downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mjs';
 import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
 import { handleMemoryApi } from './memory-routes.mjs';
+import { handleDocumentEdit } from './document-edit-routes.mjs';
 import { GOOSE_TOOLS, validateGooseRequest } from '../scripts/lib/goose-tools.mjs';
 let batchController = null;
-import { loadSavedAnswers, saveSavedAnswers } from '../scripts/lib/saved-answers.mjs';
+import { loadSavedAnswers } from '../scripts/lib/saved-answers.mjs';
 import { detectAts } from '../scripts/lib/ats.mjs';
 import { buildApplyPack } from '../scripts/lib/apply-pack.mjs';
 import { fillApplyInBrowser, fillAssistPayload, playwrightAvailable } from '../scripts/lib/apply-fill.mjs';
@@ -687,6 +688,8 @@ async function handleApi(req, res, url) {
   if (await handleRecruiterApi(req, res, url, { json, readBody })) return;
   if (await handleMemoryApi(req, res, url, { json, readBody,
     busy: () => prepState.running || batchState.running || Boolean(fetchState.child), invalidate: invalidateJobsCache })) return;
+  if (await handleDocumentEdit(req, res, url, { json, readBody, jobs: async () => (await enrichJobs()).jobs,
+    busy: () => prepState.running || batchState.running, invalidate: invalidateJobsCache })) return;
 
   if (req.method === 'OPTIONS' && path.startsWith('/api/apply-assist')) {
     res.writeHead(204, CORS_APPLY);
@@ -701,11 +704,12 @@ async function handleApi(req, res, url) {
     return json(res, 200, await getSetupStatus());
   }
 
-  if (req.method === 'POST' && path === '/api/setup') {
+  if (req.method === 'POST' && ['/api/setup', '/api/setup/preview'].includes(path)) {
     try {
       if (prepState.running || batchState.running || fetchState.child) return json(res, 409, { error: 'Wait for the active run before changing candidate information.' });
       const body = await readBody(req);
-      const status = await applySetup(body);
+      const status = await applySetup({ ...body, previewOnly: path === '/api/setup/preview' });
+      if (path === '/api/setup/preview') return json(res, 200, status);
       invalidateJobsCache();
       return json(res, 200, { ok: true, setup: status, status: await getStatus() });
     } catch (err) {
@@ -999,11 +1003,7 @@ async function handleApi(req, res, url) {
   }
 
   if (req.method === 'PUT' && path === '/api/saved-answers') {
-    if (prepState.running || batchState.running || fetchState.child) return json(res, 409, { error: 'Wait for the active run before changing saved answers.' });
-    const body = await readBody(req);
-    const answers = await saveSavedAnswers(body.answers ?? body);
-    invalidateJobsCache();
-    return json(res, 200, { ok: true, answers });
+    return json(res, 409, { error: 'Preview and confirm saved-answer changes through Memory.' });
   }
 
   if (req.method === 'GET' && path === '/api/apply-assist/latest') {

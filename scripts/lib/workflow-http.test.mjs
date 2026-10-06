@@ -194,6 +194,12 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.equal(second.ok,true,second.error);
   assert.notEqual(first.pack.downloadFolderAbs,second.pack.downloadFolderAbs);
   assert.equal((await request('/api/ready')).total,2);
+  // Editing and email export use real host routes and renewed review gates.
+  const edit = await request('/api/document-editor?id=fixture%3A1&scope=cv&template=default');
+  const previewEdit = await request('/api/document-editor', { id: job.id, scope: 'cv', template: 'default', action: 'preview', base: edit.base, text: edit.text });
+  assert.match(previewEdit.html, /Test Candidate/);
+  const edited = await request('/api/document-editor', { id: job.id, scope: 'cv', template: 'default', action: 'apply', base: edit.base, text: edit.text });
+  assert.equal(edited.needsReview, false, JSON.stringify(edited));
   const oldMode=await fetch(`http://127.0.0.1:${port}/api/prep`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'fixture:1',mode:'fast'})});
   assert.equal(oldMode.status,400);
   const legacyProvider=await fetch(`http://127.0.0.1:${port}/api/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentProvider:'cursor'})});

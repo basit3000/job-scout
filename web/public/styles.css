@@ -2065,3 +2065,20 @@ body.setup-open .app {
 #personalCvOptions { margin: 16px 0; }
 #personalCvOptions > label { display: block; margin: 8px 0; }
 [hidden] { display: none !important; }
+/* Local editing tools */
+.document-editor-dialog { width: min(1000px, 92vw); max-height: 90vh; overflow: auto; box-sizing: border-box; border: 1px solid var(--line); border-radius: 14px; padding: 24px; color: var(--ink); background: var(--panel); box-shadow: var(--dialog-shadow); }
+.document-editor-dialog::backdrop { background: var(--backdrop); }
+.document-editor-dialog > label { display: block; margin: 12px 0; }
+.document-editor-dialog input:not([type=checkbox]), .document-editor-dialog select { margin: 4px 8px; max-width: 100%; }
+.document-editor-dialog input[type=text], .document-editor-dialog input[type=email], #emailSubject, #editInstruction { width: min(600px, 95%); box-sizing: border-box; }
+.document-editor-dialog button { font: inherit; color: var(--ink); background: var(--panel-alt); border: 1px solid var(--line-strong); border-radius: 8px; padding: 8px 12px; margin: 4px; cursor: pointer; }
+.document-editor-dialog button:disabled { opacity: .5; cursor: default; }
+.document-editor-dialog pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.document-editor-dialog h2 { margin-top: 0; }
+.document-editor-dialog h3 { border-top: 1px solid var(--line); padding-top: 16px; }
+.document-editor-dialog textarea { display: block; width: 100%; box-sizing: border-box; }
+.document-editor-dialog iframe { width: 100%; height: 450px; background: white; }
+#memoryStructured fieldset { margin: 12px 0; padding: 12px; border: 1px solid #778899; }
+#memoryStructured > fieldset { border-radius: 10px; }
+#memoryStructured input:not([type=checkbox]) { width: 100%; box-sizing: border-box; }
+#memoryImportProposals pre, #editDiff { white-space: pre-wrap; max-height: 300px; overflow: auto; }

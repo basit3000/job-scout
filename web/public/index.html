@@ -258,11 +258,19 @@
           <div class="memory-editor">
             <p>Store candidate facts, preferences and application answers in one place. This file is excluded from Git. Relevant information is shared with your AI provider when you run an agent.</p>
             <div id="memoryFields" hidden>
+              <p>Use the structured fields below. Leave unknowns blank; changes require preview and confirmation.</p>
+              <label class="prep-modal-field">Import resume content (PDF / DOCX)<input id="memoryImport" type="file" accept=".pdf,.docx"></label>
+              <p class="meta">This proposes candidate content. Word formatting profiles are imported separately in Prepare.</p>
+              <div id="memoryImportProposals"></div>
+              <div id="memoryStructured"></div>
+              <details><summary>Advanced JSON editing</summary>
               <p class="meta">Edit the JSON sections below, preview the changes, then confirm. Keep unknown answers blank. Contact details belong in facts.links; sponsorship belongs in answers.needsSponsorship. API keys belong in .env, not memory.</p>
               <details id="memoryConflicts" hidden><summary>Imported alternatives to review</summary><pre id="memoryConflictText"></pre></details>
               <label class="prep-modal-field"><span>Facts and background</span><textarea id="memory-facts" rows="14" spellcheck="false"></textarea></label>
               <label class="prep-modal-field"><span>Writing preferences</span><textarea id="memory-preferences" rows="10" spellcheck="false"></textarea></label>
               <label class="prep-modal-field"><span>Application answers</span><textarea id="memory-answers" rows="8" spellcheck="false"></textarea></label>
+                <button type="button" class="btn" id="memoryRefreshForms">Update structured fields from JSON</button>
+                </details>
               <button type="button" class="btn" id="memoryPreviewBtn">Preview changes</button>
               <div id="memoryPreview" hidden><h3>Review your changes</h3><pre id="memoryChanges"></pre><button type="button" class="btn primary" id="memoryConfirm" disabled>Confirm and save memory</button></div>
               <details><summary>Source inventory and retirement notes</summary><pre id="memorySources"></pre></details>

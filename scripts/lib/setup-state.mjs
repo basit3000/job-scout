@@ -2,7 +2,7 @@ import { access, copyFile, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { ROOT, loadJson } from './common.mjs';
 import { findPlaceholders, isPlaceholder } from './placeholders.mjs';
-import { readMemory, loadCandidateProfile, updateMemory } from './memory.mjs';
+import { readMemory, loadCandidateProfile, updateMemory, previewMemory, confirmMemory } from './memory.mjs';
 
 async function exists(p) {
   try {
@@ -133,7 +133,7 @@ export async function applySetup(body = {}) {
   const market = String(body.market || 'DE').trim().toUpperCase();
   const email = String(body.email || '').trim();
   const headline = String(body.headline || '').trim() || `${targetRole}`;
-  const currentLocation = String(body.currentLocation || '').trim() || market;
+  const currentLocation = String(body.currentLocation || '').trim();
   const seniority = String(body.seniority || 'entry').trim() || 'entry';
   const titles = (
     Array.isArray(body.titles) && body.titles.length
@@ -167,25 +167,14 @@ export async function applySetup(body = {}) {
     },
     seniority,
     skills: {
-      strong: skillsStrong.length ? skillsStrong : (existingProfile.skills?.strong ?? [targetRole]),
+      strong: skillsStrong.length ? skillsStrong : (existingProfile.skills?.strong ?? []),
       familiar: existingProfile.skills?.familiar ?? [],
       learning: existingProfile.skills?.learning ?? [],
     },
     experience: Array.isArray(existingProfile.experience) && existingProfile.experience.length
       && !findPlaceholders(existingProfile.experience).length
       ? existingProfile.experience
-      : [
-          {
-            title: targetRole,
-            org: 'Personal / education',
-            from: null,
-            to: 'present',
-            bullets: [
-              `Looking for ${targetRole} roles in ${market}`,
-              'Update Memory with real experience',
-            ],
-          },
-        ],
+      : [],
     education: Array.isArray(existingProfile.education) && existingProfile.education.length
       && !findPlaceholders(existingProfile.education).length
       ? existingProfile.education
@@ -268,12 +257,13 @@ export async function applySetup(body = {}) {
     }
   }
 
-  await updateMemory((current) => {
-    current.facts = { ...profile, background: current.facts.background || {} };
-    if (cities.length) current.answers.citiesOpenTo = cities.join(', ');
-    current.answers.remotePreference = openToRemote ? 'Open to remote' : current.answers.remotePreference || '';
-    return current;
-  });
+  const current = await readMemory();
+  const sections = { facts: { ...profile, background: current.facts.background || {} }, preferences: current.preferences, answers: { ...current.answers } };
+  if (cities.length) sections.answers.citiesOpenTo = cities.join(', ');
+  sections.answers.remotePreference = openToRemote ? 'Open to remote' : current.answers.remotePreference || '';
+  const preview = previewMemory(current, sections);
+  if (body.previewOnly) return { before: { facts: current.facts, preferences: current.preferences, answers: current.answers }, after: sections, changes: preview.changes, confirmation: preview.confirmation };
+  await confirmMemory(sections, body.confirmation);
   await writeFile(searchPath, `${JSON.stringify(searchProfile, null, 2)}\n`);
 
   const resumePath = join(ROOT, 'cv', 'resume.md');

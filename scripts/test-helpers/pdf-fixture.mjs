@@ -6,7 +6,9 @@ export function pdfFixture(pages) {
     const pageId = objects.length + 1;
     refs.push(`${pageId} 0 R`);
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents ${pageId + 1} 0 R >>`);
-    const stream = `BT /F1 12 Tf 50 740 Td (${text}) Tj ET`;
+    const lines = String(text).split(/\r?\n/).flatMap(line => line.match(/.{1,75}(?:\s|$)|.{1,75}/g) || ['']);
+    const escape = line => line.replace(/[^\x20-\x7e]/g, '?').replace(/([\\()])/g, '\\$1');
+    const stream = `BT /F1 10 Tf 12 TL 50 740 Td ${lines.map((line, index) => `${index ? 'T* ' : ''}(${escape(line)}) Tj`).join(' ')} ET`;
     objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   });
   objects[1] = `<< /Type /Pages /Count ${pages.length} /Kids [${refs.join(' ')}] >>`;

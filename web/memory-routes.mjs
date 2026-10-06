@@ -1,7 +1,8 @@
 import { readMemory, previewMemory, confirmMemory } from '../scripts/lib/memory.mjs';
+import { importResumeContent } from '../scripts/lib/resume-import.mjs';
 
 export async function handleMemoryApi(req, res, url, { json, readBody, root, busy = () => false, invalidate = () => {} }) {
-  if (!['/api/memory', '/api/memory/preview'].includes(url.pathname)) return false;
+  if (!['/api/memory', '/api/memory/preview', '/api/memory/import'].includes(url.pathname)) return false;
   let sameOrigin = true;
   try { if (req.headers.origin) sameOrigin = new URL(req.headers.origin).host === req.headers.host; }
   catch { sameOrigin = false; }
@@ -13,7 +14,10 @@ export async function handleMemoryApi(req, res, url, { json, readBody, root, bus
       json(res, 200, { memory: await readMemory(root) }); return true;
     }
     if (busy()) { json(res, 409, { error: 'Wait for the active search or preparation to finish before changing memory.' }); return true; }
-    const body = await readBody(req);
+    const body = await readBody(req, url.pathname === '/api/memory/import' ? 12 * 1024 * 1024 : 2 * 1024 * 1024);
+    if (req.method === 'POST' && url.pathname === '/api/memory/import') {
+      json(res, 200, await importResumeContent(body, await readMemory(root))); return true;
+    }
     if (req.method === 'POST' && url.pathname === '/api/memory/preview') {
       const memory = await readMemory(root);
       const preview = previewMemory(memory, body);

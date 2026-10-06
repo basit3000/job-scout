@@ -703,6 +703,20 @@ function atsPill(ats) {
 }
 
 let applyAssistContext = { job: null, pack: null, text: '', bookmarklet: '' };
+document.getElementById('applyAssistResume')?.addEventListener('click', () => {
+  if (applyAssistContext.job) fillApply(applyAssistContext.job).catch(error => appendLog(error.message, 'stderr'));
+});
+document.getElementById('applyAssistStop')?.addEventListener('click', async () => {
+  if (applyAssistContext.job) await api('/api/apply-assist/stop', { method: 'POST', body: JSON.stringify({ id: applyAssistContext.job.id }) });
+});
+document.getElementById('applyAssistSubmit')?.addEventListener('click', () => {
+  if (!document.getElementById('applyAssistReviewed').checked || applyAssistContext.pack?.ats?.id !== 'linkedin') {
+    document.getElementById('applyAssistStatus').textContent = 'Review the form and documents first. Only LinkedIn submission is supported; other boards remain manual.';
+    return;
+  }
+  fillApply(applyAssistContext.job, true).catch(error => appendLog(error.message, 'stderr'));
+  document.getElementById('applyAssistReviewed').checked = false;
+});
 
 function paintApplyAssist({ title, hint, status, text, bookmarklet, folder, url }) {
   if (els.applyAssistTitle) els.applyAssistTitle.textContent = title || 'Apply assist';
@@ -760,12 +774,12 @@ async function copyApplyPack(job) {
   return res;
 }
 
-async function fillApply(job) {
+async function fillApply(job, submit = false) {
   applyAssistContext = { job, pack: null, text: '', bookmarklet: '' };
   paintApplyAssist({
     title: `Fill — ${job.title || 'role'}`,
     hint: job.ats?.id === 'linkedin'
-      ? 'LinkedIn Easy Apply runs in Chrome and submits. Extra questions use the Prep agent if rules cannot answer. Log in there if asked.'
+      ? 'LinkedIn Easy Apply starts with a dry run. Missing answers pause; review before explicit submission.'
       : 'Chrome opens and known fields are filled. You still confirm Submit on non-LinkedIn forms.',
     status: 'Opening Chrome… For LinkedIn, log in in that window if asked (up to 2 minutes).',
     text: '',
@@ -778,7 +792,7 @@ async function fillApply(job) {
   try {
     res = await api('/api/apply-assist/fill', {
       method: 'POST',
-      body: JSON.stringify({ id: job.id, job: jobSnapshot(job) }),
+      body: JSON.stringify({ id: job.id, job: jobSnapshot(job), dryRun: !submit, authorizeSubmit: submit }),
     });
   } catch (err) {
     paintApplyAssist({

@@ -36,6 +36,8 @@ test('cookie dismiss function targets OneTrust and LinkedIn accept controls', ()
 });
 
 test('detectAts labels common boards and fillable ATS hosts', () => {
+  assert.equal(detectAts('https://evil.example/?next=linkedin.com').id, 'unknown');
+  assert.equal(detectAts('https://evillinkedin.com/jobs/1').id, 'unknown');
   assert.equal(detectAts('https://job-boards.eu.greenhouse.io/acme/jobs/1').id, 'greenhouse');
   assert.equal(detectAts('https://job-boards.eu.greenhouse.io/acme/jobs/1').fillable, true);
   assert.equal(detectAts('https://jobs.ashbyhq.com/moss/uuid').id, 'ashby');

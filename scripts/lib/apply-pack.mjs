@@ -68,7 +68,7 @@ export function formatApplyPackText(pack) {
     pack.files?.coverLetterPdf ? `Cover letter PDF: ${pack.files.coverLetterPdf}` : '',
     pack.files?.coverLetterMd ? `Cover letter MD: ${pack.files.coverLetterMd}` : '',
     '',
-    'LinkedIn Easy Apply: Fill submits. Other sites: Fill types fields; you confirm Submit.',
+    'Fill starts a dry run. Review before explicit LinkedIn Easy Apply submission; other boards remain manual.',
   ];
   return `${lines.filter((line, i, arr) => line !== '' || arr[i - 1] !== '').join('\n').trim()}\n`;
 }

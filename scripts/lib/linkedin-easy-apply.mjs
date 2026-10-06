@@ -580,13 +580,18 @@ export async function runLinkedInEasyApply(page, pack, options = {}) {
       return { ok: true, submitted: false, needsReview: true, filled, uploaded, llmUsed, notes };
     }
     if (action.kind === 'submit') {
+      if (options.dryRun !== false || options.authorizeSubmit !== true) {
+        return { ok: true, submitted: false, needsReview: true, filled, uploaded, llmUsed, notes: [...notes, 'Dry run: review before submission.'] };
+      }
+      options.signal?.throwIfAborted();
+      await options.beforeSubmit?.();
       await action.button.evaluate((el) => el.click()).catch(() => action.button.click());
       await pause(1200);
       await clickIfVisible(page, 'button:has-text("Done")', 2500);
       await clickIfVisible(page, 'button[aria-label="Dismiss"]', 1500);
-      const sent = await submittedSuccess(page) || true;
-      notes.push('Submitted LinkedIn Easy Apply.');
-      return { ok: true, submitted: sent, filled, uploaded, llmUsed, notes };
+      const sent = await submittedSuccess(page);
+      notes.push(sent ? 'Portal confirmed LinkedIn Easy Apply.' : 'Submission outcome unknown. Do not retry automatically.');
+      return { ok: true, submitted: sent, submission_unknown: !sent, filled, uploaded, llmUsed, notes };
     }
     if (action.kind === 'next') {
       await action.button.evaluate((el) => el.click()).catch(() => action.button.click());

@@ -44,7 +44,15 @@ const HINTS = {
 };
 
 const WORKDAY_HINT = 'Workday forms vary a lot — open the form, then use Copy pack / the Fill bookmarklet.';
-const LINKEDIN_HINT = 'LinkedIn Easy Apply: Fill opens Chrome (stays logged in), completes the form, and submits. First run: log in if asked, then click Fill again.';
+const DOMAINS = {
+  greenhouse: ['greenhouse.io'], lever: ['lever.co'], ashby: ['ashbyhq.com'], personio: ['personio.de','personio.com','personio.at'],
+  recruitee: ['recruitee.com'], workable: ['workable.com'], smartrecruiters: ['smartrecruiters.com'], teamtailor: ['teamtailor.com'],
+  breezy: ['breezy.hr'], join: ['join.com'], softgarden: ['softgarden.io','softgarden.de','softgarden.com'], homerun: ['homerun.co'],
+  bamboohr: ['bamboohr.com'], jobvite: ['jobvite.com'], workday: ['myworkdayjobs.com','workday.com'], icims: ['icims.com'],
+  successfactors: ['successfactors.com','successfactors.eu','sap.com'], taleo: ['taleo.net'], linkedin: ['linkedin.com'],
+  indeed: ['indeed.com'], xing: ['xing.com'], stepstone: ['stepstone.de','stepstone.com'], glassdoor: ['glassdoor.com','glassdoor.de'],
+  arbeitnow: ['arbeitnow.com'], nomado: ['nomado24.com'], arbeitsagentur: ['arbeitsagentur.de'], heise: ['heise.de'], germantechjobs: ['germantechjobs.de'], kimeta: ['kimeta.de'],
+};
 
 export function detectAts(url) {
   const raw = String(url || '').trim();
@@ -66,7 +74,7 @@ export function detectAts(url) {
     host = '';
   }
 
-  const hit = RULES.find((r) => r.re.test(raw) || (host && r.re.test(host)));
+  const hit = /^https?:\/\//i.test(raw) && RULES.find(r => (DOMAINS[r.id] || []).some(domain => host === domain || host.endsWith('.' + domain)));
   if (!hit) {
     return {
       id: 'unknown',
@@ -80,7 +88,7 @@ export function detectAts(url) {
 
   let hint = HINTS[hit.kind] || HINTS.unknown;
   if (hit.id === 'workday') hint = WORKDAY_HINT;
-  if (hit.id === 'linkedin') hint = LINKEDIN_HINT;
+  if (hit.id === 'linkedin') hint = 'Fill starts a dry run. Review the form and explicitly choose Submit LinkedIn application. Live compatibility is unverified.';
 
   return {
     id: hit.id,

@@ -12,6 +12,8 @@ import { paginate, digestItems } from '../scripts/lib/list-pagination.mjs';
 import { setImmediate as yieldEventLoop } from 'node:timers/promises';
 import { createServer } from 'node:http';
 import { enforceLocalBoundary } from './local-boundary.mjs';
+import { runApplicationSession, readApplicationSession, cancelApplicationSession, applicationFingerprint, SUPPORTED_APPLICATION_PORTALS } from '../scripts/lib/application-session.mjs';
+import { createApplicationAdapter } from '../scripts/lib/application-portal.mjs';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -408,9 +410,9 @@ async function applyPackForJobId(id, jobHint = null) {
   if (!profile) return { error: 'Complete Memory setup first' };
   const answers = await loadSavedAnswers();
   const pack = buildApplyPack({ job, profile, answers });
-  const documentState = await prepStatus(job, profile, await loadCvSettings(), {
+  const documentState = await withJobTemplate(job.id, null, async () => prepStatus(job, profile, await loadCvSettings(), {
     cv: Boolean(pack.files.cvPdf), letter: Boolean(pack.files.coverLetterMd || pack.files.coverLetterPdf),
-  });
+  }));
   pack.documentState = documentState;
   pack.documentsNeedReview = Object.values(documentState).some((s) => s !== 'current');
   applyAssistState.latest = pack;
@@ -1064,11 +1066,23 @@ async function handleApi(req, res, url) {
       });
     }
     try {
-      const settings = await loadCvSettings();
-      const fill = await fillApplyInBrowser(loaded.pack, {
-        agentProvider: settings.agentProvider,
-        agentModel: settings.agentModel,
+      const prior = await readApplicationSession(id);
+      if (['submitted', 'submission_unknown', 'submitting'].includes(prior?.status)) return json(res, 409, { error: `Application locked: ${prior.status}. Inspect the portal; do not retry.` });
+      if (!SUPPORTED_APPLICATION_PORTALS.includes(loaded.pack.ats?.id)) {
+        const fill = await fillApplyInBrowser(loaded.pack, { dryRun: true });
+        return json(res, 200, { ok: fill.ok !== false, launched: true, fill, playwright: true, ...payload });
+      }
+      const initialFingerprint = await applicationFingerprint(loaded.pack);
+      const session = await runApplicationSession({ pack: loaded.pack,
+        dryRun: body.dryRun !== false, authorizeSubmit: body.authorizeSubmit === true,
+        adapter: await createApplicationAdapter(loaded.pack, undefined, initialFingerprint),
+        freshness: async () => {
+          const current = await applyPackForJobId(id);
+          return !current.error && !current.pack.documentsNeedReview && await applicationFingerprint(current.pack) === initialFingerprint;
+        },
       });
+      const fill = { ...session, ok: true, submitted: session.status === 'submitted',
+        needsReview: session.status !== 'submitted', message: `${session.status}: ${session.reason}` };
       return json(res, 200, {
         ok: fill.ok !== false,
         launched: true,
@@ -1085,6 +1099,14 @@ async function handleApi(req, res, url) {
         ...payload,
       });
     }
+  }
+
+  if (path === '/api/apply-assist/session' && req.method === 'GET') {
+    return json(res, 200, { session: await readApplicationSession(url.searchParams.get('id') || '') });
+  }
+  if (path === '/api/apply-assist/stop' && req.method === 'POST') {
+    const body = await readBody(req);
+    return json(res, 200, { stopped: cancelApplicationSession(String(body.id || '')) });
   }
 
   if (req.method === 'GET' && path === '/api/goose') {

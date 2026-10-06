@@ -14,6 +14,7 @@ import { createServer } from 'node:http';
 import { enforceLocalBoundary } from './local-boundary.mjs';
 import { runApplicationSession, readApplicationSession, cancelApplicationSession, applicationFingerprint, SUPPORTED_APPLICATION_PORTALS } from '../scripts/lib/application-session.mjs';
 import { createApplicationAdapter } from '../scripts/lib/application-portal.mjs';
+import { semanticSearch } from '../scripts/lib/semantic-match.mjs';
 import { writeFile, stat, mkdir } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, extname } from 'node:path';
@@ -698,6 +699,13 @@ async function handleApi(req, res, url) {
 
   if (req.method === 'GET' && path === '/api/status') {
     return json(res, 200, await getStatus({ light: url.searchParams.get('light') === '1' }));
+  }
+  if (req.method === 'POST' && path === '/api/semantic-search') {
+    const body = await readBody(req);
+    if (typeof body.query !== 'string' || !body.query.trim() || body.query.length > 2000) return json(res, 400, { error: 'Enter a retrieval query up to 2,000 characters.' });
+    const config = await loadJson(SEARCH_PROFILE, {});
+    const { jobs } = await enrichJobs();
+    return json(res, 200, await semanticSearch({ jobs: jobs.filter(job => job.currentSearch?.current !== false), profile: await loadCandidateProfile() || {}, query: body.query, config: config.semantic }));
   }
 
   if (req.method === 'GET' && path === '/api/setup') {

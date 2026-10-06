@@ -3,7 +3,7 @@
 export const BOARD_CATALOG = [
   {
     id: 'companycareers', label: 'Company careers', jobspy: false, apify: false,
-    api: true, regions: 'Germany', free: true, needsGermanyMarket: true,
+    api: true, regions: 'Configured markets (direct feeds); Germany (Arbeitsagentur)', free: true,
     note: 'Employer watchlist in search-profile.json (companies). Public ATS feeds or employer-filtered Arbeitsagentur search; uses your relevance filters.',
   },
   {

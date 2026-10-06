@@ -8,6 +8,17 @@ import { mergeJobArchives } from './dedupe.mjs';
 const market = JSON.parse(await readFile(new URL('../../markets/de.json', import.meta.url), 'utf8'));
 market.slug = 'de';
 const query = { company: { name: 'Example', provider: 'greenhouse', tenant: 'example' }, include: ['software|backend'], exclude: ['senior'] };
+test('direct watchlists support UK and distinguish empty, failure and unsupported sources', async t => {
+  const gb = JSON.parse(await readFile(new URL('../../markets/gb.json', import.meta.url), 'utf8')); gb.slug = 'gb';
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ jobs: [
+    { id: 'uk', title: 'Backend Engineer', location: { name: 'London, United Kingdom' }, absolute_url: 'https://example.org/jobs/uk', content: 'Build APIs', first_published: '2026-10-01' },
+    { id: 'de', title: 'Backend Engineer', location: { name: 'Berlin, Germany' }, absolute_url: 'https://example.org/jobs/de', content: 'Build APIs' },
+  ] }));
+  const jobs = await fetchCompanyCareers(query, {}, gb); assert.equal(jobs.length, 1); assert.equal(jobs[0].nativeId, 'uk');
+  await assert.rejects(fetchCompanyCareers({ ...query, company: { name: 'Example' } }, {}, gb), /unsupported/);
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ jobs: [] })); assert.deepEqual(await fetchCompanyCareers(query, {}, gb), []);
+  t.mock.method(globalThis, 'fetch', async () => new Response('', { status: 503 })); await assert.rejects(fetchCompanyCareers(query, {}, gb), /503/);
+});
 
 test('company plans run once per employer, independent of city/title multiplication', () => {
   const q = companyQueries({ companies: [{ name: 'Example' }] }, { search: { titles: ['Nurse', 'Staff Nurse'], includeTitlePatterns: ['nurse'] } });

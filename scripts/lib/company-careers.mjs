@@ -19,11 +19,11 @@ export function matchesEmployer(name, company) {
   });
 }
 
-export function companyQueries(config, profile) {
+export function companyQueries(config, profile, market = { name: 'Germany' }) {
   if (!config.companies?.length) throw new Error('Add a companies watchlist to search-profile.json before enabling Company careers');
   return (config.companies || []).map((company) => {
     if (!company.name) throw new Error('Each company needs a name in search-profile.json');
-    return { what: company.name, where: 'Germany', company,
+    return { what: company.name, where: market.name, company,
       titles: expandSearchTitles(profile.search?.titles || []),
       include: profile.search?.includeTitlePatterns || [], exclude: profile.search?.excludeTitlePatterns || [] };
   });
@@ -47,7 +47,7 @@ export function parsePersonio(xml, company) {
   return [...xml.matchAll(/<position>([\s\S]*?)<\/position>/g)].map(([, row]) => ({
     nativeId: tag(row, 'id'), title: tag(row, 'name'), company: company.name,
     location: [tag(row, 'office'), ...[...row.matchAll(/<additionalOffice>([\s\S]*?)<\/additionalOffice>/g)].map(m => tag(m[1], 'name'))].filter(Boolean).join('; '),
-    url: `https://${company.tenant}.jobs.personio.de/job/${tag(row, 'id')}?language=en`,
+    url: `https://${company.tenant}.jobs.personio.${company.domain || 'de'}/job/${tag(row, 'id')}?language=en`,
     employmentType: tag(row, 'employmentType'), postedAt: tag(row, 'createdAt') || null,
     description: pickDescription([...row.matchAll(/<jobDescription>([\s\S]*?)<\/jobDescription>/g)]
       .map(m => `${tag(m[1], 'name')}\n${tag(m[1], 'value')}`).join('\n\n')),
@@ -79,16 +79,18 @@ export function parseJobPostings(html, pageUrl, company, now = Date.now()) {
   return jobs;
 }
 
-async function directJobs(company, query) {
+async function directJobs(company, query, market) {
   if (company.provider === 'amazon') {
     const jobs = [];
     for (let offset = 0; offset < 1000; offset += 100) {
-      const params = new URLSearchParams({ base_query: company.searchTerm || '', country: 'DEU', result_limit: '100', offset: String(offset) });
+      const country = { DE: 'DEU', GB: 'GBR', US: 'USA', AE: 'ARE', SA: 'SAU', IN: 'IND' }[market.id];
+      if (!country) throw new Error(`Amazon country mapping unsupported: ${market.id}`);
+      const params = new URLSearchParams({ base_query: company.searchTerm || '', country, result_limit: '100', offset: String(offset) });
       const data = await request(`https://www.amazon.jobs/en/search.json?${params}`, true);
       if (!Array.isArray(data.jobs)) throw new Error('Invalid Amazon jobs response');
-      jobs.push(...data.jobs.filter(j => j.country_code === 'DEU').map(j => ({
+      jobs.push(...data.jobs.filter(j => j.country_code === country).map(j => ({
         nativeId: String(j.id), title: j.title, company: j.company_name || company.name,
-        location: `${j.city}, Germany`, url: new URL(j.job_path, 'https://www.amazon.jobs').href,
+        location: `${j.city}, ${market.name}`, url: new URL(j.job_path, 'https://www.amazon.jobs').href,
         postedAt: j.posted_date && Number.isFinite(Date.parse(`${j.posted_date} UTC`)) ? new Date(`${j.posted_date} UTC`).toISOString() : null,
         description: pickDescription([j.description, 'Basic qualifications', j.basic_qualifications,
           'Preferred qualifications', j.preferred_qualifications].filter(Boolean).join('\n\n')),
@@ -100,7 +102,9 @@ async function directJobs(company, query) {
   }
   if (company.provider === 'personio') {
     if (!/^[a-z0-9-]+$/i.test(company.tenant)) throw new Error('Invalid Personio tenant');
-    return parsePersonio(await request(`https://${company.tenant}.jobs.personio.de/xml?language=en`), company);
+    const domain = company.domain || 'de';
+    if (!['de', 'com'].includes(domain)) throw new Error('Personio domain must be de or com');
+    return parsePersonio(await request(`https://${company.tenant}.jobs.personio.${domain}/xml?language=en`), company);
   }
   if (company.provider === 'greenhouse') {
     if (!/^[a-z0-9-]+$/i.test(company.tenant)) throw new Error('Invalid Greenhouse tenant');
@@ -125,15 +129,16 @@ async function directJobs(company, query) {
 }
 
 export async function fetchCompanyCareers(query, opts, market) {
-  if (market.id !== 'DE') throw new Error('Company watchlists currently support Germany only');
   const company = query.company;
   if (!company?.name) throw new Error('Configure companies in search-profile.json');
   let jobs;
   if (company.provider) {
     const source = `${market.slug}:companycareers`;
-    jobs = (await directJobs(company, query)).map(raw => normalise({ ...raw, board: 'companycareers', via: company.provider,
+    if (company.markets && !company.markets.includes(market.id)) throw new Error(`Employer watchlist entry does not support market ${market.id}`);
+    jobs = (await directJobs(company, query, market)).filter(raw => matchesEmployer(raw.company, company)).map(raw => normalise({ ...raw, board: 'companycareers', via: company.provider,
       id: jobId(source, `${company.name}:${raw.nativeId}`), source }, market));
   } else {
+    if (market.id !== 'DE') throw new Error(`Arbeitsagentur employer search unsupported for ${market.id}; configure a direct employer feed.`);
     // Employer filter is advisory at the portal: verify the returned company as well.
     jobs = [];
     for (const employer of [...new Set([company.searchName || company.name, ...(company.aliases || [])])]) {

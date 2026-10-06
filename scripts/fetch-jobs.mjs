@@ -360,7 +360,7 @@ function applyFilters(jobs, filters, decided, market) {
 }
 
 function buildQueriesFromProfile(profile, config, boardConfig, market) {
-  if (boardConfig.board === 'companycareers') return companyQueries(config, profile);
+  if (boardConfig.board === 'companycareers') return companyQueries(config, profile, market);
   if (Array.isArray(boardConfig.queries) && boardConfig.queries.length) return boardConfig.queries;
   if (boardConfig.queriesFromProfile === false && Array.isArray(config.queries)) return config.queries;
 

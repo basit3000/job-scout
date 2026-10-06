@@ -200,6 +200,10 @@ test('HTTP workflow filters history, exports per job, regenerates stale packs an
   assert.match(previewEdit.html, /Test Candidate/);
   const edited = await request('/api/document-editor', { id: job.id, scope: 'cv', template: 'default', action: 'apply', base: edit.base, text: edit.text });
   assert.equal(edited.needsReview, false, JSON.stringify(edited));
+  const email = await request('/api/application-email', { id: job.id, template: 'default', action: 'preview' });
+  assert.equal(email.draft.recipient, ''); assert.equal(email.attachments[0].filename, 'CV.pdf');
+  const exportedEmail = await request('/api/application-email', { id: job.id, template: 'default', action: 'export', draft: email.draft, confirmation: email.confirmation, reviewed: true });
+  assert.match(exportedEmail.eml, /X-Unsent: 1/);
   const oldMode=await fetch(`http://127.0.0.1:${port}/api/prep`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:'fixture:1',mode:'fast'})});
   assert.equal(oldMode.status,400);
   const legacyProvider=await fetch(`http://127.0.0.1:${port}/api/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({agentProvider:'cursor'})});

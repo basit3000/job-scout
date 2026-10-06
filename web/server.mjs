@@ -36,6 +36,7 @@ import { downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mj
 import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
 import { handleMemoryApi } from './memory-routes.mjs';
 import { handleDocumentEdit } from './document-edit-routes.mjs';
+import { handlePreparationExtras } from './preparation-extras-routes.mjs';
 import { GOOSE_TOOLS, validateGooseRequest } from '../scripts/lib/goose-tools.mjs';
 let batchController = null;
 import { loadSavedAnswers } from '../scripts/lib/saved-answers.mjs';
@@ -692,6 +693,8 @@ async function handleApi(req, res, url) {
     busy: () => prepState.running || batchState.running || Boolean(fetchState.child), invalidate: invalidateJobsCache })) return;
   if (await handleDocumentEdit(req, res, url, { json, readBody, jobs: async () => (await enrichJobs()).jobs,
     busy: () => prepState.running || batchState.running, invalidate: invalidateJobsCache })) return;
+  if (await handlePreparationExtras(req, res, url, { json, readBody, jobs: async () => (await enrichJobs()).jobs,
+    busy: () => prepState.running || batchState.running })) return;
 
   if (req.method === 'OPTIONS' && path.startsWith('/api/apply-assist')) {
     res.writeHead(204, CORS_APPLY);

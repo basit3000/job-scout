@@ -1,6 +1,7 @@
 import { createMemoryEditor } from './memory-editor.js';
 import { openDocumentEditor } from './document-editor.js';
 import { openDiscovery } from './discovery.js';
+import { openPreparationExtras } from './preparation-extras.js';
 document.getElementById('openDiscovery')?.addEventListener('click', openDiscovery);
 import { mountAtsCheck } from './ats-check.js';
 import { openPrepModal } from './prep-modal.js';
@@ -1787,7 +1788,8 @@ function showPrep(data) {
       ${apply ? `<a class="btn small primary-link" href="${escapeAttr(apply)}" target="_blank" rel="noopener">Apply (opens job)</a>` : ''}
       ${pack.jobId ? `<button type="button" class="btn small" id="copyApplyPack">Copy pack</button>
       <button type="button" class="btn small" id="fillApplyForm">Fill</button>
-      <button type="button" class="btn small" id="editPreparedDocument">Edit document</button>` : ''}
+      <button type="button" class="btn small" id="editPreparedDocument">Edit document</button>
+      <button type="button" class="btn small" id="preparationExtras">Interview / email</button>` : ''}
     </div>
     <p class="meta" id="companyFolderPaths">
       ${
@@ -1845,6 +1847,7 @@ function showPrep(data) {
     }
   });
   $('editPreparedDocument')?.addEventListener('click', () => openDocumentEditor(prepJobRef()));
+  $('preparationExtras')?.addEventListener('click', () => openPreparationExtras(prepJobRef()));
   $('generateCoverLetter')?.addEventListener('click', async () => {
     const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
       .match(/\/api\/prep\/([^/]+)\//)?.[1];

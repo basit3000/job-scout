@@ -25,6 +25,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci
+      - name: Select the runner Python executable
+        run: python -c "import os,sys; open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8').write('JOB_SCOUT_PYTHON=' + sys.executable + '\n')"
       - run: npm test
       - run: npm run test:activity
       - run: npm run test:improvements

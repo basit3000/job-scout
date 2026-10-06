@@ -3,7 +3,7 @@
  */
 
 import { access, mkdir, writeFile, chmod, readFile } from 'node:fs/promises';
-import { join, resolve, dirname } from 'node:path';
+import { join, resolve, dirname, isAbsolute } from 'node:path';
 import { existsSync } from 'node:fs';
 import { run, ROOT, workspaceDir } from './common.mjs';
 
@@ -17,17 +17,19 @@ const WIN_BROWSERS = [
   join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Microsoft', 'Edge', 'Application', 'msedge.exe'),
 ];
 
-export async function findBrowser() {
-  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) {
-    return process.env.CHROME_PATH;
+export async function findBrowser({ env = process.env, platform = process.platform, exists = existsSync, runImpl = run } = {}) {
+  if (env.CHROME_PATH && exists(env.CHROME_PATH)) {
+    return resolve(env.CHROME_PATH);
   }
-  for (const p of WIN_BROWSERS) {
-    if (p && existsSync(p)) return p;
+  for (const p of platform === 'win32' ? WIN_BROWSERS : []) {
+    if (p && exists(p)) return p;
   }
   for (const name of ['google-chrome', 'chromium', 'chromium-browser', 'msedge', 'chrome']) {
     try {
-      await run(process.platform === 'win32' ? 'where' : 'which', [name]);
-      return name;
+      const { stdout } = await runImpl(platform === 'win32' ? 'where' : 'which', [name]);
+      // Playwright requires an executable path; it does not resolve a bare PATH name.
+      const found = stdout.split(/\r?\n/).map(line => line.trim()).find(path => isAbsolute(path) && exists(path));
+      if (found) return found;
     } catch {
       /* next */
     }

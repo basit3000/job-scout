@@ -102,6 +102,16 @@ All fixtures use fictional information.
 
 ## Deliberate scope limits
 
+### CI follow-up
+
+- [x] Inspected all four failed jobs from the first remote run.
+- [x] Corrected lowercase market fixture paths by using the canonical market loader.
+- [x] Browser discovery returns absolute PATH results for Playwright, with regression tests.
+- [x] CI explicitly selects its Python executable; Windows installer tests isolate
+  PowerShell 5.1 module lookup from an inherited PowerShell 7 environment.
+- [x] Local follow-up verification: 359 tests, 14 browser checks and 7/7 benchmark cases.
+- [ ] Remote Windows/Linux Node 22/24 rerun; results pending the corrective push.
+
 PDF/DOCX import proposes readable source text and uniquely detected email; it does
 not guess structured employment or OCR scans. Markdown document editing preserves
 selected formats; default Overleaf LaTeX continues through its existing workflow.

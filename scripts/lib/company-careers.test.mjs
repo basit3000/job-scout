@@ -1,15 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { loadMarket } from './common.mjs';
 import { companyQueries, fetchCompanyCareers, matchesEmployer, parseJobPostings, parsePersonio } from './company-careers.mjs';
 import { fetchArbeitsagentur, hydrateJobDescription } from './de-portals.mjs';
 import { relevantExperience, scoreJob } from './fit.mjs';
 import { mergeJobArchives } from './dedupe.mjs';
-const market = JSON.parse(await readFile(new URL('../../markets/de.json', import.meta.url), 'utf8'));
-market.slug = 'de';
+const market = await loadMarket({ market: 'DE' });
 const query = { company: { name: 'Example', provider: 'greenhouse', tenant: 'example' }, include: ['software|backend'], exclude: ['senior'] };
 test('direct watchlists support UK and distinguish empty, failure and unsupported sources', async t => {
-  const gb = JSON.parse(await readFile(new URL('../../markets/gb.json', import.meta.url), 'utf8')); gb.slug = 'gb';
+  const gb = await loadMarket({ market: 'GB' });
   t.mock.method(globalThis, 'fetch', async () => Response.json({ jobs: [
     { id: 'uk', title: 'Backend Engineer', location: { name: 'London, United Kingdom' }, absolute_url: 'https://example.org/jobs/uk', content: 'Build APIs', first_published: '2026-10-01' },
     { id: 'de', title: 'Backend Engineer', location: { name: 'Berlin, Germany' }, absolute_url: 'https://example.org/jobs/de', content: 'Build APIs' },

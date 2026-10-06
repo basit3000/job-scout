@@ -18,7 +18,9 @@ async function fixture(t) {
   return root;
 }
 async function powershell(command) {
-  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: 20000 });
+  // PowerShell 7's inherited module paths can hide Windows PowerShell 5.1 modules.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toUpperCase() !== 'PSMODULEPATH'));
+  return run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { timeout: 20000, env });
 }
 
 test('installer preview respects optional flags and leaves the target unchanged', { skip: !windows }, async (t) => {

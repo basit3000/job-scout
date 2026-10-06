@@ -24,6 +24,9 @@ captured from this walkthrough; mocked data/model results are not live validatio
 
 CI runs on Windows and Linux with Node 22 and 24 using locked dependencies. Browser
 tests require Chrome (GitHub-hosted runners include it); missing browsers fail CI.
+Browser discovery passes the resolved executable path to Playwright. CI explicitly
+selects its runner Python executable for DOCX extraction; Windows installer tests
+isolate Windows PowerShell module discovery from the parent PowerShell 7 shell.
 Windows installer tests deliberately skip on Linux. Live portals, AI providers,
 paid scrapers, Overleaf publication, Gmail and webhooks are intentionally excluded.
 No workflow uploads private directories or generated reports.

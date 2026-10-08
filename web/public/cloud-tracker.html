@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Job Tracker connection · Job Scout</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/cloud-tracker.css" />
+  <script src="/theme.js"></script>
+</head>
+<body>
+<main class="cloud-page">
+  <a href="/#tracker">← Back to Job Scout</a>
+  <label class="cloud-theme">Theme <select id="themeSelect"><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  <header><p class="eyebrow">YOUR APPLICATIONS, CONNECTED</p><h1>Job Tracker connection</h1>
+    <p>Choose the applications to share, review the exact fields, then confirm. Transfers run only when you request them.</p></header>
+  <p id="feedback" role="status" aria-live="polite"></p>
+  <section class="cloud-card" aria-labelledby="connectionHeading">
+    <h2 id="connectionHeading">Connect your tracker</h2>
+    <p id="connectionStatus">Loading connection…</p>
+    <form id="pairForm"><label>Tracker website URL<input id="origin" type="url" placeholder="https://tracker.example.com" required /></label>
+      <button class="btn primary" type="submit" id="pairButton">Start pairing</button></form>
+    <p id="pairing" hidden></p>
+    <div class="cloud-actions">
+      <button class="btn" id="redeem">I approved the code — finish pairing</button>
+      <button class="btn" id="disconnect" data-paired>Disconnect</button>
+    </div>
+    <p class="meta">Approve the code while signed in to Job Tracker. Notes, contacts and salary require permission there and selection here. CVs, letters, attachments, Memory, answers and prep files stay local.</p>
+  </section>
+  <section class="cloud-card" aria-labelledby="transferHeading">
+    <h2 id="transferHeading">Select and review</h2>
+    <div class="cloud-actions">
+      <button class="btn" id="pull" data-paired>Download cloud changes</button>
+      <button class="btn" id="retry" data-paired>Retry confirmed transfers</button>
+      <button class="btn ghost" id="reset" data-paired>Reload cloud snapshot</button>
+    </div>
+    <p class="meta">Downloading updates the preview cache. Import selected records to apply them locally. Sending a mapped record replaces the selected cloud fields with the local values shown in the preview.</p>
+    <fieldset id="optional"><legend>Optional fields for this transfer</legend></fieldset>
+    <label class="cloud-check"><input type="checkbox" id="history" checked /> Include new local status history when sending</label>
+    <p class="meta">If old history was edited or reordered, turn this off to send current fields only. Unknown application dates stay unknown.</p>
+    <div class="cloud-columns">
+      <section><h3>Local applications</h3><div id="localList" class="cloud-list"></div>
+        <button class="btn primary" id="pushPreview" data-paired>Preview sending selected</button></section>
+      <section><h3>Cloud applications</h3><div id="remoteList" class="cloud-list"></div>
+        <button class="btn primary" id="importPreview" data-paired>Preview importing selected</button></section>
+    </div>
+    <details><summary>Link existing applications</summary><p>Select exactly one record on each side, then preview the link. Linking establishes identity without copying fields. Company names and URLs are never used to guess matches.</p>
+      <button class="btn" id="mapPreview" data-paired>Preview linking selected records</button></details>
+  </section>
+  <section id="previewSection" class="cloud-card" hidden aria-labelledby="previewHeading">
+    <h2 id="previewHeading">Review transfer</h2><p id="previewSummary"></p>
+    <div id="previewItems"></div>
+    <button class="btn primary" id="confirm">Confirm this transfer</button>
+    <button class="btn" id="cancelPreview">Cancel preview</button>
+  </section>
+  <section class="cloud-card" id="recoverySection" hidden><h2>Interrupted import</h2>
+    <p>The confirmed import is saved. Resume it, or cancel the remaining work and prepare a new preview. Completed records and cloud links are retained.</p>
+    <button class="btn" id="recover">Resume import</button><button class="btn" id="cancelRecovery">Cancel remaining import</button>
+  </section>
+  <section class="cloud-card"><h2>Transfers needing review</h2>
+    <p class="meta">For a conflict, download cloud changes and review both versions. Preview sending the local record to keep local values, or importing the cloud record to keep cloud values. Link existing records explicitly for mapping conflicts. Dismiss an issue after review. Deleted cloud records cannot be revived; importing a deletion marks the local record and clears its follow-up while retaining its documents.</p>
+    <div id="issues"></div>
+  </section>
+</main>
+<script type="module" src="/cloud-tracker.js"></script>
+</body>
+</html>

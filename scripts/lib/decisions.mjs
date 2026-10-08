@@ -19,7 +19,7 @@ export async function loadDecisions(root = ROOT) {
 
 // Serialize this server's updates and atomically replace JSON; never lose parallel edits.
 const pending = new Map();
-async function mutate(root, change) {
+export async function mutateDecisions(root, change) {
   const path = decisionsPath(root);
   const task = (pending.get(path) || Promise.resolve()).catch(() => {}).then(async () => {
     const log = await loadDecisions(root);
@@ -57,7 +57,7 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
   const root = extra.root || ROOT;
   const fetched = await loadJson(join(root === ROOT ? workspaceDir() : join(root, '.workspace'), 'jobs.json'), { jobs: [] });
   const job = (fetched.jobs ?? []).find((j) => j.id === id) || extra.job;
-  return mutate(root, (log) => {
+  return mutateDecisions(root, (log) => {
     const index = log.decisions.findIndex((d) => d.id === id);
     const previous = index < 0 ? null : log.decisions[index];
     const patch = { id, decision, note: note || previous?.note || null };
@@ -71,7 +71,7 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
 }
 
 export async function patchDecision(id, patch = {}, { root = ROOT } = {}) {
-  return mutate(root, (log) => {
+  return mutateDecisions(root, (log) => {
     const index = log.decisions.findIndex((d) => d.id === id);
     if (index < 0) throw new Error(`No decision for ${id}`);
     const previous = log.decisions[index];

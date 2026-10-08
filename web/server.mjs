@@ -52,6 +52,7 @@ import { sheetsStatus, sheetsUrl, syncDecisionsToSheet, maybeSyncDecisionToSheet
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 import { handleRecruiterApi } from './recruiter-routes.mjs';
 import { handleTrackerApi } from './tracker-routes.mjs';
+import { handleCloudTrackerApi } from './cloud-tracker-routes.mjs';
 import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
 import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
 import { currentSearchState } from '../scripts/lib/current-search.mjs';
@@ -685,6 +686,7 @@ async function enrichJobs({ force = false } = {}) {
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
+  if (await handleCloudTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache })) return;
   if (await handleAtsApi(req, res, url, { json, readBody })) return;
   if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 

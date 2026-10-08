@@ -13,6 +13,7 @@ export function openApplicationEditor(item, { api, onSaved }) {
   const textField = (key, label, type = 'text', max = 300) => `<label>${label}<input name="${key}" type="${type}" maxlength="${max}" value="${esc(entry[key])}" ${['title', 'company'].includes(key) ? 'required' : ''} /></label>`;
   dialog.innerHTML = `
     <header class="application-dialog-head"><div><p class="eyebrow">APPLICATION RECORD</p><h2 id="applicationEditorTitle">${creating ? 'Add an application' : esc(entry.company || 'Application details')}</h2><p class="meta">${creating ? 'Track a job from any website, referral, or conversation.' : 'Keep the details and documents for this application together.'}</p></div><button class="btn ghost" type="button" data-close aria-label="Close application editor">Close</button></header>
+    ${entry.cloudImport?.deletedAt ? '<p class="application-section meta">Deleted in the connected Job Tracker. This local copy and its documents are retained.</p>' : ''}
     <form class="application-form">
       <div class="application-fields">
         ${textField('company', 'Company *')}${textField('title', 'Job title *')}
@@ -32,7 +33,7 @@ export function openApplicationEditor(item, { api, onSaved }) {
     <section class="application-section"><h3>Submitted documents</h3><p class="meta">Keep the exact CV or letter you sent. These copies stay separate from newly generated documents.</p><ul class="attachment-list">${attachmentLinks(entry)}</ul>
       <form class="attachment-form"><label>Document type<select name="kind"><option value="cv">Submitted CV</option><option value="letter">Submitted cover letter</option><option value="other">Other document</option></select></label><label>File<input type="file" name="file" accept=".pdf,.docx,.txt" required /><small>PDF, DOCX or TXT · up to 8 MB each · 20 files per application</small></label><button type="submit" class="btn">Attach document</button><p class="attachment-feedback" role="status" hidden></p></form>
     </section>
-    <section class="application-section"><h3>Status history</h3>${entry.statusHistory?.length ? `<ol class="application-history">${[...entry.statusHistory].reverse().map((event) => `<li><strong>${esc(statusLabel(event.to))}</strong><span>${esc(new Date(event.at).toLocaleString())}${event.from ? ` · from ${esc(statusLabel(event.from))}` : ''}</span></li>`).join('')}</ol>` : '<p class="meta">Earlier status changes were not recorded. New changes will appear here.</p>'}</section>`}`;
+    <section class="application-section"><h3>Status history</h3>${entry.statusHistory?.length ? `<ol class="application-history">${[...entry.statusHistory].reverse().map((event) => `<li><strong>${esc(statusLabel(event.to))}</strong><span>${esc(event.at ? new Date(event.at).toLocaleString() : 'Occurrence time unknown')}${event.recordedAt ? ` ? recorded ${esc(new Date(event.recordedAt).toLocaleString())}` : ''}${event.from ? ` · from ${esc(statusLabel(event.from))}` : ''}</span></li>`).join('')}</ol>` : '<p class="meta">Earlier status changes were not recorded. New changes will appear here.</p>'}</section>`}`;
   document.body.appendChild(dialog);
   const form = dialog.querySelector('.application-form');
   const initialValues = JSON.stringify([...new FormData(form)]);

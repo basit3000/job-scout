@@ -58,7 +58,13 @@ export function personalCvRules(policy = {}) {
   ].filter(Boolean).join('\n');
 }
 
-export const normalizeExperience = text => String(text).replace(/\s+/g, ' ').trim().toLowerCase();
+// The LaTeX extractor spaces dashes and retains escaped punctuation; Memory
+// imports may hold plain text. Keep words, numbers and punctuation significant.
+export const normalizeExperience = text => String(text)
+  .replace(/\\([%&#$_])/g, '$1')
+  .replace(/--|[–—]/g, '-')
+  .replace(/\s*-\s*/g, ' - ')
+  .replace(/\s+/g, ' ').trim().toLowerCase();
 export function experienceIsArchived(bullets, memory) {
   const library = memory?.facts?.experienceLibrary;
   if (!Array.isArray(library?.documents) || !bullets.length) return false;

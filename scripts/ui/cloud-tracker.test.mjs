@@ -17,7 +17,7 @@ test('sync dashboard, timer settings and advanced review work on desktop and mob
     } catch { res.writeHead(404).end(); }
   });
   await new Promise(done => server.listen(0, '127.0.0.1', done));
-  t.after(() => new Promise(done => server.close(done)));
+  t.after(() => new Promise(done => { server.close(done); server.closeAllConnections(); }));
   const browser = await chromium.launch({ executablePath: await findBrowser(), headless: true });
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });

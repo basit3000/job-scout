@@ -18,7 +18,7 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
     try { res.setHeader('Content-Type', { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' }[extname(path)] || 'text/plain'); res.end(await readFile(path)); }
     catch { res.writeHead(404).end(); }
   });
-  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => server.close(resolve)));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve)); t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const browser = await chromium.launch({ executablePath: await findBrowser(), headless: true }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }); page.setDefaultTimeout(5000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));

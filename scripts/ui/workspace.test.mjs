@@ -15,7 +15,7 @@ test('every workspace page: navigation, paging, drafts, tools, empty states and 
     try { res.setHeader('Content-Type', { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' }[extname(file)] || 'text/plain'); res.end(await readFile(file)); }
     catch { res.writeHead(404).end(); }
   });
-  await new Promise(done => server.listen(0, '127.0.0.1', done)); t.after(() => new Promise(done => server.close(done)));
+  await new Promise(done => server.listen(0, '127.0.0.1', done)); t.after(() => new Promise(done => { server.close(done); server.closeAllConnections(); }));
   const browser = await chromium.launch({ executablePath: await findBrowser(), headless: true }); t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(5000);
   const errors = [], writes = [], requests = [];

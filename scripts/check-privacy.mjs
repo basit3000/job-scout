@@ -51,7 +51,17 @@ function addPrivateText(label, value) {
 }
 addPrivateText('private candidate preference', memory?.preferences);
 addPrivateText('private saved answer', memory?.answers);
+addPrivateText('private candidate content', memory?.facts?.experience);
+addPrivateText('private candidate content', memory?.facts?.education);
+addPrivateText('private candidate content', memory?.facts?.summary);
 addPrivateText('private prompt instruction', localPrompts.instructions);
+// Pairing credentials live outside .env and must also be checked against Git.
+const trackerText = await optional('state/private/tracker.json');
+if (trackerText) {
+  const tracker = JSON.parse(trackerText);
+  add('private tracker credential', tracker.token);
+  add('private tracker credential', tracker.pairing?.pairingSecret);
+}
 for (const template of localPrompts.templates || []) {
   if (String(template.id || '').length >= 12) add('private template ID', template.id);
   if (String(template.name || '').length >= 12) add('private template name', template.name);

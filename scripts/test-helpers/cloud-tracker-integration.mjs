@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { CloudTracker } from '../lib/cloud-tracker.mjs';
 import { ApiError } from '../lib/tracker-client.mjs';
 import { loadDecisions, patchDecision } from '../lib/decisions.mjs';
+import { syncApplications, syncState } from '../lib/cloud-sync.mjs';
 
 const [baseUrl, root] = process.argv.slice(2);
 const options = { baseUrl, root, allowLoopbackHttp: true };
@@ -63,6 +64,24 @@ try {
   await patchDecision(localId, { decision: 'rejected', followUpDate: '2026-10-20' }, { root });
   await adapter.confirm((await adapter.preview({ direction: 'push', ids: [localId] })).id);
   application = adapter.state.applications[id]; assert.equal(application.status, 'rejected'); assert.equal(application.followUpDate, null);
+  // Real API normalization must not appear as a conflicting online edit.
+  await patchDecision(localId, { location: '  Example City  ', postedAt: '2026-01-01T12:00:00.000Z' }, { root });
+  await syncApplications(adapter);
+  application = adapter.state.applications[id];
+  assert.equal(application.location, 'Example City');
+  const syncedVersion = application.version;
+  await syncApplications(adapter);
+  assert.equal(adapter.state.applications[id].version, syncedVersion);
+  assert.deepEqual(syncState(adapter).issues, {});
+  syncState(adapter).direction = 'two-way';
+  await adapter.client.request('/mutations', { method: 'POST', body: { operation: 'update', mutationId: randomUUID(), applicationId: id, expectedVersion: syncedVersion, fields: { status: 'interviewing' } } });
+  await syncApplications(adapter);
+  assert.equal((await loadDecisions(root)).decisions.find(record => record.id === localId).decision, 'interviewing');
+  const receivedVersion = adapter.state.applications[id].version;
+  await syncApplications(adapter);
+  assert.equal(adapter.state.applications[id].version, receivedVersion, 'Imported changes must not echo back');
+  assert.deepEqual(syncState(adapter).issues, {});
+  application = adapter.state.applications[id];
   await adapter.client.request('/mutations', { method: 'POST', body: { operation: 'delete', mutationId: randomUUID(), applicationId: id, expectedVersion: application.version } });
   await adapter.confirm((await adapter.preview({ direction: 'import', ids: [id] })).id);
   await assert.rejects(adapter.preview({ direction: 'push', ids: [localId] }), /deleted online/);

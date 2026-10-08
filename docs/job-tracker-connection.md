@@ -7,15 +7,43 @@ the HTTPS origin of your Job Tracker deployment (no path or trailing query).
 2. Inspect the displayed code and approve that device. Grant notes, contact fields
    or salary only if you want them available in both directions.
 3. Return to Job Scout and choose **I approved the code — finish pairing**.
-4. Select local applications and optional fields, then **Preview sending selected**.
-   Review the before/after values and confirm the transfer.
-5. **Download cloud changes** refreshes the local preview cache. Select cloud
-   records, preview their import and confirm to apply them to your local tracker.
+4. Choose **Sync now** to send changed applications without selecting individual
+   jobs. New records marked Applied, Interviewing, Offer, Accepted, Rejected or
+   Closed are included; already linked records continue syncing after status changes.
+5. Enable **Automatic sync**, choose 1, 5 or 15 minutes and save the settings.
+   The timer runs in the local server while Job Scout is running, including when
+   the browser page is closed. It cannot run while the computer is asleep or off.
 
-Transfers are manual. Pairing and downloading do not enroll every local application
-in automatic synchronization. An import never sends a new local mutation back to
-the server. Subsequent edits require another selection, preview and confirmation.
-At most 100 records can be selected in one preview, which expires after 15 minutes.
+For immediate uploads, enable **Sync when marked Applied** and save the settings.
+When you mark an application Applied in Job Scout, it sends that application in
+the background if the tracker is connected. This works independently of the timer
+and does nothing when disconnected. Existing Applied records are not bulk-uploaded
+by enabling this option; use Sync now for those. Saving notes on an already Applied
+record does not trigger it. Conflicts still wait for review, and network errors
+never undo the local save. Interrupted sends remain available for Sync now or the
+timer to retry. The event sends to the online tracker even if timer sync is set to
+Both ways; it does not import unrelated records.
+
+The default direction is **Job Scout to online tracker**. **Both ways** also
+imports online-only applications and online changes to linked records. Only
+changes since the previous sync are transferred. Competing edits and possible
+duplicates wait for review; the timer does not guess which version or identity
+to keep. Imported changes are checkpointed and do not echo back as new uploads.
+
+Pairing alone leaves both automatic options off. **Sync now** works without enabling the timer.
+The dashboard shows waiting applications, linked records, recent per-record
+status, last successful sync, next check and actionable errors. Offline changes
+remain local and are picked up at the next check. Revocation stops automatic sync;
+reconnecting requires enabling it again. Pausing the timer does not cancel a
+transfer already in progress.
+
+Automatic and one-click sync share only core application fields and status
+history. Optional notes, contacts and salary remain in **Advanced transfers and
+recovery**, together with selected-record import/export, identity linking and
+snapshot recovery. Those advanced actions still use preview and confirmation.
+A timer run skips records in an unexpired manual preview. Each cycle queues at
+most 100 changed records; remaining changes are picked up on subsequent checks.
+Manual previews expire after 15 minutes.
 
 **Link existing applications** maps one selected cloud record to one selected
 local record without changing either record's fields. Use this for duplicates
@@ -41,7 +69,8 @@ send current fields only. This does not rewrite or discard your original history
 
 The connection page shows rejected transfers and competing versions. Download
 current cloud changes, compare both versions in a new preview, then explicitly
-send local values or import cloud values. Dismiss the old issue after review.
+send local values or import cloud values. A successful reviewed resolution clears
+the earlier issue for that application. Other records continue syncing normally.
 Mappings and deleted cloud versions are retained. Deleted cloud applications
 cannot be revived by sending a local record. Importing a deletion marks the local
 record and clears follow-up; it keeps the local record and all documents.
@@ -66,6 +95,11 @@ state securely, then move it out of the active path before pairing the new servi
 Do not delete this state to fix ordinary network errors. A crashed process can
 leave `tracker.json.lock`: verify no process is using this connection before
 removing that specific lock file. Use one running Job Scout server per workspace.
+
+The interface and timer follow the incremental sync and visible-conflict patterns
+documented by [Joplin](https://joplinapp.org/help/dev/spec/sync/) and its
+[open-source repository](https://github.com/laurent22/joplin). Job Scout retains
+both sides of a conflict until the user explicitly chooses a version.
 
 ## Local development
 

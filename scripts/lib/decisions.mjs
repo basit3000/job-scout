@@ -19,6 +19,18 @@ export async function loadDecisions(root = ROOT) {
 
 // Serialize this server's updates and atomically replace JSON; never lose parallel edits.
 const pending = new Map();
+const appliedListeners = new Set();
+export function onApplicationApplied(listener) {
+  appliedListeners.add(listener);
+  return () => appliedListeners.delete(listener);
+}
+function notifyApplied(root, entry, previous) {
+  if (entry.decision !== 'applied' || previous === 'applied') return;
+  for (const listener of appliedListeners) {
+    // Sync failures must never turn a successfully saved application into an error.
+    try { Promise.resolve(listener({ root, id: entry.id })).catch(() => {}); } catch {}
+  }
+}
 export async function mutateDecisions(root, change) {
   const path = decisionsPath(root);
   const task = (pending.get(path) || Promise.resolve()).catch(() => {}).then(async () => {
@@ -57,7 +69,7 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
   const root = extra.root || ROOT;
   const fetched = await loadJson(join(root === ROOT ? workspaceDir() : join(root, '.workspace'), 'jobs.json'), { jobs: [] });
   const job = (fetched.jobs ?? []).find((j) => j.id === id) || extra.job;
-  return mutateDecisions(root, (log) => {
+  const result = await mutateDecisions(root, (log) => {
     const index = log.decisions.findIndex((d) => d.id === id);
     const previous = index < 0 ? null : log.decisions[index];
     const patch = { id, decision, note: note || previous?.note || null };
@@ -68,15 +80,21 @@ export async function recordDecision(id, decision, note = '', extra = {}) {
     if (index < 0) log.decisions.push(entry); else log.decisions[index] = entry;
     return { entry, updated: index >= 0, previous: previous?.decision };
   });
+  notifyApplied(root, result.entry, result.previous);
+  return result;
 }
 
 export async function patchDecision(id, patch = {}, { root = ROOT } = {}) {
-  return mutateDecisions(root, (log) => {
+  let previousDecision;
+  const entry = await mutateDecisions(root, (log) => {
     const index = log.decisions.findIndex((d) => d.id === id);
     if (index < 0) throw new Error(`No decision for ${id}`);
     const previous = log.decisions[index];
+    previousDecision = previous.decision;
     const fields = typeof patch === 'function' ? patch(previous) : patch;
     log.decisions[index] = changedEntry(previous, { ...fields, id });
     return log.decisions[index];
   });
+  notifyApplied(root, entry, previousDecision);
+  return entry;
 }

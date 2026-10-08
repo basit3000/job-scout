@@ -82,6 +82,16 @@ export function eventFingerprint(event) {
   return digest([event.from ?? null, event.to, event.at ?? null]);
 }
 
+const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object'
+  ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+export function syncFieldsFingerprint(record) {
+  const fields = projectFields(record);
+  return digest(DEFAULT_FIELDS.map(key => [key, canonical(fields[key] ?? null)]));
+}
+export function syncLocalFingerprint(record) {
+  return digest([syncFieldsFingerprint(record), (record.statusHistory || []).map(eventFingerprint)]);
+}
+
 export function validateSourceEvents(events) {
   for (const event of events) {
     if (!VALID_DECISIONS.includes(event.status) || (event.fromStatus != null && !VALID_DECISIONS.includes(event.fromStatus))) throw new Error('Unknown status in local history. Review history or send current fields only.');
@@ -135,6 +145,8 @@ export async function importCloudRecord(root, journal, installationId, ledger = 
       cloudImport: { operationId: journal.id, origin: journal.origin, applicationId: application.id,
         version: application.version, deletedAt: application.deletedAt ?? null, eventIds: [...receivedEvents] } };
     if (TERMINAL.has(entry.decision) || application.deletedAt) entry.followUpDate = null;
+    // Written with the imported record, so recovery cannot absorb later local edits.
+    entry.cloudImport.syncFingerprint = syncLocalFingerprint(entry);
     if (index < 0) log.decisions.push(entry); else log.decisions[index] = entry;
     return entry;
   });

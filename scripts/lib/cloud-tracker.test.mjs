@@ -7,7 +7,9 @@ import { randomUUID } from 'node:crypto';
 import { CloudTracker, cloudStatePath } from './cloud-tracker.mjs';
 import { ApiError, validateOrigin } from './tracker-client.mjs';
 import { cloudFields, importCloudRecord, localFingerprint } from './cloud-records.mjs';
-import { loadDecisions, patchDecision } from './decisions.mjs';
+import { loadDecisions, patchDecision, recordDecision } from './decisions.mjs';
+import { syncApplications, configureSync, syncState } from './cloud-sync.mjs';
+import { createCloudSyncService } from '../../web/cloud-sync-service.mjs';
 
 const record = () => ({ id: 'manual:application:fictional', company: 'Example Workshop', title: 'Engineer', decision: 'applied',
   date: '2026-01-01', note: 'A fictional note', prepPath: '.workspace/fictional', attachments: [{ name: 'fictional.pdf' }],
@@ -166,4 +168,204 @@ test('opaque IDs cannot collide with object prototypes and explicit links never 
   assert.equal(a.adapter.mappings.__proto__.applicationId, remote.id);
   assert.equal((await f.records())[0].title, 'Engineer');
   assert.equal(f.applications.get(remote.id).title, 'Different title');
+});
+
+test('incremental sync sends applications once, excludes the archive/private fields and notices later edits', async t => {
+  const f = await fixture(t), a = f.adapter;
+  await writeFile(join(f.root, 'state/decisions.json'), JSON.stringify({ decisions: [record(), { ...record(), id: 'shortlist', decision: 'shortlisted' }] }));
+  await configureSync(a, { enabled: true, intervalMinutes: 1, direction: 'push' });
+  let status = await syncApplications(a);
+  assert.equal(f.sent.length, 1); assert.equal(status.automatic.waiting, 0);
+  assert.equal(status.automatic.linked, 1); assert.equal(status.automatic.recent[0].state, 'synced');
+  for (const key of ['note', 'attachments', 'memory', 'prepPath', 'salary']) assert.equal(f.sent[0].fields[key], undefined);
+  await syncApplications(a); assert.equal(f.sent.length, 1);
+  await patchDecision(record().id, { note: 'Different private note' }, { root: f.root });
+  await syncApplications(a); assert.equal(f.sent.length, 1, 'private-only edits never trigger an upload');
+  await patchDecision(record().id, { decision: 'interviewing' }, { root: f.root });
+  status = await syncApplications(a);
+  assert.equal(f.sent.length, 2); assert.equal(f.sent[1].operation, 'update'); assert.equal(status.automatic.waiting, 0);
+  assert.equal([...f.applications.values()][0].status, 'interviewing');
+});
+
+test('lost acknowledgements retain mutation identity and do not absorb newer local edits', async t => {
+  const f = await fixture(t); let a = f.adapter;
+  const request = a.client.request;
+  a.client.request = async (...args) => {
+    const result = await request(...args);
+    if (args[0] === '/mutations') throw new Error('Lost acknowledgement');
+    return result;
+  };
+  await assert.rejects(syncApplications(a), /Lost acknowledgement/);
+  const originalId = a.state.pending[0].mutationId;
+  await patchDecision(record().id, { decision: 'interviewing' }, { root: f.root });
+  await a.close(); a = await f.open(); await syncApplications(a);
+  assert.equal(f.applications.size, 1); assert.equal(f.sent[1].mutationId, originalId);
+  assert.equal([...f.applications.values()][0].status, 'interviewing');
+  assert.equal(f.sent.length, 3, 'replayed original create followed by a separate update');
+  await syncApplications(a); assert.equal(f.sent.length, 3);
+});
+
+test('two-way sync imports online edits without echo, preserves local-only details and holds conflicting edits', async t => {
+  const f = await fixture(t), a = f.adapter;
+  await configureSync(a, { enabled: true, intervalMinutes: 5, direction: 'two-way' });
+  await syncApplications(a);
+  const remote = [...f.applications.values()][0]; remote.version++; remote.status = 'interviewing';
+  remote.statusHistory.push({ id: randomUUID(), fromStatus: 'applied', status: 'interviewing', occurredAt: null });
+  let status = await syncApplications(a);
+  let local = (await f.records())[0];
+  assert.equal(local.decision, 'interviewing'); assert.equal(local.note, record().note);
+  assert.deepEqual(local.attachments, record().attachments); assert.equal(status.automatic.lastCounts.received, 1);
+  await syncApplications(a); assert.equal(f.sent.length, 1, 'imports never echo back as uploads');
+  await patchDecision(record().id, { decision: 'offer' }, { root: f.root });
+  remote.version++; remote.status = 'rejected';
+  status = await syncApplications(a);
+  assert.equal(status.automatic.issues[0].code, 'both_changed');
+  assert.equal((await f.records())[0].decision, 'offer'); assert.equal(remote.status, 'rejected');
+  await a.confirm((await a.preview({ direction: 'import', ids: [remote.id] })).id);
+  status = await syncApplications(a); assert.equal(status.automatic.issues.length, 0);
+  assert.equal((await f.records())[0].decision, 'rejected');
+});
+
+test('two-way sync maps new online records once, prevents possible duplicates and honors tombstones', async t => {
+  const f = await fixture(t), a = f.adapter;
+  await configureSync(a, { enabled: true, intervalMinutes: 1, direction: 'two-way' });
+  const remote = { id: randomUUID(), version: 1, title: 'Cloud role', company: 'Example Remote', status: 'applied', statusHistory: [], mappings: [] };
+  f.applications.set(remote.id, remote);
+  await syncApplications(a); await syncApplications(a);
+  assert.equal((await f.records()).length, 2); assert.equal(f.applications.size, 2);
+  assert.equal(f.sent.filter(item => item.operation === 'map').length, 1);
+  const cloud = f.applications.get(remote.id); cloud.version++; cloud.deletedAt = '2026-10-08T13:00:00Z';
+  await syncApplications(a); await syncApplications(a);
+  assert.equal(f.applications.size, 2);
+  assert.equal((await f.records()).find(item => item.company === 'Example Remote').cloudImport.deletedAt, cloud.deletedAt);
+  const duplicate = { ...remote, id: randomUUID(), title: record().title, company: record().company, mappings: [] };
+  f.applications.set(duplicate.id, duplicate);
+  const status = await syncApplications(a);
+  assert.ok(status.automatic.issues.some(item => item.code === 'possible_duplicate'));
+  assert.equal((await f.records()).length, 2);
+});
+
+test('automatic sync respects an open review, invalid records, revocation, and interval validation', async t => {
+  const f = await fixture(t), a = f.adapter;
+  await assert.rejects(configureSync(a, { enabled: true, intervalMinutes: 0, direction: 'push' }), /interval/);
+  await a.preview({ direction: 'push', ids: [record().id] });
+  await syncApplications(a); assert.equal(f.sent.length, 0, 'an open manual review is not invalidated by the timer');
+  a.adapter.previews = {};
+  await patchDecision(record().id, { title: 'x'.repeat(129) }, { root: f.root });
+  let status = await syncApplications(a); assert.equal(status.automatic.issues[0].code, 'invalid_local'); assert.equal(f.sent.length, 0);
+  await patchDecision(record().id, { title: 'Engineer' }, { root: f.root });
+  await syncApplications(a); assert.equal(f.sent.length, 1);
+  a.state.revoked = true; a.state.token = null;
+  await assert.rejects(syncApplications(a), /Connect/); assert.equal(f.sent.length, 1);
+});
+
+test('a remote version conflict blocks retries until an explicit reviewed resolution', async t => {
+  const f = await fixture(t), a = f.adapter;
+  await syncApplications(a);
+  await patchDecision(record().id, { decision: 'interviewing' }, { root: f.root });
+  const original = a.client.request;
+  let race = true;
+  a.client.request = async (path, options) => {
+    if (race && path === '/mutations') { const remote = [...f.applications.values()][0]; remote.version++; remote.status = 'offer'; race = false; }
+    return original(path, options);
+  };
+  let status = await syncApplications(a); assert.equal(status.issues[0].code, 'version_conflict');
+  const attempts = f.sent.length; await syncApplications(a); assert.equal(f.sent.length, attempts);
+  await a.confirm((await a.preview({ direction: 'push', ids: [record().id] })).id);
+  status = await syncApplications(a); assert.equal(status.issues.length, 0); assert.equal(status.automatic.issues.length, 0);
+  assert.equal([...f.applications.values()][0].status, 'interviewing');
+});
+
+test('timer respects interval and pause, serializes runs, and exposes status during network work', async t => {
+  const f = await fixture(t);
+  await configureSync(f.adapter, { enabled: true, intervalMinutes: 1, direction: 'push' });
+  await f.adapter.close();
+  let clock = Date.now(), requests = 0, hold = true;
+  const started = Promise.withResolvers(), release = Promise.withResolvers();
+  const service = createCloudSyncService({ root: f.root, configured: async () => true, now: () => clock,
+    open: async () => {
+      const adapter = await f.open(), original = adapter.client.request;
+      adapter.client.request = async (...args) => {
+        requests++;
+        if (hold) { hold = false; started.resolve(); await release.promise; }
+        return original(...args);
+      };
+      return adapter;
+    } });
+  t.after(() => service.stop());
+  const running = service.tick(); await started.promise;
+  assert.equal((await service.status()).syncing, true);
+  await service.tick(); assert.equal(requests, 1, 'overlapping timer ticks do not start a second transfer');
+  release.resolve(); await running;
+  let previous = requests; await service.tick(); assert.equal(requests, previous, 'not due yet');
+  clock += 61000; await service.tick(); assert.ok(requests > previous);
+  await service.run(adapter => configureSync(adapter, { enabled: false, intervalMinutes: 1, direction: 'push' }));
+  previous = requests; clock += 61000; await service.tick(); assert.equal(requests, previous, 'paused settings survive reopen');
+});
+
+test('Applied events send only that application with the timer off and never block the local save', async t => {
+  const f = await fixture(t);
+  await configureSync(f.adapter, { enabled: false, onApplied: true, intervalMinutes: 1, direction: 'two-way' });
+  const unrelated = { ...record(), id: 'manual:application:unrelated', company: 'Example Other' };
+  await writeFile(join(f.root, 'state', 'decisions.json'), JSON.stringify({ decisions: [record(), unrelated] }));
+  await writeFile(join(f.root, '.workspace', 'jobs.json'), JSON.stringify({ jobs: [] }));
+  await f.adapter.close();
+  const started = Promise.withResolvers(), release = Promise.withResolvers();
+  let hold = true, requests = 0;
+  const service = createCloudSyncService({ root: f.root, configured: async () => true, open: async () => {
+    const adapter = await f.open(), request = adapter.client.request;
+    adapter.client.request = async (...args) => {
+      requests++;
+      if (hold) { hold = false; started.resolve(); await release.promise; }
+      return request(...args);
+    };
+    return adapter;
+  } });
+  t.after(async () => { release.resolve(); await service.stop(); });
+  service.start(); await service.run(() => {});
+  assert.equal(requests, 0, 'enabling does not send older applied applications');
+  await patchDecision(record().id, { note: 'Edited note' }, { root: f.root });
+  await service.run(() => {}); assert.equal(requests, 0, 'editing an applied record is not a transition');
+  await patchDecision(record().id, { decision: 'shortlisted' }, { root: f.root });
+  const saved = await patchDecision(record().id, { decision: 'applied' }, { root: f.root });
+  assert.equal(saved.decision, 'applied', 'local save completes before the network response');
+  await started.promise; release.resolve(); await service.run(() => {});
+  assert.equal(f.sent.length, 1); assert.equal(f.sent[0].localRecordId, record().id);
+  assert.equal((await service.status()).automatic.onApplied, true);
+  assert.equal((await service.status()).automatic.enabled, false);
+  await recordDecision('manual:application:new', 'applied', '', { root: f.root, job: { company: 'Example New', title: 'Role' } });
+  await service.run(() => {});
+  assert.equal(f.sent.length, 2); assert.equal(f.sent[1].localRecordId, 'manual:application:new');
+  await service.run(adapter => configureSync(adapter, { enabled: false, onApplied: false, intervalMinutes: 1, direction: 'push' }));
+  await patchDecision(unrelated.id, { decision: 'shortlisted' }, { root: f.root });
+  await patchDecision(unrelated.id, { decision: 'applied' }, { root: f.root });
+  await service.run(() => {}); assert.equal(f.sent.length, 2, 'disabled option does nothing');
+});
+
+test('Applied sync ignores disconnected trackers and preserves failed sends for retry', async t => {
+  const f = await fixture(t);
+  await configureSync(f.adapter, { enabled: false, onApplied: true, intervalMinutes: 1, direction: 'push' });
+  await f.adapter.close();
+  let configured = false, connected = false, revoked = false, opens = 0, requests = 0;
+  const service = createCloudSyncService({ root: f.root, configured: async () => configured, open: async () => {
+    opens++;
+    const adapter = await f.open(); adapter.state.token = connected ? 'fictional-token' : null; adapter.state.revoked = revoked;
+    adapter.client.request = async path => {
+      requests++;
+      if (path === '/mutations') throw new Error('Network unavailable');
+      return { entries: [], cursor: 'cursor', changesCursor: 'cursor', hasMore: false };
+    };
+    return adapter;
+  } });
+  t.after(() => service.stop());
+  await service.applied({ root: f.root, id: record().id }); assert.equal(opens, 0);
+  configured = true;
+  await service.applied({ root: f.root, id: record().id }); assert.equal(requests, 0);
+  connected = true; revoked = true;
+  await service.applied({ root: f.root, id: record().id }); assert.equal(requests, 0);
+  revoked = false;
+  await assert.rejects(service.applied({ root: f.root, id: record().id }), /Network unavailable/);
+  const status = await service.status();
+  assert.equal(status.pending, 1); assert.match(status.automatic.lastError, /Network unavailable/);
+  assert.equal((await f.records())[0].decision, 'applied');
 });

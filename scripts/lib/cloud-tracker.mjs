@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { ROOT } from './common.mjs';
 import { loadDecisions } from './decisions.mjs';
 import { TrackerClient, OPTIONAL_FIELDS } from './tracker-client.mjs';
-import { cloudFields, projectFields, localImportFields, localFingerprint, eventFingerprint, importCloudRecord, validateSourceEvents } from './cloud-records.mjs';
+import { cloudFields, projectFields, localImportFields, localFingerprint, eventFingerprint, importCloudRecord, validateSourceEvents, syncFieldsFingerprint } from './cloud-records.mjs';
+import { syncSummary, syncState, settleSyncReceipts, rememberImport, rememberSend } from './cloud-sync.mjs';
 
 export const cloudStatePath = (root = ROOT) => join(root, 'state', 'private', 'tracker.json');
 const own = (object, key) => Object.hasOwn(object, key) ? object[key] : undefined;
@@ -27,6 +28,12 @@ export class CloudTracker {
     this.state = client.state;
     this.state.adapter ||= { mappings: {}, ledger: {}, previews: {}, journal: null };
     this.adapter = this.state.adapter;
+    client.onMutationAcknowledged = (mutation, application) => {
+      const receipt = own(syncState(this).receipts, mutation.mutationId);
+      // Save the server's normalized fields with queue advancement, before any
+      // newer change-feed entry can replace this acknowledged version.
+      if (receipt) receipt.remote = syncFieldsFingerprint(application);
+    };
   }
   close() { return this.client.close(); }
   persist() { return this.client.persist(); }
@@ -63,7 +70,7 @@ export class CloudTracker {
     // Deliberately omit bearer tokens, pairing secrets and all local-only fields.
     return { configured: true, origin: this.client.origin, paired: Boolean(this.state.token), revoked: Boolean(this.state.revoked),
       optionalFields: this.state.optionalFields, pending: this.state.pending.length,
-      recovery: Boolean(this.adapter.journal),
+      recovery: Boolean(this.adapter.journal), automatic: syncSummary(this, records),
       issues: [...this.state.conflicts, ...this.state.failures].map(item => ({ id: item.mutation.mutationId, code: item.code,
         localRecordId: item.mutation.localRecordId, applicationId: item.mutation.applicationId,
         proposed: item.mutation.fields, current: item.current })),
@@ -82,7 +89,9 @@ export class CloudTracker {
   async sync() {
     if (this.state.revoked) throw new Error('Reconnect, download a fresh snapshot, and review retained work before retrying.');
     if (this.adapter.journal) await this.recover();
-    await this.client.sync();
+    await this.client.pushPending();
+    settleSyncReceipts(this); await this.persist();
+    await this.client.pull();
     this.updateMappings();
     await this.persist();
     return this.status();
@@ -96,6 +105,8 @@ export class CloudTracker {
       this.state.pending = [];
       this.state.revoked = false;
       this.adapter.previews = {};
+      syncState(this).enabled = false;
+      syncState(this).onApplied = false;
     });
     return this.pull();
   }
@@ -162,6 +173,8 @@ export class CloudTracker {
     }
     delete this.adapter.previews[previewId];
     if (preview.direction === 'push') {
+      for (const item of preview.items) rememberSend(this, records.find(record => record.id === item.localId), item.mutation,
+        item.mutation.applicationId && this.state.applications[item.mutation.applicationId], true);
       this.state.pending.push(...preview.items.map(item => item.mutation));
       await this.persist(); // All selections and stable mutation IDs survive a lost response.
       return this.sync();
@@ -190,7 +203,8 @@ export class CloudTracker {
         await this.persist();
       }
       if (journal.direction !== 'map') {
-        await importCloudRecord(this.root, item, this.state.installationId, own(this.adapter.ledger, item.localId) || []);
+        const imported = await importCloudRecord(this.root, item, this.state.installationId, own(this.adapter.ledger, item.localId) || []);
+        rememberImport(this, item, imported);
       }
       journal.items.shift();
       await this.persist();

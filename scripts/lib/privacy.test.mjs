@@ -58,20 +58,24 @@ test('privacy check catches private prompts, preferences, answers and template i
   const answer = 'Synthetic private application answer with fictional circumstances requiring confirmation.';
   const template = { id: 'template-synthetic-private-123', name: 'Fictional Private Layout' };
   const project = 'Fictional Private Project';
+  const experience = 'Built an entirely fictional private reporting workflow for a synthetic candidate.';
+  const token = 'synthetic-tracker-token-not-a-real-credential';
   try {
     await git(['init', '--quiet']);
     await mkdir(join(dir, 'state'));
     await mkdir(join(dir, 'prompts'));
     await writeFile(join(dir, '.gitignore'), 'state/\nprompts/local.json\ncv/templates/\n');
-    await writeFile(join(dir, 'state/memory.json'), JSON.stringify({ facts: { projects: [{ name: project }] },
+    await writeFile(join(dir, 'state/memory.json'), JSON.stringify({ facts: { projects: [{ name: project }], experience: [{ bullets: [experience] }] },
       preferences: { tailoringNotes: preference }, answers: { availability: answer } }));
+    await mkdir(join(dir, 'state/private'));
+    await writeFile(join(dir, 'state/private/tracker.json'), JSON.stringify({ token }));
     await writeFile(join(dir, 'prompts/local.json'), JSON.stringify({ instructions: { cv: prompt }, templates: [template] }));
     await writeFile(join(dir, 'example.md'), 'Generic template support without private settings.');
     await git(['add', '.']);
     assert.match((await check([])).stdout, /passed/);
     for (const [value, label] of [[prompt, 'private prompt instruction'], [preference, 'private candidate preference'],
       [answer, 'private saved answer'], [template.id, 'private template ID'], [template.name, 'private template name'],
-      [project, 'candidate project']]) {
+      [experience, 'private candidate content'], [token, 'private tracker credential'], [project, 'candidate project']]) {
       await writeFile(join(dir, 'example.md'), value);
       await assert.rejects(check([]), error => {
         assert.ok(error.stderr.includes(`example.md: ${label}`));

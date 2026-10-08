@@ -16,6 +16,8 @@
     "test": "node --test \"scripts/lib/*.test.mjs\"",
     "test:activity": "node --test scripts/ui/activity.test.mjs",
     "test:improvements": "node --test scripts/ui/improvements.test.mjs",
+    "test:workspace": "node --test scripts/ui/workspace.test.mjs",
+    "test:cloud-tracker": "node --test scripts/ui/cloud-tracker.test.mjs",
     "demo": "node --test scripts/ui/improvements.test.mjs",
     "benchmark": "node scripts/benchmark.mjs",
     "benchmark:real": "node scripts/benchmark.mjs --real-model",

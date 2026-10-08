@@ -59,32 +59,25 @@ export async function loadPrepFlagsIndex() {
   } catch {
     return index;
   }
-  await Promise.all(
-    dirs.map(async (ent) => {
-      if (!ent.isDirectory()) return;
-      let files;
-      try {
-        files = await withJobTemplate(ent.name, null, () => readdir(prepDir(ent.name)));
-      } catch {
-        return;
-      }
-      const set = new Set(files);
-      const tailoredCv = set.has('cv.html');
-      const tailoredPdfAts = set.has('cv-ats.pdf');
-      const tailoredPdfMain = set.has('cv-main.pdf');
-      const tailoredPdf = set.has('cv.pdf') || tailoredPdfAts || tailoredPdfMain;
-      const coverLetter = set.has('cover-letter.md');
-      index.set(ent.name, {
-        tailoredCv,
-        tailoredPdf,
-        tailoredPdfAts,
-        tailoredPdfMain,
-        coverLetter,
-        prepCached: tailoredPdf,
-      });
-    }),
-  );
+  // Bound filesystem work so a large prep folder cannot starve static-file reads.
+  const folders = dirs.filter(ent => ent.isDirectory());
+  for (let offset = 0; offset < folders.length; offset += 10) {
+    await Promise.all(folders.slice(offset, offset + 10).map(async ent => {
+      index.set(ent.name, await loadPrepFlagsForJob(ent.name));
+    }));
+  }
   return index;
+}
+
+/** Read only one requested posting's selected document folder. */
+export async function loadPrepFlagsForJob(jobId) {
+  const files = await withJobTemplate(jobId, null, () => readdir(prepDir(jobId))).catch(() => []);
+  const set = new Set(files);
+  const tailoredPdfAts = set.has('cv-ats.pdf');
+  const tailoredPdfMain = set.has('cv-main.pdf');
+  const tailoredPdf = set.has('cv.pdf') || tailoredPdfAts || tailoredPdfMain;
+  return { tailoredCv: set.has('cv.html'), tailoredPdf, tailoredPdfAts, tailoredPdfMain,
+    coverLetter: set.has('cover-letter.md'), prepCached: tailoredPdf };
 }
 
 export function prepFlagsForJob(index, jobId) {

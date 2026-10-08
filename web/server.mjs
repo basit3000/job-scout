@@ -1,15 +1,14 @@
 import { loadCandidateProfile, readMemory } from '../scripts/lib/memory.mjs';
 import { cvPreferences, cvOptionsInstructions } from '../scripts/lib/cv-preferences.mjs';
 import { listCvTemplates, resolveCvTemplates } from '../scripts/lib/cv-templates.mjs';
-import { readTemplatePacks, withJobTemplate, savedTemplateIds, saveTemplateSelection } from '../scripts/lib/cv-template-packs.mjs';
+import { readTemplatePacks, withJobTemplate, saveTemplateSelection } from '../scripts/lib/cv-template-packs.mjs';
 import { handleCvTemplateApi } from './cv-template-routes.mjs';
 import { handleAtsApi } from './ats-routes.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
 //   npm start          → http://localhost:4040
 
-import { paginate, digestItems } from '../scripts/lib/list-pagination.mjs';
-import { setImmediate as yieldEventLoop } from 'node:timers/promises';
+import { createJobCatalog } from './job-catalog.mjs';
 import { createServer } from 'node:http';
 import { enforceLocalBoundary } from './local-boundary.mjs';
 import { runApplicationSession, readApplicationSession, cancelApplicationSession, applicationFingerprint, SUPPORTED_APPLICATION_PORTALS } from '../scripts/lib/application-session.mjs';
@@ -25,12 +24,8 @@ import { dirname } from 'node:path';
 
 import { ROOT, loadJson, loadDotEnv, loadMarket, listMarketIds, workspaceDir, pickDescription } from '../scripts/lib/common.mjs';
 import { loadDecisions, recordDecision, patchDecision, VALID_DECISIONS } from '../scripts/lib/decisions.mjs';
-import { clusterByCompany } from '../scripts/lib/dedupe.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
-import { rankingEvidence } from '../scripts/lib/rank.mjs';
-import { createScoreCache } from '../scripts/lib/score-cache.mjs';
-const cachedScorer = createScoreCache(scoreJob);
-import { readPrepPack, readPrepFile, loadPrepFlagsIndex, prepFlagsForJob, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
+import { readPrepPack, readPrepFile, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
 import { createPreparationRuns } from '../scripts/lib/preparation-runs.mjs';
 import { downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mjs';
 import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
@@ -45,19 +40,16 @@ import { buildApplyPack } from '../scripts/lib/apply-pack.mjs';
 import { fillApplyInBrowser, fillAssistPayload, playwrightAvailable } from '../scripts/lib/apply-fill.mjs';
 import { BOARD_CATALOG, BOARD_IDS, boardAvailableForMarket, mergeBoardSelection, selectedBoardIds } from '../scripts/lib/boards.mjs';
 import { applySetup, getSetupStatus } from '../scripts/lib/setup-state.mjs';
-import { compareFit, sortJobs, sortTrackerItems, trackerRecencyMs } from '../scripts/lib/job-sort.mjs';
-import { detectPostingLanguage, detectGermanRequirement, postingWrittenLanguage, jobMatchesLanguageFilter } from '../scripts/lib/cv-keywords.mjs';
+import { sortTrackerItems, trackerRecencyMs } from '../scripts/lib/job-sort.mjs';
 import { hydrateJobDescription } from '../scripts/lib/de-portals.mjs';
 import { sheetsStatus, sheetsUrl, syncDecisionsToSheet, maybeSyncDecisionToSheet, pullRejectedFromSheet, SHEET_SYNC_DECISIONS } from '../scripts/lib/google-sheets.mjs';
 import { appendRunHistory, batchRunTiming, formatDuration, loadRunHistory } from '../scripts/lib/run-history.mjs';
 import { handleRecruiterApi } from './recruiter-routes.mjs';
 import { handleTrackerApi } from './tracker-routes.mjs';
 import { handleCloudTrackerApi } from './cloud-tracker-routes.mjs';
-import { loadRecruiterStore } from '../scripts/lib/recruiter-contact.mjs';
-import { assessPrep, loadPrepInputs, prepStatus } from '../scripts/lib/prep-state.mjs';
-import { currentSearchState } from '../scripts/lib/current-search.mjs';
+import { createCloudSyncService } from './cloud-sync-service.mjs';
+import { prepStatus } from '../scripts/lib/prep-state.mjs';
 import { expandSearchTitles } from '../scripts/lib/title-matching.mjs';
-import { withMatchingAnswers } from '../scripts/lib/match-requirements.mjs';
 import { resolveFetchConcurrency } from '../scripts/lib/fetch-pool.mjs';
 
 loadDotEnv();
@@ -116,9 +108,6 @@ const batchState = {
 };
 
 const BATCH_ITEM_STATUSES = ['pending', 'running', 'done', 'skipped', 'failed', 'cancelled'];
-
-/** Decisions that mean "no longer worth applying to" — hidden from Ready. */
-const READY_EXCLUDED = new Set(['applied', 'interviewing', 'offer', 'accepted', 'skipped', 'rejected', 'closed']);
 
 function batchSnapshot({ withItems = true } = {}) {
   const counts = Object.fromEntries(BATCH_ITEM_STATUSES.map((s) => [s, 0]));
@@ -484,7 +473,7 @@ async function getStatus({ light = false } = {}) {
   const queriesPerBoard = titleCount * cityCount;
   let readyCount = light ? null : 0;
   try {
-    if (!light) readyCount = (await enrichJobs()).jobs.filter(jobIsReady).length;
+    if (!light) readyCount = (await jobCatalog.request('ready')).total;
   } catch {
     /* archive unreadable — badge stays 0 */
   }
@@ -523,34 +512,8 @@ async function getStatus({ light = false } = {}) {
   };
 }
 
-function jobIsReady(job) {
-  if (job.prepOutdated || job.prepNeedsReview || !job.currentSearch?.current) return false;
-  if (!(job.tailoredCv || job.tailoredPdf || job.coverLetter)) return false;
-  return !READY_EXCLUDED.has(job.decision?.decision || '');
-}
-
-/** List responses must stay small — full archive+descriptions made every filter change ~1.5MB. */
-function toJobListItem(job) {
-  const { description, ...rest } = job;
-  return {
-    ...rest,
-    hasDescription: Boolean(description && String(description).trim()),
-  };
-}
-
-function companySummaries(companies) {
-  return (companies ?? []).map((c) => ({
-    companyKey: c.companyKey,
-    company: c.company,
-    count: c.count,
-  }));
-}
-
-let jobsEnrichCache = { at: 0, data: null, inflight: null };
-
-function invalidateJobsCache() {
-  jobsEnrichCache = { at: 0, data: null, inflight: null };
-}
+const jobCatalog = createJobCatalog();
+function invalidateJobsCache() { jobCatalog.invalidate(); }
 
 let descriptionWrites = Promise.resolve();
 function persistJobDescription(id, description) {
@@ -573,120 +536,13 @@ async function writeJobDescription(id, description) {
 }
 
 async function enrichJobs({ force = false } = {}) {
-  const ttlMs = 15000;
-  if (!force && jobsEnrichCache.data && Date.now() - jobsEnrichCache.at < ttlMs) {
-    return jobsEnrichCache.data;
-  }
-  if (!force && jobsEnrichCache.inflight) return jobsEnrichCache.inflight;
-
-  const cache = jobsEnrichCache;
-  const run = (async () => {
-    const data = await loadJson(join(workspaceDir(), 'jobs.json'), null);
-    const profile = await loadCandidateProfile();
-    const decisions = await loadDecisions();
-    const byId = new Map((decisions.decisions ?? []).map((d) => [d.id, d]));
-    const digest = await loadJson(join(workspaceDir(), 'digest.json'), null);
-    const newSet = new Set(digest?.newIds ?? []);
-    const prepIndex = await loadPrepFlagsIndex();
-    const cvSettings = await loadCvSettings();
-    const prepInputs = await loadPrepInputs(cvSettings);
-    const evidenceText = rankingEvidence(prepInputs);
-    const matchingProfile = profile ? withMatchingAnswers(profile, await loadSavedAnswers()) : null;
-    const searchConfig = await loadSearchProfile();
-    const currentMarket = await loadMarket(searchConfig);
-    const recruiterStore = await loadRecruiterStore();
-
-    if (!data) {
-      return {
-        jobs: [],
-        meta: null,
-        companies: [],
-        digest,
-        message: 'No fetch yet. Run a search from the UI or CLI.',
-      };
-    }
-
-    const score = matchingProfile ? cachedScorer(matchingProfile, evidenceText) : () => null;
-    const raw = data.jobs ?? [];
-    const before = raw.length;
-    // Keep historical rows addressable: they may own distinct documents/decisions.
-    const deduped = raw;
-    const jobs = [];
-    // Yield between small groups so cold archive scoring cannot freeze status/navigation.
-    for (let offset = 0; offset < deduped.length; offset += 25) {
-      const chunk = await Promise.all(deduped.slice(offset, offset + 25).map(async (job) => {
-        const fit = score(job);
-        const decision = byId.get(job.id) ?? null;
-        const flags = prepFlagsForJob(prepIndex, job.id);
-        const manifest = flags.tailoredCv || flags.tailoredPdf || flags.coverLetter
-          ? await loadJson(join(prepDir(job.id), 'generation.json'), null) : null;
-        const freshnessOptions = { cv: flags.tailoredCv || flags.tailoredPdf, letter: flags.coverLetter };
-        const freshness = (flags.tailoredCv || flags.tailoredPdf || flags.coverLetter) && (savedTemplateIds(job.id).length || cvSettings.source === 'overleaf')
-          ? await withJobTemplate(job.id, null, async () => prepStatus(job, profile, await loadCvSettings(), freshnessOptions))
-          : assessPrep(manifest, { job, profile, settings: cvSettings, inputs: prepInputs }, freshnessOptions);
-        const currentSearch = currentSearchState(job, profile || {}, searchConfig, currentMarket);
-        const tailoredCv = flags.tailoredCv;
-        const recruiter = recruiterStore.contacts[job.id] || null;
-        return {
-          ...job,
-          language: detectPostingLanguage(job),
-          writtenLanguage: postingWrittenLanguage(job),
-          germanRequired: detectGermanRequirement(job) === 'required',
-          decision,
-          fit,
-          isNew: newSet.has(job.id),
-          ...flags,
-          ageDays: currentSearch.ageDays,
-          currentSearch,
-          prepFreshness: freshness,
-          prepOutdated: Object.values(freshness).includes('outdated'),
-          prepNeedsReview: Object.values(freshness).includes('needs-review'),
-          recruiter: recruiter
-            ? {
-                name: recruiter.name || '',
-                email: recruiter.email || '',
-                linkedinUrl: recruiter.linkedinUrl || '',
-                foundEmail: Boolean(recruiter.email),
-            }
-            : null,
-          ats: detectAts(job.url),
-          prepPath:
-            decision?.prepPath
-            || (tailoredCv ? `.workspace/prep/${String(job.id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120)}` : null),
-        };
-      }));
-
-      jobs.push(...chunk);
-      await yieldEventLoop();
-    }
-    jobs.sort(compareFit);
-
-    const { jobs: _j, ...meta } = data;
-    meta.duplicatesRemovedExtra = Math.max(0, before - deduped.length);
-
-    return {
-      jobs,
-      meta,
-      companies: clusterByCompany(jobs),
-      digest,
-      decisions: decisions.decisions ?? [],
-    };
-  })();
-
-  cache.inflight = run;
-  try {
-    const result = await run;
-    if (jobsEnrichCache === cache) jobsEnrichCache = { at: Date.now(), data: result, inflight: null };
-    return result;
-  } catch (err) {
-    if (jobsEnrichCache === cache) cache.inflight = null;
-    throw err;
-  }
+  if (force) invalidateJobsCache();
+  return jobCatalog.request('all');
 }
 
 async function handleApi(req, res, url) {
   const path = url.pathname;
-  if (await handleCloudTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache })) return;
+  if (await handleCloudTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, syncService: cloudSync })) return;
   if (await handleAtsApi(req, res, url, { json, readBody })) return;
   if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 
@@ -764,82 +620,14 @@ async function handleApi(req, res, url) {
     });
   }
 
-  if (req.method === 'GET' && path === '/api/jobs') {
-    const enriched = await enrichJobs();
-    let list = enriched.jobs;
-    if (url.searchParams.get('scope') !== 'history') list = list.filter((j) => j.currentSearch.current);
-
-    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-    if (q) {
-      list = list.filter((j) =>
-        `${j.title} ${j.company} ${j.location || ''}`.toLowerCase().includes(q),
-      );
-    }
-    // Multi-hide: ?hide=applied,skipped  (comma-separated decision keys; "none" = undecided)
-    const hideParam = (url.searchParams.get('hide') || '')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const hideSet = new Set(hideParam);
-    if (hideSet.size) {
-      list = list.filter((j) => {
-        const key = j.decision?.decision || 'none';
-        return !hideSet.has(key);
-      });
-    }
-
-    // Legacy single decision filter (still supported)
-    const decision = url.searchParams.get('decision');
-    if (decision && decision !== 'all') {
-      if (decision === 'none') {
-        list = list.filter((j) => !j.decision);
-      } else if (decision.startsWith('not:') || decision.startsWith('-')) {
-        const hide = decision.startsWith('not:')
-          ? decision.slice(4)
-          : decision.slice(1);
-        if (hide === 'none') list = list.filter((j) => j.decision);
-        else list = list.filter((j) => j.decision?.decision !== hide);
-      } else if (decision.includes(',')) {
-        const allow = new Set(decision.split(',').map((s) => s.trim()).filter(Boolean));
-        list = list.filter((j) => allow.has(j.decision?.decision || 'none'));
-      } else {
-        list = list.filter((j) => j.decision?.decision === decision);
-      }
-    }
-    const fit = url.searchParams.get('fit');
-    if (fit && fit !== 'all') list = list.filter((j) => j.fit?.verdict === fit);
-    const lang = (url.searchParams.get('lang') || 'all').trim().toLowerCase();
-    if (lang && lang !== 'all') list = list.filter((j) => jobMatchesLanguageFilter(j, lang));
-    if (url.searchParams.get('new') === '1') list = list.filter((j) => j.isNew);
-
-    list = sortJobs(list, url.searchParams.get('sort') || 'fit');
-    const page = paginate(list, url);
-    return json(res, 200, {
-      jobs: page.items.map(toJobListItem),
-      pagination: {
-        page: page.page,
-        pageSize: page.pageSize,
-        total: page.total,
-        pages: page.pages,
-      },
-      meta: enriched.meta,
-      ...(url.searchParams.get('companies') === '1' ? { companies: companySummaries(enriched.companies) } : {}),
-      digest: enriched.digest
-        ? {
-            generatedAt: enriched.digest.generatedAt,
-            previousFetchAt: enriched.digest.previousFetchAt,
-            newCount: (enriched.digest.newIds ?? []).length,
-          }
-        : null,
-      message: enriched.message,
-    });
+  if (req.method === 'GET' && ['/api/jobs', '/api/digest', '/api/ready'].includes(path)) {
+    return json(res, 200, await jobCatalog.request(path.slice(5), url.searchParams.toString()));
   }
 
   if (req.method === 'GET' && path.startsWith('/api/jobs/')) {
     const id = decodeURIComponent(path.slice('/api/jobs/'.length));
     if (!id || id.includes('/')) return json(res, 404, { error: 'Not found' });
-    const enriched = await enrichJobs();
-    const job = enriched.jobs.find((j) => j.id === id);
+    const job = await jobCatalog.request('job', id);
     if (!job) return json(res, 404, { error: 'Job not found' });
     if (!String(job.description || '').trim()
       || (job.board === 'arbeitsagentur' && /^Beruf: [^\n]+$/.test(job.description))) {
@@ -852,43 +640,8 @@ async function handleApi(req, res, url) {
     return json(res, 200, { job });
   }
 
-  if (req.method === 'GET' && path === '/api/digest') {
-    const enriched = await enrichJobs();
-    const newJobs = digestItems(enriched.jobs, url);
-    if (url.searchParams.get('selection') === '1') {
-      return json(res, 200, { candidates: newJobs.map(({ id, title, company, fit, tailoredCv, tailoredPdf, coverLetter }) => ({ id, title, company, fit: fit ? { verdict: fit.verdict } : null, tailoredCv, tailoredPdf, coverLetter })) });
-    }
-    const { items, ...pagination } = paginate(newJobs, url);
-    const history = await loadRunHistory();
-    return json(res, 200, {
-      digest: enriched.digest,
-      newJobs: items.map(toJobListItem),
-      pagination,
-      count: newJobs.length,
-      history: history.fetch,
-    });
-  }
-
   if (req.method === 'GET' && path === '/api/run-history') {
     return json(res, 200, await loadRunHistory());
-  }
-
-  // Jobs with a tailored CV and/or cover letter that are still open to apply to.
-  if (req.method === 'GET' && path === '/api/ready') {
-    const enriched = await enrichJobs();
-    let list = enriched.jobs.filter(jobIsReady);
-    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
-    if (q) {
-      list = list.filter((j) => `${j.title} ${j.company} ${j.location || ''}`.toLowerCase().includes(q));
-    }
-    const counts = { both: 0, cvOnly: 0, letterOnly: 0 };
-    for (const j of list) {
-      if (j.tailoredCv && j.coverLetter) counts.both += 1;
-      else if (j.tailoredCv) counts.cvOnly += 1;
-      else counts.letterOnly += 1;
-    }
-    const { items, ...pagination } = paginate(list, url);
-    return json(res, 200, { jobs: items.map(toJobListItem), pagination, total: list.length, counts });
   }
 
   if (req.method === 'GET' && path === '/api/tracker') {
@@ -1658,15 +1411,10 @@ const server = createServer(async (req, res) => {
   }
 });
 
+const cloudSync = createCloudSyncService({ allowLoopbackHttp: process.env.ALLOW_INSECURE_LOCAL_TRACKER === 'true', invalidate: invalidateJobsCache });
 const discovery = createDiscoveryScheduler({
   busy: () => Boolean(fetchState.child) || prepState.running || batchState.running,
-  observe: async () => {
-    const data = await loadJson(join(workspaceDir(), 'jobs.json'), { jobs: [] });
-    const profile = await loadCandidateProfile();
-    const decisions = await loadDecisions();
-    return { jobs: data.jobs.map(job => ({ id: job.id, meaningful: profile && ['Strong', 'Worth a shot'].includes(scoreJob(job, profile).verdict) })),
-      followUps: decisions.decisions.filter(item => item.followUpDate && !['closed','rejected','accepted','skipped'].includes(item.decision)) };
-  },
+  observe: () => jobCatalog.request('observations'),
   runSearch: async schedule => {
     const response = await fetch(`http://127.0.0.1:${server.address().port}/api/fetch`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ market: schedule.market, allowPaid: schedule.allowPaid, replace: false }) });
@@ -1693,11 +1441,12 @@ server.listen(PORT, '127.0.0.1', () => {
   console.log(`Job Scout UI → ${url}`);
   console.log(`ROOT: ${ROOT}`);
   openBrowser(url);
+  cloudSync.start();
   // Opt-in schedules only execute while this server is running. No OS service.
   const pollDiscovery = () => discovery.tick().catch(() => {});
   pollDiscovery();
   const timer = setInterval(pollDiscovery, 30000); timer.unref();
-  server.on('close', () => clearInterval(timer));
+  server.on('close', () => { clearInterval(timer); void jobCatalog.close(); void cloudSync.stop(); });
 });
 
 function openBrowser(url) {

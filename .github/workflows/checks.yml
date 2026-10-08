@@ -30,6 +30,8 @@ jobs:
       - run: npm test
       - run: npm run test:activity
       - run: npm run test:improvements
+      - run: npm run test:workspace
+      - run: npm run test:cloud-tracker
       - run: npm run benchmark
       - run: npm run privacy
       - run: npm run privacy -- --staged

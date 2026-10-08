@@ -8,9 +8,14 @@
   --bg: #f4f5f7;
   --panel: #ffffff;
   --panel-alt: #f8f9fa;
-  --accent: #157a6e;
-  --accent-ink: #0f5c53;
-  --accent-soft: #e3f1ee;
+  --accent: #0969da;
+  --accent-ink: #0550ae;
+  --accent-soft: #edf4ff;
+  --button-bg: #f6f8fa;
+  --button-hover: #eef1f4;
+  --primary-bg: #24292f;
+  --primary-ink: #ffffff;
+  --nav-active: #e9edf1;
   --warn: #b45309;
   --warn-soft: #fbeedc;
   --danger: #b42318;
@@ -27,30 +32,35 @@
   --accepted-bg: #f5fbf8;
   --backdrop: rgba(31, 41, 51, 0.45);
   --dialog-shadow: 0 24px 80px rgba(21, 44, 54, 0.25);
-  --radius: 10px;
-  --shadow: 0 4px 12px rgba(31, 41, 51, 0.1);
+  --radius: 8px;
+  --shadow: 0 1px 3px rgba(31, 41, 51, 0.06);
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --ink: #e6edf3;
-  --ink-soft: #cad5df;
-  --muted: #a6b5c3;
-  --line: #394b5b;
-  --line-soft: #2c3d4c;
-  --line-strong: #526879;
-  --bg: #10171f;
-  --panel: #18232e;
-  --panel-alt: #202e3a;
-  --surface-soft: #293b49;
-  --accent: #68d5c0;
-  --accent-ink: #8de4d3;
-  --accent-soft: #173c36;
-  --on-ink: #10171f;
-  --on-accent: #0c2420;
-  --primary-hover: #fff;
+  --ink: #f0f3f6;
+  --ink-soft: #c9d1d9;
+  --muted: #919ba6;
+  --line: #30363d;
+  --line-soft: #252b32;
+  --line-strong: #59636e;
+  --bg: #0d1117;
+  --panel: #11161d;
+  --panel-alt: #161b22;
+  --surface-soft: #21262d;
+  --accent: #4493f8;
+  --accent-ink: #79b8ff;
+  --accent-soft: #172435;
+  --button-bg: #21262d;
+  --button-hover: #292f37;
+  --primary-bg: #303943;
+  --primary-ink: #f0f3f6;
+  --nav-active: #21262d;
+  --on-ink: #0d1117;
+  --on-accent: #ffffff;
+  --primary-hover: #3b4652;
   --warn: #f5ba68;
   --warn-soft: #3d2d1d;
   --warn-line: #82613a;
@@ -59,9 +69,9 @@
   --danger-soft: #42272b;
   --danger-line: #854846;
   --info: #9dc5fa;
-  --accepted-bg: #18352e;
+  --accepted-bg: #15251e;
   --backdrop: rgba(0, 0, 0, 0.65);
-  --shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
   --dialog-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
 }
 
@@ -286,7 +296,7 @@ input[type="radio"] {
   line-height: 1.2;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--panel);
+  background: var(--button-bg);
   color: var(--ink);
   padding: 0.45rem 0.85rem;
   cursor: pointer;
@@ -295,10 +305,12 @@ input[type="radio"] {
   align-items: center;
   justify-content: center;
   gap: 0.35rem;
+  min-height: 36px;
+  transition: background-color 120ms ease, border-color 120ms ease;
 }
 
 .btn:hover:not(:disabled) {
-  background: var(--panel-alt);
+  background: var(--button-hover);
   border-color: var(--line-strong);
 }
 
@@ -309,9 +321,9 @@ input[type="radio"] {
 
 .btn.primary,
 a.btn.primary-link {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--on-ink);
+  background: var(--primary-bg);
+  border-color: var(--line-strong);
+  color: var(--primary-ink);
 }
 
 .btn.primary:hover:not(:disabled),
@@ -354,14 +366,14 @@ a.btn.primary-link:hover {
 }
 
 .btn.small.ok {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--on-accent);
+  background: var(--primary-bg);
+  border-color: var(--line-strong);
+  color: var(--primary-ink);
 }
 
 .btn.small.ok:hover:not(:disabled) {
-  background: var(--accent-ink);
-  border-color: var(--accent-ink);
+  background: var(--primary-hover);
+  border-color: var(--line-strong);
 }
 
 /* Status chip ------------------------------------------------------------- */

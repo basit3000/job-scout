@@ -23,7 +23,7 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
   const page = await browser.newPage({ viewport: { width: 1365, height: 1000 } }); page.setDefaultTimeout(5000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   let memory = { schemaVersion: 1, revision: 1, facts: { name: 'Fictional Candidate', targetRole: 'Backend Engineer', links: { email: 'candidate@example.org' }, skills: { strong: ['Python', 'SQL'] }, experience: [], education: [] }, preferences: {}, answers: { needsSponsorship: '' } };
-  let schedules = [], confirmed = 0, imported = 0, emailExports = 0;
+  let schedules = [], confirmed = 0, imported = 0, emailExports = 0, failMemorySave = false;
   const templates = [{ id: 'default', name: 'Current CV format' }];
   const job = { id: 'fictional-job', company: 'Example Workshop', title: 'Backend Engineer', location: 'London', url: 'https://jobs.example.org/fictional', ageDays: 5, postedAtApproximate: true,
     applicants: { count: 25, relation: 'less-than', label: 'Under 25 applicants', source: 'linkedin', observedAt: '2026-10-06T12:00:00Z' },
@@ -40,6 +40,7 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
       case '/api/markets': data = { markets: [{ id: 'GB', name: 'United Kingdom' }] }; break;
       case '/api/jobs': data = { jobs: [job], pagination: { page: 1, pages: 1, total: 1, pageSize: 20 } }; break;
       case '/api/memory':
+        if (req.method() === 'PUT' && failMemorySave) { failMemorySave = false; return route.fulfill({ status: 409, json: { error: 'Memory changed elsewhere. Review again.' } }); }
         if (req.method() === 'PUT') { assert.equal(previewMemory(memory, body).confirmation, body.confirmation); memory = { ...memory, facts: body.facts, preferences: body.preferences, answers: body.answers, revision: memory.revision + 1 }; confirmed++; }
         data = { memory }; break;
       case '/api/memory/preview': { const p = previewMemory(memory, body); data = { ...p, before: memory, after: p.proposed }; break; }
@@ -69,18 +70,48 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
   assert.match(await page.locator('.job .job-facts').first().textContent(), /Under 25 applicants/);
   assert.match(await page.getByText('Opportunity +7', { exact: true }).first().getAttribute('title'), /not views/);
   await page.getByRole('tab', { name: 'Memory', exact: true }).click();
+  await page.locator('#memoryStructured').waitFor();
+  assert.equal(await page.locator('#memoryPreviewBtn').textContent(), 'Save changes');
+  assert.equal(await page.locator('#memoryPreviewBtn').isDisabled(), true);
   await page.getByRole('button', { name: 'Add experience', exact: true }).click();
   const entry = page.getByRole('button', { name: 'Add experience', exact: true }).locator('..').locator('fieldset').last();
   await entry.locator('input').first().fill('Fictional role');
   assert.equal(await entry.locator('input').count(), 4);
   await entry.getByRole('button', { name: 'Remove entry' }).click();
   await page.locator('#memoryStructured > fieldset').first().locator('label > input').first().fill('Fictional Demo Candidate');
+  await page.locator('#memoryPreviewBtn').click();
+  await page.locator('#memoryPreview[open]').waitFor();
+  assert.match(await page.locator('#memoryChanges').textContent(), /Fictional Demo Candidate/);
+  assert.equal(await page.locator('.memory-change').count(), 1, 'unchanged empty controls are not proposed as edits');
+  assert.equal(confirmed, 0);
+  await page.locator('#memoryBack').click();
+  assert.equal(await page.locator('#memoryStructured > fieldset').first().locator('label > input').first().inputValue(), 'Fictional Demo Candidate');
+  await page.locator('#memoryPreviewBtn').click();
+  for (const [width, height] of [[1365, 1000], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    const bounds = await page.locator('#memoryConfirm').boundingBox();
+    assert.ok(bounds.x >= 0 && bounds.y >= 0 && bounds.x + bounds.width <= width && bounds.y + bounds.height <= height, 'confirm stays in the viewport');
+    await page.screenshot({ path: resolve(`.workspace/demo/memory-review-${width}.png`), animations: 'disabled' });
+  }
+  failMemorySave = true;
+  await page.locator('#memoryConfirm').click(); await page.locator('#memoryReviewError:not([hidden])').waitFor();
+  assert.equal(confirmed, 0); assert.equal(await page.locator('#memoryConfirm').isDisabled(), true);
+  await page.locator('#memoryBack').click();
+  await page.setViewportSize({ width: 1365, height: 1000 });
   await page.locator('#memoryPreviewBtn').click(); await page.locator('#memoryConfirm').click();
   await page.waitForFunction(() => document.querySelector('#memoryMessage').textContent.includes('Saved revision'));
   assert.equal(confirmed, 1); assert.equal(memory.facts.name, 'Fictional Demo Candidate'); assert.equal(memory.answers.needsSponsorship, '');
+  assert.equal(await page.locator('#memoryPreviewBtn').isDisabled(), true);
+  assert.equal(await page.locator('#memoryDraftStatus').textContent(), 'All changes saved');
+  await page.locator('#memoryStructured > fieldset').first().locator('label > input').first().fill('Temporary draft');
+  page.once('dialog', dialog => dialog.accept()); await page.locator('#memoryReset').click();
+  assert.equal(await page.locator('#memoryStructured > fieldset').first().locator('label > input').first().inputValue(), 'Fictional Demo Candidate');
+  assert.equal(await page.locator('#memoryPreviewBtn').isDisabled(), true);
+  await page.locator('.memory-import > summary').click();
   await page.locator('#memoryImport').setInputFiles({ name: 'fictional.pdf', mimeType: 'application/pdf', buffer: pdfFixture(['Fictional Resume candidate@example.org Experience dates unknown.']) });
   await page.waitForSelector('#memoryImportProposals summary'); assert.equal(imported, 1); assert.equal(confirmed, 1);
-  await page.locator('#viewMemory h2').scrollIntoViewIfNeeded();
+  await page.locator('#viewMemory h2').first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: resolve('.workspace/demo/memory.png') });
   await page.locator('#openDiscovery').click(); await page.locator('#scheduleZone').fill('Europe/London'); await page.locator('#scheduleCreate').click();
   await page.waitForSelector('#scheduleList button'); assert.equal(schedules[0].allowPaid, false);

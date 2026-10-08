@@ -6,7 +6,7 @@ import { resolve, extname, sep } from 'node:path';
 import { chromium } from 'playwright-core';
 import { findBrowser } from '../lib/pdf.mjs';
 
-test('connection UI requires selection, preview and confirmation on desktop and mobile', { timeout: 60000 }, async t => {
+test('sync dashboard, timer settings and advanced review work on desktop and mobile', { timeout: 60000 }, async t => {
   const root = resolve('web/public');
   const server = createServer(async (req, res) => {
     const file = resolve(root, '.' + new URL(req.url, 'http://fixture').pathname);
@@ -24,15 +24,19 @@ test('connection UI requires selection, preview and confirmation on desktop and 
   page.setDefaultTimeout(5000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   const base = `http://127.0.0.1:${server.address().port}`;
-  let paired = false, confirmed = 0, previewed = 0;
+  let paired = false, confirmed = 0, previewed = 0, synced = 0;
+  let automatic = { enabled: false, intervalMinutes: 1, direction: 'push', waiting: 1, linked: 0, issues: [], recent: [
+    { id: 'fictional-local', title: 'Engineer', company: 'Example Workshop', state: 'waiting' } ] };
   const status = () => ({ configured: true, origin: 'https://tracker.example.com', paired, optionalFields: ['note'], pending: 0, issues: [],
     local: [{ id: 'fictional-local', title: '<img src=x onerror=alert(1)>', company: 'Example Workshop', status: 'applied' }],
-    remote: [{ id: 'fictional-cloud', title: 'Online role', company: 'Example Cloud', status: 'interviewing', version: 2 }] });
+    remote: [{ id: 'fictional-cloud', title: 'Online role', company: 'Example Cloud', status: 'interviewing', version: 2 }], automatic });
   await page.route('**/api/cloud-tracker**', async route => {
     const path = new URL(route.request().url()).pathname, body = route.request().postDataJSON();
     let data = status();
     if (path.endsWith('/pair')) data = { userCode: 'ABCD-EFGH', approvalUrl: 'https://tracker.example.com/integrations' };
     if (path.endsWith('/redeem')) { paired = true; data = status(); }
+    if (path.endsWith('/settings')) { automatic = { ...automatic, ...body }; data = status(); }
+    if (path.endsWith('/sync-now')) { synced++; automatic.waiting = 0; automatic.linked = 1; automatic.lastSuccess = '2026-10-08T12:00:00Z'; automatic.recent[0].state = 'synced'; data = status(); }
     if (path.endsWith('/preview')) {
       assert.deepEqual(body.ids, ['fictional-local']); assert.deepEqual(body.selectedOptional, ['note']); previewed++;
       data = { id: 'preview-fixture', direction: 'push', items: [{ localId: 'fictional-local', current: null,
@@ -42,12 +46,36 @@ test('connection UI requires selection, preview and confirmation on desktop and 
     await route.fulfill({ json: data });
   });
   await page.goto(base + '/cloud-tracker.html');
-  await page.waitForFunction(() => document.getElementById('feedback').textContent === 'Choose applications to connect.');
+  await page.waitForFunction(() => document.getElementById('feedback').textContent === 'Ready. Sync now or enable automatic sync.');
   assert.equal(await page.locator('#pushPreview').isDisabled(), true);
   await page.locator('#pairButton').click(); await page.locator('#pairing a').waitFor();
   assert.equal(await page.locator('#pairing a').getAttribute('href'), 'https://tracker.example.com/integrations');
   await page.locator('#redeem').click();
   await page.waitForFunction(() => !document.getElementById('pushPreview').disabled);
+  assert.equal(await page.locator('#localList').isVisible(), false, 'bulk selection is not the main workflow');
+  assert.equal(synced, 0, 'opening the dashboard does not upload applications');
+  await page.locator('#syncNow').click();
+  await page.waitForFunction(() => document.getElementById('syncWaiting').textContent === '0');
+  assert.equal(synced, 1); assert.equal(previewed, 0); assert.match(await page.locator('#syncRecent').innerText(), /Up to date/);
+  await page.locator('#syncOnApplied').check();
+  await page.locator('#saveSyncSettings').click();
+  await page.waitForFunction(() => document.getElementById('syncBadge').textContent === 'Sync on Applied');
+  assert.equal(automatic.onApplied, true); assert.equal(automatic.enabled, false);
+  assert.equal(synced, 1, 'enabling immediate sync does not bulk-upload existing records');
+  await page.reload();
+  await page.waitForFunction(() => document.getElementById('syncOnApplied').checked);
+  await page.locator('#autoEnabled').check(); await page.locator('#syncInterval').selectOption('5');
+  await page.locator('#saveSyncSettings').click();
+  await page.waitForFunction(() => document.getElementById('syncBadge').textContent === 'Automatic sync on');
+  assert.equal(automatic.intervalMinutes, 5); assert.equal(automatic.enabled, true);
+  await mkdir('.workspace/tests', { recursive: true });
+  await page.locator('#themeSelect').selectOption('dark');
+  await page.screenshot({ path: '.workspace/tests/sync-dashboard-desktop.png', fullPage: true, animations: 'disabled' });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: '.workspace/tests/sync-dashboard-mobile.png', fullPage: true, animations: 'disabled' });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.locator('#advancedTransfers > summary').click();
   await page.locator('#localList input').check(); await page.locator('#optional input').check();
   await page.locator('#pushPreview').click(); await page.locator('#previewSection').waitFor();
   assert.equal(previewed, 1); assert.equal(confirmed, 0);

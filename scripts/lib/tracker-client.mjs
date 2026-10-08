@@ -165,18 +165,21 @@ export class TrackerClient {
     if (!existing || application.version >= existing.version) this.state.applications[application.id] = application;
   }
 
-  async pushPending() {
-    while (this.state.pending.length) {
-      const mutation = this.state.pending[0];
+  async pushPending({ localId } = {}) {
+    for (;;) {
+      const index = this.state.pending.findIndex(item => !localId || item.localRecordId === localId);
+      if (index < 0) break;
+      const mutation = this.state.pending[index];
       try {
         const result = await this.request('/mutations', { method: 'POST', body: mutation });
         this.apply(result.application);
-        this.state.pending.shift();
+        this.onMutationAcknowledged?.(mutation, result.application);
+        this.state.pending.splice(index, 1);
       } catch (error) {
         if (!(error instanceof ApiError) || error.status === 401 || error.status === 429 || error.status >= 500) throw error;
         const collection = error.status === 409 ? this.state.conflicts : this.state.failures;
         collection.push({ mutation, code: error.code, current: error.current ?? null });
-        this.state.pending.shift();
+        this.state.pending.splice(index, 1);
       }
       await this.persist();
     }

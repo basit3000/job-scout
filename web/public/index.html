@@ -11,16 +11,18 @@
     />
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/workspace.css" />
   </head>
   <body>
-    <a class="skip-link" href="#layout">Skip to jobs</a>
+    <a class="skip-link" href="#layout">Skip to page content</a>
     <div class="app">
       <header class="top">
-        <div class="brand">
+        <div class="brand"><svg class="ui-icon brand-mark" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
           <h1>Job Scout</h1>
           <p class="brand-sub" id="candidateLine">Local shortlist</p>
         </div>
         <div class="run-controls">
+          <a class="btn connection-shortcut" href="/cloud-tracker.html"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 0 1-1-10 6 6 0 0 1 11-1 5.5 5.5 0 0 1 0 11M12 21V11m-3 3 3-3 3 3"/></svg>Online tracker ↗</a>
           <label class="theme-picker">
             <span>Theme</span>
             <select id="themeSelect" aria-label="Color theme">
@@ -35,20 +37,25 @@
         </div>
       </header>
 
-      <div class="tabs" role="tablist" aria-label="Job search workspace">
-        <button type="button" class="tab active" data-view="results" role="tab">Find jobs</button>
-        <button type="button" class="tab" data-view="digest" role="tab">
-          New matches <span class="tab-badge" id="digestBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="ready" role="tab">
-          Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span>
-        </button>
-        <button type="button" class="tab" data-view="tracker" role="tab">Tracker</button>
-        <button type="button" class="tab" data-view="answers" role="tab">Saved answers</button>
-        <button type="button" class="tab" data-view="memory" role="tab">Memory</button>
-        <button type="button" class="tab" data-view="portals" role="tab">Portals</button>
-      </div>
-
+      <div class="workspace-shell">
+      <aside class="workspace-sidebar" id="workspaceNav" aria-label="Workspace navigation">
+        <p class="nav-heading">YOUR WORKSPACE</p>
+        <div class="tabs" role="tablist" aria-label="Job search workspace" aria-orientation="vertical">
+          <button type="button" class="tab" data-view="results" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>Find jobs</span><small aria-hidden="true">Search & shortlist</small></button>
+          <button type="button" class="tab" data-view="digest" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 2.4 6.6L21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4Z"/></svg>New matches <span class="tab-badge" id="digestBadge" hidden>0</span></span><small aria-hidden="true">Since your last search</small></button>
+          <button type="button" class="tab" data-view="ready" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9ZM14 3v6h6m-12 6 3 3 5-6"/></svg>Ready to apply <span class="tab-badge" id="readyBadge" hidden>0</span></span><small aria-hidden="true">Your prepared documents</small></button>
+          <button type="button" class="tab" data-view="tracker" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M3 12h18m-11 0v3h4v-3"/></svg>Tracker</span><small aria-hidden="true">Applications & follow-ups</small></button>
+          <button type="button" class="tab" data-view="discovery" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m16 8-2 6-6 2 2-6Z"/></svg>Discovery</span><small aria-hidden="true">Schedules & notifications</small></button>
+          <button type="button" class="tab" data-view="memory" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="9" r="2.5"/><path d="M8 17c0-4 8-4 8 0"/></svg>Memory</span><small aria-hidden="true">Your profile & preferences</small></button>
+          <button type="button" class="tab" data-view="answers" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2ZM7 8h10M7 12h7"/></svg>Saved answers</span><small aria-hidden="true">Reusable application answers</small></button>
+          <button type="button" class="tab" data-view="portals" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><path d="M3 12h18"/></svg>Job sources</span><small aria-hidden="true">Boards & company watchlists</small></button>
+          <button type="button" class="tab" data-view="tools" role="tab"><span class="nav-label"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6m8 4v6"/></svg>Tools</span><small aria-hidden="true">Documents, checks & connections</small></button>
+        </div>
+        <a class="nav-connection" href="/cloud-tracker.html"><strong><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18a5 5 0 0 1-1-10 6 6 0 0 1 11-1 5.5 5.5 0 0 1 0 11M12 21V11m-3 3 3-3 3 3"/></svg>Online tracker ↗</strong><span>Review and transfer applications</span></a>
+        <p class="nav-footnote">Local workspace · You choose what to share.</p>
+      </aside>
+      <div class="workspace-main">
+      <p class="workspace-location" id="workspaceLocation" aria-live="polite">Workspace / Find jobs</p>
       <section class="activity-strip" id="activityStrip" aria-label="Current activity">
         <span class="activity-indicator" aria-hidden="true"></span>
         <div class="activity-copy">
@@ -167,11 +174,6 @@
                 <option value="current">Current search</option>
                 <option value="history">All saved jobs</option>
               </select>
-              <select id="pageSize" aria-label="Page size">
-                <option value="10">10 / page</option>
-                <option value="20">20 / page</option>
-                <option value="50">50 / page</option>
-              </select>
             </div>
           </div>
           <div class="result-shortcuts" aria-label="Quick result filters">
@@ -188,11 +190,7 @@
             <button type="button" class="btn" id="emptyResetBtn" hidden>Reset filters</button>
             <button type="button" class="btn primary" id="emptyRunBtn">Run search</button>
           </div>
-          <div class="pager" id="pager" hidden>
-            <button type="button" class="btn ghost" id="prevPage">Previous</button>
-            <span id="pageLabel">Page 1</span>
-            <button type="button" class="btn ghost" id="nextPage">Next</button>
-          </div>
+
         </section>
 
         <section class="jobs-panel" id="viewTracker" hidden aria-label="Application tracker">
@@ -209,11 +207,6 @@
               <select id="trackerSort" aria-label="Sort by date">
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
-              </select>
-              <select id="trackerPageSize" aria-label="Page size">
-                <option value="10">10 / page</option>
-                <option value="20" selected>20 / page</option>
-                <option value="50">50 / page</option>
               </select>
               <details class="tracker-sheet-tools"><summary>Google Sheets</summary>
               <div class="sheets-bar" id="sheetsBar">
@@ -234,11 +227,7 @@
           </div>
           <div class="tracker-tabs" id="trackerTabs" role="group" aria-label="Filter by status"></div>
           <div id="trackerList" class="tracker-list"></div>
-          <div class="pager" id="trackerPager" hidden>
-            <button type="button" class="btn ghost" id="trackerPrevPage">Previous</button>
-            <span id="trackerPageLabel">Page 1</span>
-            <button type="button" class="btn ghost" id="trackerNextPage">Next</button>
-          </div>
+
         </section>
 
         <section class="jobs-panel" id="viewAnswers" hidden aria-label="Saved answers">
@@ -253,28 +242,38 @@
             </div>
           </div>
           <form id="answersForm" class="answers-form"></form>
+          <p id="answersFeedback" class="workspace-feedback" role="status" aria-live="polite">Edit your answers, then choose Save to preview and confirm.</p>
         </section>
 
         <section class="jobs-panel" id="viewMemory" hidden aria-label="Local candidate memory">
-          <div class="panel-head"><div><h2>Local memory</h2><p class="meta" id="memoryMessage" role="status"></p></div></div>
+          <div class="panel-head"><div><p class="eyebrow">YOUR PROFILE</p><h2>Memory</h2><p class="meta">Keep your experience, writing preferences and application answers up to date.</p><p class="meta" id="memoryMessage" role="status"></p></div></div>
           <div class="memory-editor">
-            <p>Store candidate facts, preferences and application answers in one place. This file is excluded from Git. Relevant information is shared with your AI provider when you run an agent.</p>
             <div id="memoryFields" hidden>
-              <p>Use the structured fields below. Leave unknowns blank; changes require preview and confirmation.</p>
-              <label class="prep-modal-field">Import resume content (PDF / DOCX)<input id="memoryImport" type="file" accept=".pdf,.docx"></label>
-              <p class="meta">This proposes candidate content. Word formatting profiles are imported separately in Prepare.</p>
-              <div id="memoryImportProposals"></div>
+              <div class="memory-actions" role="region" aria-label="Save Memory changes">
+                <div><strong id="memoryDraftStatus" aria-live="polite">All changes saved</strong><small id="memorySaveHint">Edit any field, then save and review your changes.</small></div>
+                <div class="memory-action-buttons"><button type="button" class="btn ghost" id="memoryReset" disabled>Discard edits</button><button type="button" class="btn primary" id="memoryPreviewBtn" disabled>Save changes</button></div>
+              </div>
+              <p class="memory-privacy">Your profile stays on this computer. Relevant details are shared with your AI provider when you prepare an application.</p>
               <div id="memoryStructured"></div>
+              <details class="memory-import"><summary>Import details from a resume</summary>
+                <p class="meta">Choose a PDF or Word resume, then review the suggested details before adding them to your draft.</p>
+                <label class="prep-modal-field">Resume file (PDF / DOCX)<input id="memoryImport" type="file" accept=".pdf,.docx"></label>
+                <div id="memoryImportProposals"></div>
+              </details>
               <details><summary>Advanced JSON editing</summary>
-              <p class="meta">Edit the JSON sections below, preview the changes, then confirm. Keep unknown answers blank. Contact details belong in facts.links; sponsorship belongs in answers.needsSponsorship. API keys belong in .env, not memory.</p>
+              <p class="meta">For advanced editing of the same draft. Leave unknown information blank, then preview and confirm your changes.</p>
               <details id="memoryConflicts" hidden><summary>Imported alternatives to review</summary><pre id="memoryConflictText"></pre></details>
               <label class="prep-modal-field"><span>Facts and background</span><textarea id="memory-facts" rows="14" spellcheck="false"></textarea></label>
               <label class="prep-modal-field"><span>Writing preferences</span><textarea id="memory-preferences" rows="10" spellcheck="false"></textarea></label>
               <label class="prep-modal-field"><span>Application answers</span><textarea id="memory-answers" rows="8" spellcheck="false"></textarea></label>
                 <button type="button" class="btn" id="memoryRefreshForms">Update structured fields from JSON</button>
                 </details>
-              <button type="button" class="btn" id="memoryPreviewBtn">Preview changes</button>
-              <div id="memoryPreview" hidden><h3>Review your changes</h3><pre id="memoryChanges"></pre><button type="button" class="btn primary" id="memoryConfirm" disabled>Confirm and save memory</button></div>
+              <dialog id="memoryPreview" class="memory-review" aria-labelledby="memoryReviewTitle" aria-describedby="memoryReviewSummary" hidden>
+                <header><p class="eyebrow">REVIEW BEFORE SAVING</p><h2 id="memoryReviewTitle">Review your changes</h2><p id="memoryReviewSummary"></p></header>
+                <div id="memoryChanges" class="memory-changes"></div>
+                <p id="memoryReviewError" role="alert" hidden></p>
+                <footer><button type="button" class="btn" id="memoryBack">Back to editing</button><button type="button" class="btn primary" id="memoryConfirm" disabled>Confirm and save</button></footer>
+              </dialog>
               <details><summary>Source inventory and retirement notes</summary><pre id="memorySources"></pre></details>
               <details><summary>Additional source material — review before adding facts</summary><p class="meta">These references are preserved for comparison. Agents do not treat them as confirmed facts. Copy only supported details into Facts after reviewing them.</p><pre id="memoryReferences"></pre></details>
             </div>
@@ -284,18 +283,19 @@
         <section class="jobs-panel" id="viewPortals" hidden aria-label="Job portals">
           <div class="panel-head">
             <div>
-              <h2>Portals</h2>
+              <h2>Job sources</h2>
               <p class="meta">Enable boards for the next search. Your selection is saved for future searches.</p>
             </div>
-            <button type="button" class="btn primary" id="savePortalsBtn">Save portals</button>
+            <button type="button" class="btn primary" id="savePortalsBtn">Save job sources</button>
           </div>
           <div id="portalsList" class="portals-list"></div>
+          <p id="portalsFeedback" class="workspace-feedback" role="status" aria-live="polite">Choose your sources, then save. Searches use your saved selection.</p>
         </section>
 
         <section class="jobs-panel" id="viewDigest" hidden aria-label="New since last fetch">
           <div class="panel-head">
             <div>
-              <h2>Digest</h2>
+              <h2>New matches</h2>
               <p class="meta" id="digestMeta">New postings since the previous fetch.</p>
               <p class="meta" id="digestTiming" hidden></p>
               <details class="run-history" id="digestHistoryBox" hidden>
@@ -317,19 +317,39 @@
               <p class="meta" id="readyMeta">Postings with a tailored CV or cover letter that you have not applied to yet.</p>
             </div>
             <div class="filters">
-              <input type="search" id="readySearch" placeholder="Filter title, company…" />
+              <input type="search" id="readySearch" aria-label="Search prepared applications" placeholder="Filter title, company…" />
             </div>
           </div>
           <div id="readyList" class="job-list"></div>
           <div id="readyEmpty" class="empty" hidden>
             <h3>Nothing ready yet</h3>
-            <p>Run <strong>Prep</strong> on a result, or <strong>Create CVs…</strong> in Digest. Jobs disappear from here once you mark them Applied, Skipped, Rejected, or Closed.</p>
+            <p>Choose <strong>Create CV</strong> on a job, or <strong>Create CVs…</strong> in New matches. Jobs disappear from here once you mark them Applied, Skipped, Rejected, or Closed.</p>
           </div>
         </section>
 
+        <section class="jobs-panel" id="viewDiscovery" hidden aria-label="Discovery tools">
+          <div class="panel-head"><div><p class="eyebrow">KEEP YOUR SEARCH MOVING</p><h2>Discovery</h2><p class="meta">Schedule searches, review notifications and explore related roles.</p></div></div>
+          <div id="discoveryContent"></div>
+        </section>
+        <section class="jobs-panel" id="viewTools" hidden aria-label="Tools and connections">
+          <div class="panel-head"><div><p class="eyebrow">EVERYTHING IN ONE PLACE</p><h2>Tools &amp; connections</h2><p class="meta">Choose a task. Your profile and application details stay with the right workflow.</p></div></div>
+          <div class="tool-grid">
+            <article class="tool-card"><span class="tool-category">CONNECTIONS</span><h3>Online Job Tracker</h3><p>Pair your online account, preview selected applications and transfer changes in either direction.</p><a class="btn primary" href="/cloud-tracker.html">Open connection</a></article>
+            <article class="tool-card"><span class="tool-category">RESUME CHECK</span><h3>ATS readability</h3><p>Check whether text, contact details and keywords can be read from your PDF. Runs locally.</p><button class="btn" data-launch="openAtsCheck">Check a PDF</button></article>
+            <article class="tool-card"><span class="tool-category">AUTOMATION</span><h3>Schedules &amp; notifications</h3><p>Set a daily search and review new-match or follow-up notifications.</p><button class="btn" data-go="discovery">Open Discovery</button></article>
+            <article class="tool-card"><span class="tool-category">YOUR PROFILE</span><h3>Profile &amp; resume import</h3><p>Review experience, skills and preferences, or import a PDF or Word resume into a draft.</p><button class="btn" data-go="memory">Open Memory</button></article>
+            <article class="tool-card"><span class="tool-category">PREPARATION</span><h3>CVs &amp; cover letters</h3><p>Start from a job to prepare documents, choose formats and review the results.</p><button class="btn" data-go="results">Choose a job</button></article>
+            <article class="tool-card"><span class="tool-category">APPLICATIONS</span><h3>Document editing &amp; interviews</h3><p>Open a prepared job to edit its documents, prepare for interviews or review an email draft.</p><button class="btn" data-go="ready">View prepared jobs</button></article>
+            <article class="tool-card"><span class="tool-category">SEARCH SETUP</span><h3>Job boards &amp; employers</h3><p>Choose the sources used in your next search. Paid sources remain optional.</p><button class="btn" data-go="portals">Choose job sources</button></article>
+            <article class="tool-card"><span class="tool-category">REUSABLE DETAILS</span><h3>Application answers</h3><p>Review reusable form answers before filling an application.</p><button class="btn" data-go="answers">Open saved answers</button></article>
+          </div>
+        </section>
       </main>
+      </div>
+      </div>
     </div>
 
+    <button type="button" class="btn mobile-pages" id="showWorkspacePages" aria-controls="workspaceNav">Pages ↑</button>
     <dialog id="activityDrawer" class="activity-drawer" aria-labelledby="activityDrawerTitle">
       <div class="activity-drawer-head">
         <div><p class="eyebrow">SEARCH &amp; DOCUMENTS</p><h2 id="activityDrawerTitle">Activity</h2></div>

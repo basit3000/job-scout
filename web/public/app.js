@@ -1,8 +1,8 @@
 import { createMemoryEditor } from './memory-editor.js';
 import { openDocumentEditor } from './document-editor.js';
-import { openDiscovery } from './discovery.js';
+import { mountDiscovery } from './discovery.js';
 import { openPreparationExtras } from './preparation-extras.js';
-document.getElementById('openDiscovery')?.addEventListener('click', openDiscovery);
+document.getElementById('openDiscovery')?.addEventListener('click', () => setView('discovery'));
 import { mountAtsCheck } from './ats-check.js';
 import { openPrepModal } from './prep-modal.js';
 import { renderCvTemplates, selectedCvTemplates } from './cv-templates.js';
@@ -55,11 +55,6 @@ const els = {
   langFilter: $('langFilter'),
   sortSelect: $('sortSelect'),
   resultScope: $('resultScope'),
-  pageSize: $('pageSize'),
-  pager: $('pager'),
-  pageLabel: $('pageLabel'),
-  prevPage: $('prevPage'),
-  nextPage: $('nextPage'),
   layout: $('layout'),
   logView: $('logView'),
   clearLogBtn: $('clearLogBtn'),
@@ -73,13 +68,8 @@ const els = {
   trackerMeta: $('trackerMeta'),
   trackerSearch: $('trackerSearch'),
   trackerSort: $('trackerSort'),
-  trackerPageSize: $('trackerPageSize'),
   trackerTabs: $('trackerTabs'),
   trackerList: $('trackerList'),
-  trackerPager: $('trackerPager'),
-  trackerPageLabel: $('trackerPageLabel'),
-  trackerPrevPage: $('trackerPrevPage'),
-  trackerNextPage: $('trackerNextPage'),
   sheetsBar: $('sheetsBar'),
   sheetsOpenLink: $('sheetsOpenLink'),
   sheetsSyncBtn: $('sheetsSyncBtn'),
@@ -237,6 +227,7 @@ let state = {
   page: 1,
   status: null,
   pagination: { page: 1, pages: 1, total: 0, pageSize: 10 },
+  resultsPageSize: 10,
   view: 'results',
   /** @type {Set<string>} */
   visibleDecisions: new Set(DECISION_FILTER_OPTIONS.map((o) => o.id)),
@@ -314,8 +305,11 @@ for (const [name, list] of [['digest', els.digestList], ['ready', els.readyList]
   });
 }
 const resultsPager = mountPager(els.jobList, 'Find jobs', (page, pageSize) => {
-  state.page = page; els.pageSize.value = String(pageSize); refreshJobs();
-}, { bottom: false });
+  state.page = page; state.resultsPageSize = pageSize; refreshJobs();
+});
+const trackerPager = mountPager(els.trackerList, 'Applications', (page, pageSize) => {
+  state.trackerPage = page; saveTrackerPageSize(pageSize); renderTracker();
+}, { size: 20 });
 let batchJobs = [], batchSelection = new Set();
 let batchPage = { page: 1, pageSize: 20 }, progressPage = { page: 1, pageSize: 20 };
 function localPage(items, requested) {
@@ -340,7 +334,7 @@ function listFeedback(list, message, retry) {
 }
 async function loadPagedView(name, list, load, retry) {
   listRequests[name]?.abort(); const controller = new AbortController(); listRequests[name] = controller;
-  list.setAttribute('aria-busy', 'true'); listFeedback(list, 'Loading…');
+  list.setAttribute('aria-busy', 'true'); listFeedback(list, 'Loading this page… You can keep using the workspace.');
   try { await load(controller.signal); if (!controller.signal.aborted) listFeedback(list, ''); }
   catch (err) { if (!controller.signal.aborted) listFeedback(list, `Could not load this list: ${err.message}. `, retry); }
   finally { if (listRequests[name] === controller) list.removeAttribute('aria-busy'); }
@@ -460,7 +454,6 @@ function initFilterMenus() {
   state.trackerSort = loadTrackerSort();
   state.trackerPageSize = loadTrackerPageSize();
   if (els.trackerSort) els.trackerSort.value = state.trackerSort;
-  if (els.trackerPageSize) els.trackerPageSize.value = String(state.trackerPageSize);
 
   els.decisionFilterBtn?.addEventListener('click', (ev) => {
     ev.stopPropagation();
@@ -1020,7 +1013,7 @@ function saveLang(value) {
 function queryString() {
   const p = new URLSearchParams({
     page: String(state.page),
-    pageSize: els.pageSize.value || '10',
+    pageSize: String(state.resultsPageSize),
     q: els.searchInput.value.trim(),
     fit: els.fitFilter.value,
     lang: els.langFilter?.value || 'all',
@@ -2285,7 +2278,7 @@ async function refreshJobs() {
   jobsAbort?.abort();
   jobsAbort = new AbortController();
   const { signal } = jobsAbort;
-  listFeedback(els.jobList, 'Loading…');
+  listFeedback(els.jobList, `Loading page ${state.page}… You can keep using the workspace.`);
   els.jobList.setAttribute('aria-busy', 'true');
   try {
     const data = await api(`/api/jobs?${queryString()}`, { signal });
@@ -2300,7 +2293,6 @@ async function refreshJobs() {
 
     if (!data.pagination.total && !data.meta) {
       els.emptyState.hidden = false;
-      els.pager.hidden = true;
       els.jobsMeta.textContent = data.message || 'No fetch yet.';
       return;
     }
@@ -2351,12 +2343,6 @@ async function refreshJobs() {
     const frag = document.createDocumentFragment();
     for (const job of data.jobs) frag.appendChild(renderJob(job));
     els.jobList.appendChild(frag);
-
-    const { page, pages, total } = data.pagination;
-    els.pager.hidden = total === 0;
-    els.pageLabel.textContent = `Page ${page} / ${pages} (${total})`;
-    els.prevPage.disabled = page <= 1;
-    els.nextPage.disabled = page >= pages;
   } catch (err) {
     if (err?.name === 'AbortError') return;
     appendLog(`Results failed: ${err.message}`, 'stderr');
@@ -2584,14 +2570,7 @@ function renderTracker() {
     }
   }
 
-  if (els.trackerPager) {
-    els.trackerPager.hidden = items.length === 0;
-    if (els.trackerPageLabel) {
-      els.trackerPageLabel.textContent = `Page ${state.trackerPage} of ${pages}`;
-    }
-    if (els.trackerPrevPage) els.trackerPrevPage.disabled = state.trackerPage <= 1;
-    if (els.trackerNextPage) els.trackerNextPage.disabled = state.trackerPage >= pages;
-  }
+  trackerPager.update({ page: state.trackerPage, pages, total: items.length, pageSize });
 
   if (!items.length) {
     const emptyTitle = q ? 'No matching applications' : state.trackerDueOnly ? 'You’re all caught up' : 'No applications in this view';
@@ -2755,8 +2734,14 @@ async function loadTracker(signal) {
   renderTracker();
 }
 
+let answersDirty = false;
+let answerEditVersion = 0;
+els.answersForm.addEventListener('input', () => { answersDirty = true; answerEditVersion++; $('answersFeedback').textContent = 'Unsaved answers — choose Save to review your changes.'; });
 async function refreshAnswers() {
+  if (answersDirty) return;
+  const version = answerEditVersion;
   const { answers } = await api('/api/saved-answers');
+  if (version !== answerEditVersion) return;
   els.answersForm.innerHTML = ANSWER_FIELDS.map(
     ([key, label]) => `
     <label>
@@ -2823,8 +2808,14 @@ async function loadDigest(signal) {
   els.digestList.appendChild(frag);
 }
 
+let portalsDirty = false;
+let portalEditVersion = 0;
+els.portalsList.addEventListener('change', () => { portalsDirty = true; portalEditVersion++; $('portalsFeedback').textContent = 'Unsaved source choices — save to use them in your next search.'; });
 async function refreshPortals() {
+  if (portalsDirty) return;
+  const version = portalEditVersion;
   const data = await api('/api/boards');
+  if (version !== portalEditVersion) return;
   els.portalsList.innerHTML = data.boards
     .map((b) => {
       const disabled = b.available === false;
@@ -2856,10 +2847,17 @@ async function refreshPortals() {
     .join('');
 }
 
-const memoryEditor = createMemoryEditor({ api, onSaved: async () => { await refreshStatus(); await refreshJobs(); } });
+const memoryEditor = createMemoryEditor({ api, onSaved: refreshStatus });
 
-function setView(view) {
+const discovery = mountDiscovery($('discoveryContent'));
+const viewNames = { results: 'Find jobs', digest: 'New matches', ready: 'Ready to apply', tracker: 'Tracker', discovery: 'Discovery', memory: 'Memory', answers: 'Saved answers', portals: 'Job sources', tools: 'Tools & connections' };
+
+function setView(view, { fromHistory = false } = {}) {
+  if (!Object.hasOwn(viewNames, view)) view = 'results';
+  const previousView = state.view;
   state.view = view;
+  document.title = `${viewNames[view]} · Job Scout`;
+  $('workspaceLocation').textContent = `Workspace / ${viewNames[view]}`;
   document.querySelectorAll('.tab').forEach((t) => {
     const active = t.dataset.view === view;
     t.classList.toggle('active', active);
@@ -2868,19 +2866,23 @@ function setView(view) {
   });
   $('searchToolbar').hidden = !['results', 'digest'].includes(view);
   els.runBtn.textContent = ['results', 'digest'].includes(view) ? 'Run search' : 'Find new jobs';
-  history.replaceState(null, '', `#${view}`);
+  if (!fromHistory && location.hash !== `#${view}`) history.pushState(null, '', `#${view}`);
   els.viewResults.hidden = view !== 'results';
   els.viewTracker.hidden = view !== 'tracker';
   els.viewAnswers.hidden = view !== 'answers';
   $('viewMemory').hidden = view !== 'memory';
+  $('viewDiscovery').hidden = view !== 'discovery';
+  $('viewTools').hidden = view !== 'tools';
   els.viewPortals.hidden = view !== 'portals';
   els.viewDigest.hidden = view !== 'digest';
   if (els.viewReady) els.viewReady.hidden = view !== 'ready';
+  if (previousView !== view && !fromHistory) window.scrollTo({ top: 0, behavior: 'instant' });
   if (view === 'results') refreshJobs();
   if (view === 'tracker') refreshTracker().catch((err) => { appendLog(err.message, 'stderr'); showTrackerFeedback(err.message, true); });
-  if (view === 'answers') refreshAnswers().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'answers') refreshAnswers().catch((err) => { $('answersFeedback').textContent = `Could not load answers: ${err.message}. Open this page again to retry.`; });
   if (view === 'memory') memoryEditor.refresh();
-  if (view === 'portals') refreshPortals().catch((err) => { appendLog(err.message, 'stderr');  });
+  if (view === 'discovery') discovery.refresh();
+  if (view === 'portals') refreshPortals().catch((err) => { $('portalsFeedback').textContent = `Could not load sources: ${err.message}. Open this page again to retry.`; });
   if (view === 'digest') refreshDigest().catch((err) => { appendLog(err.message, 'stderr');  });
   if (view === 'ready') refreshReady().catch((err) => { appendLog(err.message, 'stderr');  });
 }
@@ -2980,7 +2982,7 @@ async function stopSearch() {
 }
 
 async function refreshAll() {
-  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers, memory: memoryEditor.refresh }[state.view];
+  const refresh = { results: refreshJobs, tracker: refreshTracker, portals: refreshPortals, digest: refreshDigest, ready: refreshReady, answers: refreshAnswers, memory: memoryEditor.refresh, discovery: discovery.refresh }[state.view];
   const results = await Promise.allSettled([refreshStatus(), refresh?.()]);
   for (const result of results) if (result.status === 'rejected') appendLog(result.reason.message, 'stderr');
 }
@@ -3005,21 +3007,6 @@ els.trackerSort?.addEventListener('change', () => {
   state.trackerPage = 1;
   renderTracker();
 });
-els.trackerPageSize?.addEventListener('change', () => {
-  saveTrackerPageSize(els.trackerPageSize.value);
-  state.trackerPage = 1;
-  renderTracker();
-});
-els.trackerPrevPage?.addEventListener('click', () => {
-  if (state.trackerPage > 1) {
-    state.trackerPage -= 1;
-    renderTracker();
-  }
-});
-els.trackerNextPage?.addEventListener('click', () => {
-  state.trackerPage += 1;
-  renderTracker();
-});
 els.fitFilter.addEventListener('change', () => {
   state.page = 1;
   refreshJobs();
@@ -3036,22 +3023,6 @@ els.sortSelect?.addEventListener('change', () => {
   refreshJobs();
 });
 els.resultScope?.addEventListener('change', () => { state.page = 1; refreshJobs(); });
-els.pageSize.addEventListener('change', () => {
-  state.page = 1;
-  refreshJobs();
-});
-els.prevPage.addEventListener('click', () => {
-  if (state.page > 1) {
-    state.page -= 1;
-    refreshJobs();
-  }
-});
-els.nextPage.addEventListener('click', () => {
-  if (state.page < state.pagination.pages) {
-    state.page += 1;
-    refreshJobs();
-  }
-});
 els.clearLogBtn.addEventListener('click', () => {
   els.logView.textContent = '';
 });
@@ -3089,6 +3060,7 @@ els.marketSelect.addEventListener('change', async () => {
   }
 });
 els.saveAnswersBtn.addEventListener('click', async () => {
+  const draftVersion = answerEditVersion;
   const answers = {};
   for (const [key] of ANSWER_FIELDS) {
     const input = els.answersForm.querySelector(`[name="${key}"]`);
@@ -3104,13 +3076,27 @@ els.saveAnswersBtn.addEventListener('click', async () => {
     const preview = await api('/api/memory/preview', { method: 'POST', body: JSON.stringify(sections) });
     const dialog = document.createElement('dialog');
     const heading = document.createElement('h2'); heading.textContent = 'Confirm saved-answer changes';
-    const content = document.createElement('pre'); content.textContent = JSON.stringify({ before: preview.before, after: preview.after }, null, 2);
+    dialog.className = 'answer-preview-dialog';
+    const content = document.createElement('pre');
+    const valueAt = (object, path) => path.split('.').reduce((value, key) => value?.[key], object);
+    content.textContent = preview.changes.length ? preview.changes.map(path => `${path}\nBefore: ${JSON.stringify(valueAt(preview.before, path)) ?? 'Unknown'}\nAfter: ${JSON.stringify(valueAt(preview.after, path)) ?? 'Unknown'}`).join('\n\n') : 'No changes to save.';
     const confirm = document.createElement('button'); confirm.textContent = 'Confirm and save';
     const cancel = document.createElement('button'); cancel.textContent = 'Cancel';
-    confirm.onclick = async () => { try { await api('/api/memory', { method: 'PUT', body: JSON.stringify({ ...sections, confirmation: preview.confirmation }) }); dialog.remove(); appendLog('Saved answers updated'); } catch (error) { appendLog(error.message, 'stderr'); } };
+    confirm.disabled = !preview.changes.length;
+    confirm.className = 'btn primary'; cancel.className = 'btn';
+    confirm.onclick = async () => {
+      confirm.disabled = true;
+      try {
+        await api('/api/memory', { method: 'PUT', body: JSON.stringify({ ...sections, confirmation: preview.confirmation }) });
+        if (answerEditVersion === draftVersion) answersDirty = false;
+        dialog.close();
+        $('answersFeedback').textContent = answersDirty ? 'Reviewed answers saved. Your newer edits still need saving.' : 'Answers saved locally. Future applications use these details.';
+      } catch (error) { $('answersFeedback').textContent = error.message; content.textContent = `Could not save: ${error.message}`; confirm.disabled = false; }
+    };
+    dialog.addEventListener('close', () => dialog.remove());
     cancel.onclick = () => dialog.remove(); dialog.append(heading, content, confirm, cancel); document.body.append(dialog); dialog.showModal();
   } catch (err) {
-    appendLog(err.message, 'stderr');
+    $('answersFeedback').textContent = `Could not preview answers: ${err.message}`;
   }
 });
 els.copyAnswersBtn?.addEventListener('click', async () => {
@@ -3182,16 +3168,21 @@ els.applyAssistOpenFolder?.addEventListener('click', event => {
   void openSavedFolder(event.currentTarget, applyAssistContext.job?.id);
 });
 els.savePortalsBtn.addEventListener('click', async () => {
+  const version = portalEditVersion;
+  els.savePortalsBtn.disabled = true;
   const boards = [...els.portalsList.querySelectorAll('input[name="portal"]:checked')].map(
     (el) => el.value,
   );
   try {
     await api('/api/boards', { method: 'PUT', body: JSON.stringify({ boards }) });
+    if (version === portalEditVersion) portalsDirty = false;
     await refreshStatus();
+    $('portalsFeedback').textContent = portalsDirty ? 'Saved. Your newer source choices still need saving.' : `${boards.length} job sources saved for your next search.`;
     appendLog(`Portals saved: ${boards.join(', ')}`);
   } catch (err) {
+    $('portalsFeedback').textContent = `Could not save sources: ${err.message}`;
     appendLog(err.message, 'stderr');
-  }
+  } finally { els.savePortalsBtn.disabled = false; }
 });
 
 async function onLimitChange(key, el, { min, max }) {
@@ -3235,11 +3226,11 @@ document.querySelectorAll('.tab').forEach((tab) => {
   panel.setAttribute('role', 'tabpanel');
   panel.setAttribute('aria-labelledby', tab.id);
   tab.addEventListener('keydown', (event) => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
     event.preventDefault();
     const tabs = [...document.querySelectorAll('.tabs .tab')];
     const index = tabs.indexOf(tab);
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length;
+    const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (['ArrowRight', 'ArrowDown'].includes(event.key) ? 1 : -1) + tabs.length) % tabs.length;
     tabs[next].focus();
     setView(tabs[next].dataset.view);
   });
@@ -3302,7 +3293,7 @@ connectStream();
 (async function init() {
   initFilterMenus();
   const initialView = location.hash.slice(1);
-  setView(['results', 'tracker', 'answers', 'memory', 'portals', 'digest', 'ready'].includes(initialView) ? initialView : 'results');
+  setView(initialView, { fromHistory: true });
   els.runBtn.disabled = true; els.emptyRunBtn.disabled = true;
   const startup = await Promise.allSettled([refreshMarkets(), refreshStatus()]);
   const startupReady = startup.every(result => result.status === 'fulfilled');
@@ -3361,3 +3352,16 @@ function editApplication(item = null) {
   } });
 }
 $('addApplicationBtn').addEventListener('click', () => editApplication());
+
+window.addEventListener('popstate', () => setView(location.hash.slice(1), { fromHistory: true }));
+$('showWorkspacePages').addEventListener('click', () => {
+  $('workspaceNav').scrollIntoView({ block: 'start' });
+  document.querySelector('.tab[aria-selected="true"]')?.focus({ preventScroll: true });
+});
+window.addEventListener('hashchange', () => { if (location.hash.slice(1) !== state.view) setView(location.hash.slice(1), { fromHistory: true }); });
+document.addEventListener('click', event => {
+  const destination = event.target.closest('[data-go]');
+  if (destination) { setView(destination.dataset.go); $('layout').focus({ preventScroll: true }); }
+  const launcher = event.target.closest('[data-launch]');
+  if (launcher) $(launcher.dataset.launch)?.click();
+});

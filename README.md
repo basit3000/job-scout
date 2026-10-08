@@ -4,9 +4,18 @@ Local job search, application tracking, and agentic CV preparation. Node serves 
 UI at **http://localhost:4040**; Python/JobSpy fetches free listings. No database or
 Docker is required.
 
-**Version 2.12.0:** connect local Job Scout to an online Job Tracker with
-browser-approved pairing, application selection and transfer previews, imports,
-conflict review and resumable retries. See [connection setup](docs/job-tracker-connection.md).
+**Version 3.0.0:** a redesigned workspace with persistent navigation, dedicated
+Discovery and Tools pages, consistent dark-mode controls, numbered pagination,
+and a clearer Memory editor with Save, review and confirmation. The interface
+loads independently of archive ranking and job lists load one page at a time.
+See [workspace guide](docs/workspace.md).
+
+The online tracker connection now supports **Sync now**, optional automatic
+checks every 1, 5 or 15 minutes, and **Sync when marked Applied**. Only changed
+applications are sent; two-way sync is optional and conflicts wait for review.
+Restart Job Scout after updating and enable the desired options in the connection
+settings. Existing private Memory and connection data stay local; no migration
+is needed from 2.12. See [connection setup](docs/job-tracker-connection.md).
 
 **Version 2.10.0 improvements:** hardened loopback access and
 vacancy identity, guarded application sessions, structured profile/content imports,
@@ -27,7 +36,7 @@ See [implementation checklist](docs/implementation-progress.md).
 ![Fictional discovery walkthrough](docs/screenshots/discovery.png)
 Screenshots contain fictional data. Reproduce them with [the offline demo](docs/demo.md).
 
-**Version 2 uses Goose for every AI workflow and `state/memory.json` for candidate
+**Job Scout uses Goose for every AI workflow and `state/memory.json` for candidate
 information.** There is no Fast mode, provider selector, or legacy memory syncing.
 Existing users: follow [Upgrading](docs/upgrading.md) before starting this version.
 That guide covers transferring private data, migration, and fresh checkouts after

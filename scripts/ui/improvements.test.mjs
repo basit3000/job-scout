@@ -87,6 +87,9 @@ test('fictional demo: structured Memory, import proposals, editing, discovery an
   await page.locator('#memoryBack').click();
   assert.equal(await page.locator('#memoryStructured > fieldset').first().locator('label > input').first().inputValue(), 'Fictional Demo Candidate');
   await page.locator('#memoryPreviewBtn').click();
+  // The preview request completes asynchronously; measuring a hidden dialog
+  // returns null on faster runners even after the Save click has finished.
+  await page.locator('#memoryPreview[open] #memoryConfirm').waitFor();
   for (const [width, height] of [[1365, 1000], [390, 844]]) {
     await page.setViewportSize({ width, height });
     await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });

@@ -159,6 +159,7 @@ def scrape_config(cfg, scrape_jobs):
                         "country": country_label,
                         "remote": bool(remote) if remote is not None else None,
                         "url": url,
+                        "applyUrl": cleaned.get("job_url_direct"),
                         "postedAt": iso(cleaned.get("date_posted")),
                         "applicantCount": next((cleaned.get(key) for key in ("applicant_count", "applicants_count", "num_applicants", "applicants") if cleaned.get(key) is not None), None),
                         "employmentType": cleaned.get("job_type"),

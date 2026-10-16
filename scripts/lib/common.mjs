@@ -176,6 +176,7 @@ export function normalise(job, market) {
     country: job.country ?? market?.shortName ?? null,
     remote: job.remote ?? null,
     url: job.url ?? null,
+    applyUrl: job.applyUrl && job.applyUrl !== job.url ? job.applyUrl : null,
     ...signals,
     ageDays: postingAge(signals),
     employmentType: job.employmentType ?? null,

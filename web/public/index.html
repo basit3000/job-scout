@@ -290,6 +290,18 @@
           </div>
           <div id="portalsList" class="portals-list"></div>
           <p id="portalsFeedback" class="workspace-feedback" role="status" aria-live="polite">Choose your sources, then save. Searches use your saved selection.</p>
+
+          <div class="discovered-portals-section">
+            <div class="panel-subhead">
+              <div>
+                <h3>Discovered company portals</h3>
+                <p class="meta">Local list of employer portals automatically found from your search results. Toggle portals on or off, or delete entries.</p>
+              </div>
+              <button type="button" class="btn" id="refreshDiscoveredPortalsBtn">Refresh list</button>
+            </div>
+            <div id="discoveredPortalsList" class="discovered-portals-list"></div>
+            <p id="discoveredPortalsFeedback" class="workspace-feedback" role="status" aria-live="polite"></p>
+          </div>
         </section>
 
         <section class="jobs-panel" id="viewDigest" hidden aria-label="New since last fetch">

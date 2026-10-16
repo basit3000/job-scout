@@ -1411,6 +1411,106 @@ a.btn.primary-link:hover {
   line-height: 1.35;
 }
 
+.discovered-portals-section {
+  margin-top: 1.5rem;
+  padding: 1.25rem 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.panel-subhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.panel-subhead h3 {
+  margin: 0 0 0.2rem 0;
+  font-size: 1.1rem;
+}
+
+.panel-subhead .meta {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.discovered-portals-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.discovered-portal-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.discovered-portal-card:hover {
+  border-color: var(--line-strong);
+}
+
+.discovered-portal-card.is-disabled {
+  opacity: 0.6;
+}
+
+.discovered-portal-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.discovered-portal-info {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.discovered-portal-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.discovered-portal-meta {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.discovered-portal-badge {
+  display: inline-block;
+  padding: 0.15em 0.5em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  border-radius: 4px;
+  background: var(--panel-alt);
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 0.4rem;
+}
+
+.discovered-portal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.discovered-portals-empty {
+  padding: 1.5rem;
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
 /* Log / prep panel -------------------------------------------------------- */
 
 .panel-head-actions {

@@ -40,7 +40,7 @@ export function cancelGooseRuns() {
 
 // File/stdin prompts avoid Windows command-line limits. Each invocation is a
 // fresh Goose session, using the user's existing provider and authentication.
-export async function runGoose({ prompt, cwd = ROOT, model = '', extensionUrl,
+export async function runGoose({ prompt, cwd = ROOT, model = '', provider = '', extensionUrl,
   onEvent = () => {}, onUsage = () => {}, signal = context.getStore()?.signal, timeoutMs = 20 * 60_000,
   maxTurns = 12, binary, env = {}, spawnImpl = spawn, builtins = true } = {}) {
   signal?.throwIfAborted();
@@ -51,14 +51,17 @@ export async function runGoose({ prompt, cwd = ROOT, model = '', extensionUrl,
     '--max-turns', String(maxTurns), '--max-tool-repetitions', '2', '--instructions', '-'];
   if (extensionUrl) args.push('--with-streamable-http-extension', `${extensionUrl} timeout=1800`);
   else if (builtins) args.push('--with-builtin', 'developer');
-  if (model) args.push('--model', model);
+  const prov = String(provider || process.env.GOOSE_PROVIDER || '').trim();
+  if (prov) args.push('--provider', prov);
+  const mod = String(model || process.env.GOOSE_MODEL || '').trim();
+  if (mod) args.push('--model', mod);
   const pathKey = Object.keys(process.env).find((k) => k.toLowerCase() === 'path') || 'PATH';
   const extraPath = [dirname(process.execPath), process.env.APPDATA && join(process.env.APPDATA, 'npm')].filter(Boolean);
   return new Promise((resolve, reject) => {
     const child = spawnImpl(bin, args, { cwd, windowsHide: true, shell: false,
       detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, [pathKey]: [...extraPath, process.env[pathKey] || ''].join(delimiter),
-        GOOSE_MODE: 'smart_approve', ...env } });
+        GOOSE_MODE: 'auto', ...env } });
     children.add(child);
     let output = '', stderr = '', pending = '', display = '', failure;
     const flushDisplay = () => {

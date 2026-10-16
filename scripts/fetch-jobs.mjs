@@ -43,6 +43,7 @@ import {
 } from './lib/boards.mjs';
 import { fetchGermanyPortal } from './lib/de-portals.mjs';
 import { companyQueries, fetchCompanyCareers } from './lib/company-careers.mjs';
+import { loadCompanyPortals, portalQueries, recordDiscoveredPortals, DISCOVERED_BOARD } from './lib/company-portals.mjs';
 import { expandSearchTitles, matchesTitlePatterns } from './lib/title-matching.mjs';
 import {
   apifyDatePostedAttempts,
@@ -360,8 +361,9 @@ function applyFilters(jobs, filters, decided, market) {
   return { kept, dropped };
 }
 
-function buildQueriesFromProfile(profile, config, boardConfig, market) {
+function buildQueriesFromProfile(profile, config, boardConfig, market, companyPortalsStore = null) {
   if (boardConfig.board === 'companycareers') return companyQueries(config, profile, market);
+  if (boardConfig.board === DISCOVERED_BOARD) return portalQueries(companyPortalsStore, config, profile, market);
   if (Array.isArray(boardConfig.queries) && boardConfig.queries.length) return boardConfig.queries;
   if (boardConfig.queriesFromProfile === false && Array.isArray(config.queries)) return config.queries;
 
@@ -505,12 +507,13 @@ async function main() {
   const sourceStatus = [];
   const collected = [];
 
+  const companyPortalsStore = await loadCompanyPortals().catch(() => ({ version: 1, portals: [] }));
   const boardPlans = boards.map((entry) => {
     const boardConfig = typeof entry === 'string' ? { board: entry } : entry;
     return {
       boardConfig,
       board: boardConfig.board,
-      queries: buildQueriesFromProfile(profile, config, boardConfig, market),
+      queries: buildQueriesFromProfile(profile, config, boardConfig, market, companyPortalsStore),
     };
   });
   const totalQueries = boardPlans.reduce((n, b) => n + b.queries.length, 0);
@@ -641,6 +644,15 @@ async function main() {
     await writeFile(join(outDir, 'digest.json'), `${JSON.stringify(digestPayload, null, 2)}\n`);
     if (!quiet) {
       await writeFile(join(outDir, 'jobs.md'), `${renderJobs(merged, meta)}\n`);
+    }
+
+    try {
+      const recorded = await recordDiscoveredPortals(kept, { marketId: market.id });
+      if (recorded.added > 0 && !quiet) {
+        console.log(`Discovered portals: +${recorded.added} new employer portal(s) saved (total: ${recorded.total}).`);
+      }
+    } catch (err) {
+      if (!quiet) console.error(`Could not record discovered portals: ${err.message}`);
     }
 
     if (quiet) {
@@ -784,7 +796,7 @@ async function main() {
           if (!canApi) return false;
           console.log(`  (${n}/${totalQueries}) [${board}] ${label} via api…`);
           try {
-            const jobs = await withRateLimitRetry(() => board === 'companycareers'
+            const jobs = await withRateLimitRetry(() => (board === 'companycareers' || board === DISCOVERED_BOARD)
               ? fetchCompanyCareers(query, opts, market)
               : fetchGermanyPortal(board, query, opts, market));
             for (const job of jobs) collected.push(job);
@@ -894,7 +906,7 @@ async function main() {
           consecutiveFails = 0;
         } else if (queryError) {
           consecutiveFails += 1;
-          skipRest = board === 'companycareers' ? null : shouldAbandonBoard({
+          skipRest = (board === 'companycareers' || board === DISCOVERED_BOARD) ? null : shouldAbandonBoard({
             consecutiveFails,
             lastError: queryError,
             flaky: Boolean(meta?.flaky),
@@ -915,7 +927,10 @@ async function main() {
       await jobspySession?.close();
     }
 
-    const successfulEmpty = count === 0 && queryResults.length > 0 && queryResults.every(q => q.ok);
+    const successfulEmpty = count === 0 && (
+      (queryResults.length > 0 && queryResults.every(q => q.ok))
+      || (board === DISCOVERED_BOARD && queries.length === 0)
+    );
     const statusError = summarizeFailures(failLog)
       || (skipRest ? `skipped remaining queries (${skipRest})` : null)
       || (count === 0 && !successfulEmpty ? '0 jobs (board returned nothing or is blocked)' : null);

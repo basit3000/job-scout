@@ -4,6 +4,7 @@ import { listCvTemplates, resolveCvTemplates } from '../scripts/lib/cv-templates
 import { readTemplatePacks, withJobTemplate, saveTemplateSelection } from '../scripts/lib/cv-template-packs.mjs';
 import { handleCvTemplateApi } from './cv-template-routes.mjs';
 import { handleAtsApi } from './ats-routes.mjs';
+import { handleCompanyPortalsApi } from './company-portals-routes.mjs';
 // Local Job Scout web UI + API. Serves web/public and wraps existing scripts.
 //
 //   npm start          → http://localhost:4040
@@ -544,6 +545,7 @@ async function handleApi(req, res, url) {
   const path = url.pathname;
   if (await handleCloudTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, syncService: cloudSync })) return;
   if (await handleAtsApi(req, res, url, { json, readBody })) return;
+  if (await handleCompanyPortalsApi(req, res, url, { json, readBody })) return;
   if (await handleTrackerApi(req, res, url, { readBody, json, invalidate: invalidateJobsCache, sync: maybeSyncDecisionToSheet })) return;
 
   if (await handleRecruiterApi(req, res, url, { json, readBody })) return;

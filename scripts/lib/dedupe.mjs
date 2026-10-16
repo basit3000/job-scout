@@ -117,6 +117,7 @@ function mergeInto(winner, loser) {
     nationality: firstFilled(winner.nationality, loser.nationality),
     yearsExperience: firstFilled(winner.yearsExperience, loser.yearsExperience),
     requisitionId: firstFilled(requisition(winner), requisition(loser)),
+    applyUrl: firstFilled(winner.applyUrl, loser.applyUrl),
     alsoOn,
     mergedIds,
     provenance: [...new Map([...(winner.provenance || []), ...(loser.provenance || []),

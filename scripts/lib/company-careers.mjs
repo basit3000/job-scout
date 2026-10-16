@@ -79,7 +79,68 @@ export function parseJobPostings(html, pageUrl, company, now = Date.now()) {
   return jobs;
 }
 
+const PATH_TENANT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
+const joinLocation = (...parts) => [...new Set(parts.flat().map(s => String(s || '').trim()).filter(Boolean))].join(', ');
+
 async function directJobs(company, query, market) {
+  if (['lever', 'ashby', 'workable', 'smartrecruiters', 'recruitee'].includes(company.provider)
+    && !PATH_TENANT.test(String(company.tenant || ''))) throw new Error(`Invalid ${company.provider} tenant`);
+  const tenant = encodeURIComponent(company.tenant || '');
+  if (company.provider === 'lever') {
+    const host = company.domain === 'eu' ? 'api.eu.lever.co' : 'api.lever.co';
+    const data = await request(`https://${host}/v0/postings/${tenant}?mode=json`, true);
+    if (!Array.isArray(data)) throw new Error('Invalid Lever postings response');
+    return data.map(j => ({ nativeId: String(j.id), title: j.text, company: company.name,
+      location: [...new Set([j.categories?.location, ...(j.categories?.allLocations || [])].filter(Boolean))].join('; '),
+      url: j.hostedUrl, postedAt: Number.isFinite(j.createdAt) ? new Date(j.createdAt).toISOString() : null,
+      employmentType: j.categories?.commitment || null, remote: j.workplaceType === 'remote' ? true : null,
+      description: pickDescription([j.description || j.descriptionPlain,
+        ...(j.lists || []).map(l => `<h3>${l.text || ''}</h3><ul>${l.content || ''}</ul>`), j.additional || j.additionalPlain]
+        .filter(Boolean).join('\n\n')) }));
+  }
+  if (company.provider === 'ashby') {
+    const data = await request(`https://api.ashbyhq.com/posting-api/job-board/${tenant}`, true);
+    if (!Array.isArray(data.jobs)) throw new Error('Invalid Ashby jobs response');
+    return data.jobs.filter(j => j.isListed !== false).map(j => ({ nativeId: String(j.id), title: j.title, company: company.name,
+      location: [joinLocation(j.location, j.address?.postalAddress?.addressCountry),
+        ...(j.secondaryLocations || []).map(l => joinLocation(l.location, l.address?.addressCountry))].filter(Boolean).join('; '),
+      url: j.jobUrl, postedAt: j.publishedAt || null, employmentType: j.employmentType || null,
+      remote: j.isRemote === true ? true : null, description: pickDescription(j.descriptionHtml, j.descriptionPlain) }));
+  }
+  if (company.provider === 'workable') {
+    const data = await request(`https://apply.workable.com/api/v1/widget/accounts/${tenant}?details=true`, true);
+    if (!Array.isArray(data.jobs)) throw new Error('Invalid Workable jobs response');
+    return data.jobs.map(j => ({ nativeId: String(j.shortcode || j.id || j.url), title: j.title, company: company.name,
+      location: (j.locations?.length ? j.locations : [j]).map(l => joinLocation(l.city, l.region || l.state, l.country)).filter(Boolean).join('; '),
+      url: j.url || j.shortlink || j.application_url, postedAt: j.published_on || j.created_at || null,
+      employmentType: j.employment_type || null, remote: j.telecommuting === true ? true : null,
+      description: pickDescription(j.description) }));
+  }
+  if (company.provider === 'smartrecruiters') {
+    const jobs = [];
+    for (let offset = 0; offset < 1000; offset += 100) {
+      const data = await request(`https://api.smartrecruiters.com/v1/companies/${tenant}/postings?limit=100&offset=${offset}`, true);
+      if (!Array.isArray(data.content)) throw new Error('Invalid SmartRecruiters postings response');
+      // Listings omit the advert text; hydrateJobDescription reads it from the public page.
+      jobs.push(...data.content.map(j => ({ nativeId: String(j.id), title: j.name, company: company.name,
+        location: j.location?.fullLocation || joinLocation(j.location?.city, j.location?.region, j.location?.country),
+        url: `https://jobs.smartrecruiters.com/${tenant}/${encodeURIComponent(j.id)}`,
+        postedAt: j.releasedDate || null, employmentType: j.typeOfEmployment?.label || null,
+        remote: j.location?.remote === true ? true : null, description: null })));
+      if (!data.content.length || offset + data.content.length >= Number(data.totalFound || 0)) return jobs;
+    }
+    throw new Error('SmartRecruiters result cap reached');
+  }
+  if (company.provider === 'recruitee') {
+    if (!/^[a-z0-9-]+$/i.test(company.tenant)) throw new Error('Invalid Recruitee tenant');
+    const data = await request(`https://${company.tenant}.recruitee.com/api/offers/`, true);
+    if (!Array.isArray(data.offers)) throw new Error('Invalid Recruitee offers response');
+    return data.offers.map(j => ({ nativeId: String(j.id), title: j.title, company: company.name,
+      location: j.location || joinLocation(j.city, j.country), url: j.careers_url,
+      postedAt: j.published_at || j.created_at || null, employmentType: j.employment_type_code || null,
+      remote: j.remote === true ? true : null,
+      description: pickDescription([j.description, j.requirements].filter(Boolean).join('\n\n')) }));
+  }
   if (company.provider === 'amazon') {
     const jobs = [];
     for (let offset = 0; offset < 1000; offset += 100) {
@@ -131,11 +192,12 @@ async function directJobs(company, query, market) {
 export async function fetchCompanyCareers(query, opts, market) {
   const company = query.company;
   if (!company?.name) throw new Error('Configure companies in search-profile.json');
+  const board = query.board || 'companycareers';
   let jobs;
   if (company.provider) {
-    const source = `${market.slug}:companycareers`;
+    const source = `${market.slug}:${board}`;
     if (company.markets && !company.markets.includes(market.id)) throw new Error(`Employer watchlist entry does not support market ${market.id}`);
-    jobs = (await directJobs(company, query, market)).filter(raw => matchesEmployer(raw.company, company)).map(raw => normalise({ ...raw, board: 'companycareers', via: company.provider,
+    jobs = (await directJobs(company, query, market)).filter(raw => matchesEmployer(raw.company, company)).map(raw => normalise({ ...raw, board, via: company.provider,
       id: jobId(source, `${company.name}:${raw.nativeId}`), source }, market));
   } else {
     if (market.id !== 'DE') throw new Error(`Arbeitsagentur employer search unsupported for ${market.id}; configure a direct employer feed.`);

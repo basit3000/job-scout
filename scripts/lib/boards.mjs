@@ -7,6 +7,11 @@ export const BOARD_CATALOG = [
     note: 'Employer watchlist in search-profile.json (companies). Public ATS feeds or employer-filtered Arbeitsagentur search; uses your relevance filters.',
   },
   {
+    id: 'discoveredportals', label: 'Discovered company portals', jobspy: false, apify: false,
+    api: true, regions: 'Global (discovered ATS portals)', free: true,
+    note: 'Automatic local list of employer portals discovered from job search results (Greenhouse, Lever, Ashby, Personio, Workable, etc.).',
+  },
+  {
     id: 'indeed',
     label: 'Indeed',
     jobspy: true,

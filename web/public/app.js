@@ -79,6 +79,9 @@ const els = {
   copyAnswersBtn: $('copyAnswersBtn'),
   portalsList: $('portalsList'),
   savePortalsBtn: $('savePortalsBtn'),
+  discoveredPortalsList: $('discoveredPortalsList'),
+  discoveredPortalsFeedback: $('discoveredPortalsFeedback'),
+  refreshDiscoveredPortalsBtn: $('refreshDiscoveredPortalsBtn'),
   digestList: $('digestList'),
   digestMeta: $('digestMeta'),
   digestTiming: $('digestTiming'),
@@ -2845,7 +2848,106 @@ async function refreshPortals() {
       </label>`;
     })
     .join('');
+  await refreshDiscoveredPortals().catch(() => {});
 }
+
+async function refreshDiscoveredPortals() {
+  if (!els.discoveredPortalsList) return;
+  try {
+    const data = await api('/api/company-portals');
+    const portals = Array.isArray(data?.portals) ? data.portals : [];
+    if (!portals.length) {
+      els.discoveredPortalsList.innerHTML = `
+        <div class="discovered-portals-empty">
+          No employer portals discovered yet. As you run searches, jobs that link to Greenhouse, Lever, Ashby, Personio, Workable, SmartRecruiters, or Recruitee will be automatically saved here.
+        </div>`;
+      return;
+    }
+    els.discoveredPortalsList.innerHTML = portals
+      .map((p) => {
+        const markets = (p.markets || []).join(', ') || 'Global';
+        const from = (p.discoveredFrom || []).join(', ');
+        return `
+        <div class="discovered-portal-card${p.enabled === false ? ' is-disabled' : ''}">
+          <div class="discovered-portal-main">
+            <input type="checkbox" data-portal-toggle="${escapeAttr(p.id)}" ${p.enabled !== false ? 'checked' : ''} title="Toggle this portal for searches" />
+            <div class="discovered-portal-info">
+              <span class="discovered-portal-name">
+                <span class="discovered-portal-badge">${escapeHtml(p.provider)}</span>
+                ${escapeHtml(p.name)}
+              </span>
+              <span class="discovered-portal-meta">
+                tenant: <code>${escapeHtml(p.tenant)}</code> · markets: ${escapeHtml(markets)}${from ? ` · seen via: ${escapeHtml(from)}` : ''} · seen: ${escapeHtml(String(p.seenCount || 1))} time(s)
+              </span>
+            </div>
+          </div>
+          <div class="discovered-portal-actions">
+            <button type="button" class="btn small danger" data-portal-delete="${escapeAttr(p.id)}" title="Delete from saved list">Remove</button>
+          </div>
+        </div>`;
+      })
+      .join('');
+  } catch (err) {
+    if (els.discoveredPortalsFeedback) {
+      els.discoveredPortalsFeedback.textContent = `Could not load discovered portals: ${err.message}`;
+    }
+  }
+}
+
+els.refreshDiscoveredPortalsBtn?.addEventListener('click', async () => {
+  els.refreshDiscoveredPortalsBtn.disabled = true;
+  try {
+    await refreshDiscoveredPortals();
+    if (els.discoveredPortalsFeedback) els.discoveredPortalsFeedback.textContent = 'Discovered portals refreshed.';
+  } finally {
+    els.refreshDiscoveredPortalsBtn.disabled = false;
+  }
+});
+
+els.discoveredPortalsList?.addEventListener('change', async (event) => {
+  const checkbox = event.target.closest('input[data-portal-toggle]');
+  if (!checkbox) return;
+  const id = checkbox.dataset.portalToggle;
+  const enabled = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    await api('/api/company-portals/toggle', {
+      method: 'PATCH',
+      body: JSON.stringify({ id, enabled }),
+    });
+    const card = checkbox.closest('.discovered-portal-card');
+    if (card) card.classList.toggle('is-disabled', !enabled);
+    if (els.discoveredPortalsFeedback) {
+      els.discoveredPortalsFeedback.textContent = `Portal ${enabled ? 'enabled' : 'disabled'}.`;
+    }
+  } catch (err) {
+    checkbox.checked = !enabled;
+    if (els.discoveredPortalsFeedback) {
+      els.discoveredPortalsFeedback.textContent = `Failed to update portal: ${err.message}`;
+    }
+  } finally {
+    checkbox.disabled = false;
+  }
+});
+
+els.discoveredPortalsList?.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-portal-delete]');
+  if (!btn) return;
+  const id = btn.dataset.portalDelete;
+  btn.disabled = true;
+  try {
+    await api(`/api/company-portals?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+    await refreshDiscoveredPortals();
+    if (els.discoveredPortalsFeedback) {
+      els.discoveredPortalsFeedback.textContent = 'Portal removed.';
+    }
+  } catch (err) {
+    btn.disabled = false;
+    if (els.discoveredPortalsFeedback) {
+      els.discoveredPortalsFeedback.textContent = `Failed to remove portal: ${err.message}`;
+    }
+  }
+});
 
 const memoryEditor = createMemoryEditor({ api, onSaved: refreshStatus });
 

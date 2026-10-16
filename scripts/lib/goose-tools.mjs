@@ -33,7 +33,7 @@ export function validateGooseRequest(body) {
 // run ends. Both tools/list and tools/call enforce the same server-side allowlist.
 export async function createGooseToolBridge({ tools, handlers, signal, onEvent = () => {}, maxCalls = 12 }) {
   const selected = GOOSE_TOOLS.filter((tool) => tools.includes(tool.name));
-  const secretPath = `/mcp/${randomBytes(32).toString('hex')}`;
+  const secretPath = `/mcp/${randomBytes(16).toString('hex')}`;
   const calls = [];
   const completedWrites = new Map();
   const pending = new Set();
@@ -106,8 +106,8 @@ export async function createGooseToolBridge({ tools, handlers, signal, onEvent =
       reply(200, { jsonrpc: '2.0', id: request.id, result });
     } catch (error) { reply(400, { jsonrpc: '2.0', id: request?.id ?? null, error: { code: -32600, message: error.message } }); }
   });
-  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  return { url: `http://127.0.0.1:${server.address().port}${secretPath}`, calls,
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, 'localhost', resolve); });
+  return { url: `http://localhost:${server.address().port}${secretPath}`, calls,
     async finish() {
       // A disconnected MCP client does not mean its host work has finished.
       accepting = false;

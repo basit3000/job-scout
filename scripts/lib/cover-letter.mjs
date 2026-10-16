@@ -6,7 +6,7 @@ import { withMemorySnapshot, readMemory, candidateProfile } from './memory.mjs';
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
+import { existsSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { execSync } from 'node:child_process';
 import { ROOT, escapeHtml } from './common.mjs';
@@ -410,11 +410,12 @@ function docxToPdfViaWord(docxAbsPath, pdfAbsPath) {
     }
   `.trim();
   try {
+    if (existsSync(pdfAbsPath)) unlinkSync(pdfAbsPath);
     execSync(`powershell -NoProfile -Command "${ps.replace(/"/g, '\\"')}"`, {
       timeout: 30000,
       stdio: 'pipe',
     });
-    return { ok: true };
+    return { ok: existsSync(pdfAbsPath) };
   } catch (err) {
     return { ok: false, error: err.message || String(err) };
   }

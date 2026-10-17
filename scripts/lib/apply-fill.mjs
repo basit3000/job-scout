@@ -93,10 +93,6 @@ export async function getChromeContext() {
   return sharedContext;
 }
 
-async function activePage(context) {
-  return mainTab(context);
-}
-
 async function uploadFiles(page, pack) {
   const cv = pack.files?.cvPdf;
   const letter = pack.files?.coverLetterPdf || pack.files?.coverLetterDocx;
@@ -167,7 +163,7 @@ export async function fillApplyInBrowser(pack, options = {}) {
   }
 
   const context = await getChromeContext();
-  const page = await activePage(context);
+  const page = await mainTab(context);
   await page.bringToFront().catch(() => null);
   let hostname = '';
   try {

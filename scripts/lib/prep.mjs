@@ -10,7 +10,7 @@ import { overleafConfigured, overleafStatus, assembleOverleafAfterAgent, readOve
 import { overleafTexToHtml, overleafTexToMarkdown } from './tex-html.mjs';
 import { exportCvDownloads, exportCoverLetterDownloads, cvFileBaseName, revealDownloadsFolder } from './cv-downloads.mjs';
 import { buildCoverLetter, generateCoverLetterPack } from './cover-letter.mjs';
-import { agentRunnerAvailable, currentEvidenceRel, runCvTailorAgent, seedPrepForAgent, loadAgentSession, resolveAgentModel } from './cv-agent.mjs';
+import { agentRunnerAvailable, buildJobPostingMd, currentEvidenceRel, runCvTailorAgent, seedPrepForAgent, loadAgentSession, resolveAgentModel } from './cv-agent.mjs';
 import { verifyCvAfterAgent } from './cv-verify.mjs';
 import { loadReviewSummary, runReviewerPass } from './cv-review.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
@@ -18,7 +18,7 @@ import { generateDocuments, prepStatus } from './prep-state.mjs';
 import { currentCvTemplate, currentCvTemplateId } from './cv-template-context.mjs';
 import { withJobTemplate } from './cv-template-packs.mjs';
 
-export { prepDir };
+export { prepDir, buildJobPostingMd };
 
 function safeId(id) {
   return String(id).replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 120);
@@ -108,20 +108,6 @@ export async function loadCvSettings() {
 }
 
 export { buildCoverLetter, generateCoverLetterPack };
-
-export function buildJobPostingMd(job) {
-  return `# ${job.title} — ${job.company}
-
-- **URL:** ${job.url || '_none_'}
-- **Location:** ${job.location || '_unknown_'}
-- **Board:** ${job.board || '?'} via ${job.via || '?'}
-- **ID:** \`${job.id}\`
-
-## Description
-
-${job.description || '_Job description unavailable. Continue with supported candidate evidence; record job-fit assessment limitations._'}
-`;
-}
 
 export function buildChecklistMd(job, fit, savedAnswers = {}, { hasCv = false, hasPdf = false } = {}) {
   const lines = [
@@ -489,7 +475,6 @@ async function writePrepPackAgent(job, profile, fit, savedAnswers, settings, ext
     cvSource: settings.source,
     provider: 'goose',
     model: settings.agentModel || null,
-    signal: settings.signal,
     onEvent,
   });
 

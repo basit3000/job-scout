@@ -20,7 +20,6 @@ import {
   ROOT,
   flag,
   value,
-  run,
   loadJson,
   loadMarket,
   loadDotEnv,

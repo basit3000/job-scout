@@ -26,9 +26,10 @@ import { dirname } from 'node:path';
 import { ROOT, loadJson, loadDotEnv, loadMarket, listMarketIds, workspaceDir, pickDescription } from '../scripts/lib/common.mjs';
 import { loadDecisions, recordDecision, patchDecision, VALID_DECISIONS } from '../scripts/lib/decisions.mjs';
 import { scoreJob } from '../scripts/lib/fit.mjs';
-import { readPrepPack, readPrepFile, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, prepDir, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
+import { readPrepPack, readPrepFile, loadCvSettings, overleafStatus, exportPrepDownloads, revealDownloadsFolder, agentRunnerAvailable } from '../scripts/lib/prep.mjs';
 import { createPreparationRuns } from '../scripts/lib/preparation-runs.mjs';
-import { downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mjs';
+import { cvFileBaseName, downloadsRoot, jobDownloadFolder } from '../scripts/lib/cv-downloads.mjs';
+import { loadSearchProfile } from './job-catalog-data.mjs';
 import { runGoosePipeline } from '../scripts/lib/goose-pipeline.mjs';
 import { handleMemoryApi } from './memory-routes.mjs';
 import { handleDocumentEdit } from './document-edit-routes.mjs';
@@ -446,14 +447,6 @@ async function readBody(req, maxBytes = 2 * 1024 * 1024) {
   }
 }
 
-async function loadSearchProfile() {
-  return (
-    (await loadJson(SEARCH_PROFILE, null))
-    || (await loadJson(join(ROOT, 'search-profile.example.json'), null))
-    || {}
-  );
-}
-
 async function getStatus({ light = false } = {}) {
   const config = await loadSearchProfile();
   const profile = await loadCandidateProfile();
@@ -797,23 +790,11 @@ async function handleApi(req, res, url) {
     return json(res, 200, { ok: true, text: pack.text, pack });
   }
 
-  if (req.method === 'GET' && path === '/api/apply-assist') {
-    const id = (url.searchParams.get('id') || '').trim();
+  if ((req.method === 'GET' || req.method === 'POST') && path === '/api/apply-assist') {
+    const body = req.method === 'POST' ? await readBody(req) : null;
+    const id = String(req.method === 'POST' ? body.id || '' : url.searchParams.get('id') || '').trim();
     if (!id) return json(res, 400, { error: 'id is required' });
-    const loaded = await applyPackForJobId(id);
-    if (loaded.error) return json(res, 404, { error: loaded.error });
-    return json(res, 200, {
-      ok: true,
-      ...fillAssistPayload(loaded.pack),
-      playwright: await playwrightAvailable(),
-    }, CORS_APPLY);
-  }
-
-  if (req.method === 'POST' && path === '/api/apply-assist') {
-    const body = await readBody(req);
-    const id = String(body.id || '').trim();
-    if (!id) return json(res, 400, { error: 'id is required' });
-    const loaded = await applyPackForJobId(id, body.job);
+    const loaded = await applyPackForJobId(id, body?.job);
     if (loaded.error) return json(res, 404, { error: loaded.error });
     return json(res, 200, {
       ok: true,
@@ -1074,22 +1055,13 @@ async function handleApi(req, res, url) {
       const download = url.searchParams.get('download') === '1';
       if (payload.binary) {
         const profile = await loadCandidateProfile();
-        const nice = String(profile?.name || 'Candidate')
-          .trim()
-          .split(/\s+/)
-          .filter(Boolean);
-        const short =
-          nice.length >= 3
-            ? `${nice[nice.length - 2]} ${nice[nice.length - 1]}`
-            : nice.join(' ') || 'Candidate';
+        const short = cvFileBaseName(profile?.name);
         const friendly =
-          file === 'cv-ats.pdf'
+          file === 'cv-ats.pdf' || file === 'cv.pdf'
             ? `${short} CV.pdf`
             : file === 'cv-main.pdf'
               ? `${short} CV Main.pdf`
-              : file === 'cv.pdf'
-                ? `${short} CV.pdf`
-                : file;
+              : file;
 
         // Also write into <project>/downloads/<Company>/<Role>-<JobID>/
         let folderHint = '';

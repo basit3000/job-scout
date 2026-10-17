@@ -241,8 +241,6 @@ export async function compileOverleafTex(texName, destPdf) {
 /** When LaTeX fails (e.g. moderncv + tectonic on Windows), print tex→HTML→PDF. */
 async function compileTexViaHtmlFallback(texName, destPdf, prepDir) {
   try {
-    // Repair corrupted Skills before rendering (main.tex often still broken from older runs)
-    await repairSkillsIfNeeded(overleafDir(), texName);
     const texPath = join(overleafDir(), texName);
     const tex = await readFile(texPath, 'utf8');
     const html = overleafTexToHtml(tex, {

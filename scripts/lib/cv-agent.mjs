@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { ROOT, run } from './common.mjs';
+import { ROOT } from './common.mjs';
 import { overleafConfigured, syncOverleaf } from './overleaf-cv.mjs';
 import { analyzeKeywordGaps, formatKeywordGapsMarkdown } from './cv-keywords.mjs';
 import { WRITING_RULES_GENERIC } from './cv-style.mjs';
@@ -81,9 +81,6 @@ async function stageOverleaf(emit, signal) {
 }
 
 export async function cancelCvTailorAgent() { return cancelGooseRuns(); }
-async function persistAgentMeta(prepDir, meta, sessionKey) {
-  await saveAgentSession(prepDir, meta, sessionKey);
-}
 
 function defaultStaging(task) {
   const review = task === 'review-cv' || task === 'review-letter';
@@ -128,7 +125,7 @@ async function runCvTailorAgentWithMemory({
   const emit = emitFn(onEvent);
 
   await mkdir(prepDir, { recursive: true });
-  const prepRel = relative(ROOT, prepDir).replace(/\\/g, '/') || prepDir;
+  const prepRel = relToRoot(prepDir);
   const jobPostingRel = `${prepRel}/job-posting.md`;
   const instructionsRel = `${prepRel}/instructions.md`;
   const briefName = reviewCv
@@ -323,19 +320,18 @@ async function runCvTailorAgentWithMemory({
       status: 'finished', durationMs: Date.now() - startedAt, usage: null,
       usageUnavailable: 'Goose provider usage is not normalized', resultText: resultText.slice(0, 4000),
       jobId: job.id, cvSource, createdAt: new Date().toISOString() };
-    await persistAgentMeta(prepDir, meta, nestedKey);
+    await saveAgentSession(prepDir, meta, nestedKey);
     return meta;
   } catch (error) {
-    await persistAgentMeta(prepDir, { ok: false, provider: prov, model: modelSel.id || null,
+    await saveAgentSession(prepDir, { ok: false, provider: prov, model: modelSel.id || null,
       status: 'error', error: error.message, usage: error.usage || null,
       durationMs: Date.now() - startedAt, createdAt: new Date().toISOString() }, nestedKey);
     throw error;
   }
 }
 
-export async function seedPrepForAgent(prepDir, job, extraInstructions = '') {
-  await mkdir(prepDir, { recursive: true });
-  const jobPosting = `# ${job.title} — ${job.company}
+export function buildJobPostingMd(job) {
+  return `# ${job.title} — ${job.company}
 
 - **URL:** ${job.url || '_none_'}
 - **Location:** ${job.location || '_unknown_'}
@@ -346,6 +342,11 @@ export async function seedPrepForAgent(prepDir, job, extraInstructions = '') {
 
 ${job.description || '_Job description unavailable. Continue with supported candidate evidence; record job-fit assessment limitations._'}
 `;
+}
+
+export async function seedPrepForAgent(prepDir, job, extraInstructions = '') {
+  await mkdir(prepDir, { recursive: true });
+  const jobPosting = buildJobPostingMd(job);
   await writeFile(join(prepDir, 'job-posting.md'), jobPosting.endsWith('\n') ? jobPosting : `${jobPosting}\n`);
   const instr = String(extraInstructions || '').trim();
   if (instr) {

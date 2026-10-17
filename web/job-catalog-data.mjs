@@ -23,7 +23,7 @@ import { loadRunHistory } from '../scripts/lib/run-history.mjs';
 const cachedScorer = createScoreCache(scoreJob);
 const SEARCH_PROFILE = join(ROOT, 'search-profile.json');
 const READY_EXCLUDED = new Set(['applied', 'interviewing', 'offer', 'accepted', 'skipped', 'rejected', 'closed']);
-async function loadSearchProfile() {
+export async function loadSearchProfile() {
   return (
     (await loadJson(SEARCH_PROFILE, null))
     || (await loadJson(join(ROOT, 'search-profile.example.json'), null))

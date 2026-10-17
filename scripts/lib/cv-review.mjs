@@ -112,45 +112,29 @@ export function formatFixInstructions(review, originalExtra = '') {
   return original ? `${original}\n\n${block}` : block;
 }
 
-export async function copyAcceptedCv({ prepDir, cvSource }) {
-  const dir = join(prepDir, ACCEPTED_DIR);
-  await mkdir(dir, { recursive: true });
-  const saved = [];
-  if (cvSource === 'overleaf') {
-    for (const name of ['main.tex', 'ats.tex']) {
-      const src = join(overleafDir(), name);
-      if (!existsSync(src)) continue;
-      await writeFile(join(dir, name), await readFile(src, 'utf8'));
-      saved.push(name);
-    }
-  } else {
-    const src = join(prepDir, 'cv.md');
-    if (existsSync(src)) {
-      await writeFile(join(dir, 'cv.md'), await readFile(src, 'utf8'));
-      saved.push('cv.md');
-    }
+async function syncAcceptedCv(prepDir, cvSource, restore = false) {
+  const acceptedDir = join(prepDir, ACCEPTED_DIR);
+  const workDir = cvSource === 'overleaf' ? overleafDir() : prepDir;
+  const fromDir = restore ? acceptedDir : workDir;
+  const toDir = restore ? workDir : acceptedDir;
+  if (!restore) await mkdir(acceptedDir, { recursive: true });
+  const names = cvSource === 'overleaf' ? ['main.tex', 'ats.tex'] : ['cv.md'];
+  const synced = [];
+  for (const name of names) {
+    const src = join(fromDir, name);
+    if (!existsSync(src)) continue;
+    await writeFile(join(toDir, name), await readFile(src, 'utf8'));
+    synced.push(name);
   }
-  return saved;
+  return synced;
 }
 
-export async function restoreAcceptedCv({ prepDir, cvSource }) {
-  const dir = join(prepDir, ACCEPTED_DIR);
-  const restored = [];
-  if (cvSource === 'overleaf') {
-    for (const name of ['main.tex', 'ats.tex']) {
-      const src = join(dir, name);
-      if (!existsSync(src)) continue;
-      await writeFile(join(overleafDir(), name), await readFile(src, 'utf8'));
-      restored.push(name);
-    }
-  } else {
-    const src = join(dir, 'cv.md');
-    if (existsSync(src)) {
-      await writeFile(join(prepDir, 'cv.md'), await readFile(src, 'utf8'));
-      restored.push('cv.md');
-    }
-  }
-  return restored;
+export function copyAcceptedCv({ prepDir, cvSource }) {
+  return syncAcceptedCv(prepDir, cvSource, false);
+}
+
+export function restoreAcceptedCv({ prepDir, cvSource }) {
+  return syncAcceptedCv(prepDir, cvSource, true);
 }
 
 export async function copyAcceptedLetter(prepDir, letter) {

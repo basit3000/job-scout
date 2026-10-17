@@ -244,11 +244,9 @@ function isLetterSubject(line) {
   return line.trim().toLowerCase().startsWith(prefix.toLowerCase());
 }
 
-/** Render paragraphs and an optional configured subject without changing the wording. */
-export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
+function splitLetterSubjectAndGroups(letter) {
   const lines = letter.split('\n');
   let i = 0;
-
   while (i < lines.length && !lines[i].trim()) i++;
   let subjectLine = '';
   if (i < lines.length && isLetterSubject(lines[i])) {
@@ -256,9 +254,13 @@ export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
     i++;
   }
   while (i < lines.length && !lines[i].trim()) i++;
-
   const bodyText = lines.slice(i).join('\n').trim();
-  const groups = bodyText.split(/\n{2,}/);
+  return { subjectLine, groups: bodyText.split(/\n{2,}/) };
+}
+
+/** Render paragraphs and an optional configured subject without changing the wording. */
+export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
+  const { subjectLine, groups } = splitLetterSubjectAndGroups(letter);
 
   const bodyHtml = groups.map((group) => {
     const groupLines = group.split('\n').map((l) => escapeHtml(l.trim())).filter(Boolean);
@@ -316,7 +318,6 @@ export function coverLetterToHtml(letter, { title = 'Cover letter' } = {}) {
  * Sign-off lines are each on their own paragraph.
  */
 export async function coverLetterToDocx(letter) {
-  const lines = letter.split('\n');
   const FONT = 'Times New Roman';
   const SIZE = 24;   // half-points -> 12pt
   const DARK = '111111';
@@ -332,18 +333,7 @@ export async function coverLetterToDocx(letter) {
     });
   }
 
-  let i = 0;
-  while (i < lines.length && !lines[i].trim()) i++;
-
-  let subjectLine = '';
-  if (i < lines.length && isLetterSubject(lines[i])) {
-    subjectLine = lines[i].trim();
-    i++;
-  }
-  while (i < lines.length && !lines[i].trim()) i++;
-
-  const bodyText = lines.slice(i).join('\n').trim();
-  const groups = bodyText.split(/\n{2,}/);
+  const { subjectLine, groups } = splitLetterSubjectAndGroups(letter);
 
   const docParas = [];
 
@@ -442,15 +432,9 @@ async function writeCoverLetterArtifacts(dir, letter, htmlTitle) {
     const wordResult = docxToPdfViaWord(absDocx, absPdf);
     if (wordResult.ok && existsSync(absPdf)) {
       pdfPath = absPdf;
-    } else {
-      const html = coverLetterToHtml(letter, { title: htmlTitle });
-      const htmlPath = join(dir, 'cover-letter.html');
-      await writeFile(htmlPath, html);
-      const pdfResult = await htmlFileToPdf(htmlPath, join(dir, 'cover-letter.pdf'));
-      if (pdfResult.ok) pdfPath = join(dir, 'cover-letter.pdf');
-      else pdfError = (pdfError ? `${pdfError}; ` : '') + `pdf: ${pdfResult.error}`;
     }
-  } else {
+  }
+  if (!pdfPath) {
     const html = coverLetterToHtml(letter, { title: htmlTitle });
     const htmlPath = join(dir, 'cover-letter.html');
     await writeFile(htmlPath, html);

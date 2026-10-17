@@ -4,12 +4,10 @@ import { join } from 'node:path';
 import { ROOT } from './common.mjs';
 import { loadDecisions } from './decisions.mjs';
 import { TrackerClient, OPTIONAL_FIELDS } from './tracker-client.mjs';
-import { cloudFields, projectFields, localImportFields, localFingerprint, eventFingerprint, importCloudRecord, validateSourceEvents, syncFieldsFingerprint } from './cloud-records.mjs';
+import { cloudFields, projectFields, localImportFields, localFingerprint, eventFingerprint, importCloudRecord, own, put, validateSourceEvents, syncFieldsFingerprint } from './cloud-records.mjs';
 import { syncSummary, syncState, settleSyncReceipts, rememberImport, rememberSend } from './cloud-sync.mjs';
 
 export const cloudStatePath = (root = ROOT) => join(root, 'state', 'private', 'tracker.json');
-const own = (object, key) => Object.hasOwn(object, key) ? object[key] : undefined;
-const put = (object, key, value) => Object.defineProperty(object, key, { value, writable: true, enumerable: true, configurable: true });
 export async function configuredOrigin(root = ROOT) {
   try { return JSON.parse(await readFile(cloudStatePath(root), 'utf8')).origin; }
   catch (error) { if (error.code === 'ENOENT') return null; throw new Error('Preserve the private tracker state before recovery; it cannot be read.'); }

@@ -401,22 +401,6 @@ async function ensureLayout() {
   return { migrated: true, rows: next, remapped: next.length - 1 };
 }
 
-async function loadRowMap() {
-  const tab = sheetsTabName();
-  const data = await sheetsFetch(
-    `/values/${encodeURIComponent(a1(tab, `A:${LAST_COL}`))}`,
-  );
-  const rows = data.values || [];
-  const map = new Map();
-  for (let i = 1; i < rows.length; i += 1) {
-    const sheetRow = i + 1;
-    for (const key of rowMatchKeys(rows[i])) {
-      if (!map.has(key)) map.set(key, sheetRow);
-    }
-  }
-  return map;
-}
-
 /**
  * Upsert one decision into the sheet (match by link, else company + title).
  */

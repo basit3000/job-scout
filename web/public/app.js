@@ -242,8 +242,6 @@ let state = {
   trackerPageSize: 20,
   trackerSort: 'newest',
   trackerDueOnly: false,
-  /** Digest jobs currently shown — the pool for Create CVs… */
-  digestJobs: [],
   /** Last batch snapshot from the server */
   batch: null,
   fetchStartedAt: null,
@@ -940,40 +938,39 @@ function finishSearchActivity(data, count) {
   });
 }
 
-function loadSort() {
+function loadChoiceFromStorage(key, allowed, fallback) {
   try {
-    const raw = localStorage.getItem(LS_SORT);
-    return SORT_VALUES.includes(raw) ? raw : 'fit';
+    const raw = localStorage.getItem(key);
+    return allowed.includes(raw) ? raw : fallback;
   } catch {
-    return 'fit';
+    return fallback;
   }
+}
+
+function saveChoiceToStorage(key, allowed, value, fallback) {
+  const next = allowed.includes(value) ? value : fallback;
+  try {
+    localStorage.setItem(key, next);
+  } catch {
+    /* ignore */
+  }
+  return next;
+}
+
+function loadSort() {
+  return loadChoiceFromStorage(LS_SORT, SORT_VALUES, 'fit');
 }
 
 function saveSort(value) {
-  try {
-    localStorage.setItem(LS_SORT, SORT_VALUES.includes(value) ? value : 'fit');
-  } catch {
-    /* ignore */
-  }
+  saveChoiceToStorage(LS_SORT, SORT_VALUES, value, 'fit');
 }
 
 function loadTrackerSort() {
-  try {
-    const raw = localStorage.getItem(LS_TRACKER_SORT);
-    return TRACKER_SORT_VALUES.includes(raw) ? raw : 'newest';
-  } catch {
-    return 'newest';
-  }
+  return loadChoiceFromStorage(LS_TRACKER_SORT, TRACKER_SORT_VALUES, 'newest');
 }
 
 function saveTrackerSort(value) {
-  const next = TRACKER_SORT_VALUES.includes(value) ? value : 'newest';
-  state.trackerSort = next;
-  try {
-    localStorage.setItem(LS_TRACKER_SORT, next);
-  } catch {
-    /* ignore */
-  }
+  state.trackerSort = saveChoiceToStorage(LS_TRACKER_SORT, TRACKER_SORT_VALUES, value, 'newest');
 }
 
 function loadTrackerPageSize() {
@@ -997,20 +994,11 @@ function saveTrackerPageSize(value) {
 }
 
 function loadLang() {
-  try {
-    const raw = localStorage.getItem(LS_LANG);
-    return LANG_VALUES.includes(raw) ? raw : 'all';
-  } catch {
-    return 'all';
-  }
+  return loadChoiceFromStorage(LS_LANG, LANG_VALUES, 'all');
 }
 
 function saveLang(value) {
-  try {
-    localStorage.setItem(LS_LANG, LANG_VALUES.includes(value) ? value : 'all');
-  } catch {
-    /* ignore */
-  }
+  saveChoiceToStorage(LS_LANG, LANG_VALUES, value, 'all');
 }
 
 function queryString() {
@@ -1805,10 +1793,16 @@ function showPrep(data) {
     <button type="button" class="btn ghost" id="backToLog">View activity</button>
   `;
 
-  async function openCompanyFolder(button) {
-    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || '')
+  function prepJobRef() {
+    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
       .match(/\/api\/prep\/([^/]+)\//)?.[1];
     const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
+    return state.jobs?.find((j) => j.id === id)
+      || { id, title: pack.title || 'this role', company: pack.company || '', url: pack.applyUrl };
+  }
+
+  async function openCompanyFolder(button) {
+    const { id } = prepJobRef();
     const res = await openSavedFolder(button, id, pack.templateId);
     if (!res) return;
     const pathsEl = $('companyFolderPaths');
@@ -1822,13 +1816,6 @@ function showPrep(data) {
   $('openCompanyFolder')?.addEventListener('click', event => {
     void openCompanyFolder(event.currentTarget);
   });
-  function prepJobRef() {
-    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
-      .match(/\/api\/prep\/([^/]+)\//)?.[1];
-    const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
-    return state.jobs?.find((j) => j.id === id)
-      || { id, title: pack.title || 'this role', company: pack.company || '', url: pack.applyUrl };
-  }
   $('copyApplyPack')?.addEventListener('click', async () => {
     try {
       await copyApplyPack(prepJobRef());
@@ -1847,16 +1834,13 @@ function showPrep(data) {
   $('editPreparedDocument')?.addEventListener('click', () => openDocumentEditor(prepJobRef()));
   $('preparationExtras')?.addEventListener('click', () => openPreparationExtras(prepJobRef()));
   $('generateCoverLetter')?.addEventListener('click', async () => {
-    const fromUrl = String(pack.downloadCvPdfMain || pack.downloadCvPdfAts || pack.downloadCoverLetter || '')
-      .match(/\/api\/prep\/([^/]+)\//)?.[1];
-    const id = decodeURIComponent(pack.jobId || fromUrl || state.lastPrepJobId || '');
-    const job = state.jobs?.find((j) => j.id === id);
-    if (!job && !id) {
+    const ref = prepJobRef();
+    if (!ref.id) {
       appendLog('Cover letter: missing job id — open a result and click Prep.', 'stderr');
       return;
     }
     await runPrepFlow(
-      job || { id, title: 'this role', company: '', url: pack.applyUrl, fit: data.fit },
+      state.jobs?.find((j) => j.id === ref.id) || { ...ref, fit: data.fit },
       { preferCoverLetter: true },
     );
   });
@@ -2300,12 +2284,7 @@ async function refreshJobs() {
       return;
     }
 
-    els.emptyState.hidden = data.pagination.total > 0;
-    if (!data.jobs.length && data.pagination.total === 0) {
-      els.emptyState.hidden = false;
-    } else {
-      els.emptyState.hidden = true;
-    }
+    els.emptyState.hidden = Boolean(data.pagination.total || data.jobs.length);
 
     const when = data.meta?.generatedAt ? new Date(data.meta.generatedAt).toLocaleString() : '—';
     const dup = (data.meta?.duplicatesRemoved ?? 0) + (data.meta?.duplicatesRemovedExtra ?? 0);
@@ -2754,27 +2733,6 @@ async function refreshAnswers() {
   ).join('');
 }
 
-function decisionKey(job) {
-  return job?.decision?.decision || 'none';
-}
-
-/** Digest is an inbox of new postings — hide applied (and any Results-filter hides). */
-function digestJobVisible(job) {
-  const key = decisionKey(job);
-  if (['applied', 'interviewing', 'offer', 'accepted'].includes(key)) return false;
-  const hide = hiddenFromVisible(
-    DECISION_FILTER_OPTIONS.map((o) => o.id),
-    state.visibleDecisions,
-  );
-  return !hide.includes(key);
-}
-
-function digestLangVisible(job) {
-  const lang = els.langFilter?.value || 'all';
-  if (lang === 'all') return true;
-  return job?.language === lang;
-}
-
 function refreshDigest() { return loadPagedView('digest', els.digestList, loadDigest, refreshDigest); }
 async function loadDigest(signal) {
   const params = new URLSearchParams(queryString());
@@ -2782,7 +2740,6 @@ async function loadDigest(signal) {
   const data = await api(`/api/digest?${params}`, { signal });
   listPages.digest = data.pagination; listPagers.digest.update(data.pagination);
   const jobs = data.newJobs || [];
-  state.digestJobs = jobs;
   if (els.batchOpenBtn) els.batchOpenBtn.disabled = !jobs.length && !state.batch?.running;
   els.digestMeta.textContent = data.digest?.generatedAt
     ? `${data.count} new to review (${data.digest.previousFetchAt ? new Date(data.digest.previousFetchAt).toLocaleString() : 'first run'})`

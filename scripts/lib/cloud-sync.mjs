@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { cloudFields, localFingerprint, syncFieldsFingerprint, syncLocalFingerprint } from './cloud-records.mjs';
+import { cloudFields, localFingerprint, own, put, syncFieldsFingerprint, syncLocalFingerprint } from './cloud-records.mjs';
 
 const APPLICATION_STATES = new Set(['applied', 'interviewing', 'offer', 'accepted', 'rejected', 'closed']);
-const own = (object, key) => Object.hasOwn(object, key) ? object[key] : undefined;
-const put = (object, key, value) => Object.defineProperty(object, key, { value, writable: true, enumerable: true, configurable: true });
 export function syncState(adapter) {
   adapter.adapter.automatic ||= { enabled: false, intervalMinutes: 1, direction: 'push', baselines: {}, receipts: {}, issues: {} };
   return adapter.adapter.automatic;

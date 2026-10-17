@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Free Germany-specific job sources (not JobSpy / Apify).
  * - arbeitsagentur: Bundesagentur für Arbeit Jobsuche API
  * - arbeitnow: Arbeitnow public job-board API
@@ -16,6 +16,14 @@
 import { jobId, normalise, detectMarketFlags, stripHtml, clean, pickDescription, locationMentionsExcluded } from './common.mjs';
 import { postingDate } from './job-signals.mjs';
 import { withRateLimitRetry } from './fetch-resilience.mjs';
+import { mapLimit } from './fetch-pool.mjs';
+
+function toMarketJob(board, raw, market) {
+  const source = `${market.slug}:${board}`;
+  const job = normalise({ ...raw, board, id: jobId(source, raw.nativeId), source }, market);
+  job.flags = detectMarketFlags(job, market);
+  return job;
+}
 
 const AA_BASE = 'https://rest.arbeitsagentur.de/jobboerse/jobsuche-service';
 const AA_KEY = 'jobboerse-jobsuche';
@@ -58,22 +66,6 @@ async function fetchText(url, { accept = 'text/html', timeoutMs = 8000, signal }
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function mapLimit(items, limit, fn) {
-  const list = items ?? [];
-  if (!list.length) return [];
-  const out = new Array(list.length);
-  let i = 0;
-  const n = Math.min(Math.max(1, limit), list.length);
-  await Promise.all(Array.from({ length: n }, async () => {
-    while (i < list.length) {
-      const idx = i;
-      i += 1;
-      out[idx] = await fn(list[idx], idx);
-    }
-  }));
-  return out;
 }
 
 /** JSON-LD JobPosting.description when a board's list API has no body. */
@@ -254,14 +246,12 @@ export async function fetchArbeitsagentur(query, { limit, hydrate = true }, mark
   const data = await res.json();
   const items = data.ergebnisliste ?? data.stellenangebote ?? (data.maxErgebnisse === 0 ? [] : undefined);
   if (!Array.isArray(items)) throw new Error('Arbeitsagentur returned an invalid jobs response');
-  const source = `${market.slug}:arbeitsagentur`;
 
   const jobs = items
     .map((j) => {
       const url = aaUrl(j);
       if (!url) return null;
-      const raw = {
-        board: 'arbeitsagentur',
+      return toMarketJob('arbeitsagentur', {
         via: 'api',
         nativeId: j.referenznummer || j.hashId || url,
         title: j.stellenangebotsTitel || j.hauptberuf,
@@ -274,10 +264,7 @@ export async function fetchArbeitsagentur(query, { limit, hydrate = true }, mark
         employmentType: aaEmploymentType(j),
         salary: j.verguetungsangabe && j.verguetungsangabe !== 'KEINE_ANGABEN' ? j.verguetungsangabe : null,
         description: pickDescription(j.stellenangebotsBeschreibung),
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      return job;
+      }, market);
     })
     .filter(Boolean);
   if (hydrate) await mapLimit(jobs, 3, async (job) => {
@@ -386,9 +373,7 @@ async function loadArbeitnowItems() {
 function mapArbeitnowJob(j, market) {
   const url = j.url;
   if (!url) return null;
-  const source = `${market.slug}:arbeitnow`;
-  const raw = {
-    board: 'arbeitnow',
+  return toMarketJob('arbeitnow', {
     via: 'api',
     nativeId: j.slug || url,
     title: j.title,
@@ -400,10 +385,7 @@ function mapArbeitnowJob(j, market) {
     postedAt: j.created_at ? new Date(Number(j.created_at) * 1000).toISOString() : null,
     employmentType: Array.isArray(j.job_types) && j.job_types.length ? j.job_types.join(', ') : null,
     description: decodeArbeitnowHtml(j.description).slice(0, 4000),
-  };
-  const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-  job.flags = detectMarketFlags(job, market);
-  return job;
+  }, market);
 }
 
 /** Arbeitnow public board — Germany-heavy tech/remote listings. Client-side filter. */
@@ -479,9 +461,7 @@ export async function fetchBerlinStartupJobs(query, { limit }, market) {
       if (!matchesWhere(location, /remote/i.test(location), query, market)) continue;
       const url = p.link;
       if (!url) continue;
-      const source = `${market.slug}:berlinstartupjobs`;
-      const raw = {
-        board: 'berlinstartupjobs',
+      out.push(toMarketJob('berlinstartupjobs', {
         via: 'api',
         nativeId: String(p.id || p.slug || url),
         title,
@@ -492,10 +472,7 @@ export async function fetchBerlinStartupJobs(query, { limit }, market) {
         url,
         postedAt: p.date || p.date_gmt || null,
         description: stripHtml(decodeEntities(p.excerpt?.rendered || p.content?.rendered || '')).slice(0, 4000),
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      }, market));
       if (out.length >= want) break;
     }
 
@@ -566,11 +543,7 @@ export async function fetchMunichStartup(query, { limit }, market) {
     return raw;
   });
 
-  return out.map((raw) => {
-    const job = normalise({ ...raw, id: jobId(`${market.slug}:munichstartup`, raw.nativeId), source: `${market.slug}:munichstartup` }, market);
-    job.flags = detectMarketFlags(job, market);
-    return job;
-  });
+  return out.map((raw) => toMarketJob('munichstartup', raw, market));
 }
 
 /** Pegel — curated Berlin startup roles (free read-only API). */
@@ -637,12 +610,7 @@ export async function fetchPegel(query, { limit }, market) {
     return raw;
   });
 
-  return out.map((raw) => {
-    const source = `${market.slug}:pegel`;
-    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-    job.flags = detectMarketFlags(job, market);
-    return job;
-  });
+  return out.map((raw) => toMarketJob('pegel', raw, market));
 }
 
 /** Nomado24 — free DE/EU remote + hybrid jobs API (attribution: nomado24.de). */
@@ -706,12 +674,7 @@ export async function fetchNomado24(query, { limit }, market) {
     return raw;
   });
 
-  return out.map((raw) => {
-    const source = `${market.slug}:nomado24`;
-    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-    job.flags = detectMarketFlags(job, market);
-    return job;
-  });
+  return out.map((raw) => toMarketJob('nomado24', raw, market));
 }
 
 const STEPSTONE_ORIGIN = 'https://www.stepstone.de';
@@ -856,9 +819,7 @@ export async function fetchStepstone(query, { limit }, market) {
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
       if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
-      const source = `${market.slug}:stepstone`;
-      const raw = {
-        board: 'stepstone',
+      out.push(toMarketJob('stepstone', {
         via: 'html',
         nativeId: parsed.nativeId,
         title: parsed.title,
@@ -870,10 +831,7 @@ export async function fetchStepstone(query, { limit }, market) {
         postedAt: parsed.postedAt,
         postedAtApproximate: true,
         description: parsed.description,
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      }, market));
       if (out.length >= want) break;
     }
   }
@@ -972,9 +930,7 @@ export async function fetchXing(query, { limit }, market) {
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
       if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
-      const source = `${market.slug}:xing`;
-      const raw = {
-        board: 'xing',
+      out.push(toMarketJob('xing', {
         via: 'html',
         nativeId: parsed.nativeId,
         title: parsed.title,
@@ -985,10 +941,7 @@ export async function fetchXing(query, { limit }, market) {
         url: `${XING_ORIGIN}${parsed.href}`,
         postedAt: parsed.postedAt,
         description: parsed.description,
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      }, market));
       if (out.length >= want) break;
     }
   }
@@ -1080,9 +1033,7 @@ async function fetchPpaPortal(origin, board, query, { limit }, market) {
       const hay = `${parsed.title} ${parsed.company || ''}`;
       if (!matchesTextQuery(hay, query)) continue;
       if (!matchesWhere(parsed.location, parsed.remote, query, market)) continue;
-      const source = `${market.slug}:${board}`;
-      const raw = {
-        board,
+      out.push(toMarketJob(board, {
         via: 'html',
         nativeId: parsed.nativeId,
         title: parsed.title,
@@ -1095,10 +1046,7 @@ async function fetchPpaPortal(origin, board, query, { limit }, market) {
         postedAtApproximate: parsed.postedAtApproximate,
         employmentType: parsed.employmentType,
         description: parsed.description,
-      };
-      const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-      job.flags = detectMarketFlags(job, market);
-      out.push(job);
+      }, market));
       if (out.length >= want) break;
     }
 
@@ -1189,14 +1137,12 @@ export async function fetchGermantechJobs(query, { limit }, market) {
     if (!matchesTextQuery(hay, query)) continue;
     const remote = /remote|home[\s-]?office|homeoffice/i.test(hay);
     if (!matchesWhere(description, remote, query)) continue;
-    const source = `${market.slug}:germantechjobs`;
     let postedAt = null;
     if (item.pubDate) {
       const ms = Date.parse(item.pubDate);
       if (!Number.isNaN(ms)) postedAt = new Date(ms).toISOString();
     }
-    const raw = {
-      board: 'germantechjobs',
+    out.push(toMarketJob('germantechjobs', {
       via: 'rss',
       nativeId: url,
       title: parsed.title,
@@ -1208,26 +1154,28 @@ export async function fetchGermantechJobs(query, { limit }, market) {
       postedAt,
       salary: parsed.salary,
       description: description || null,
-    };
-    const job = normalise({ ...raw, id: jobId(source, raw.nativeId), source }, market);
-    job.flags = detectMarketFlags(job, market);
-    out.push(job);
+    }, market));
   }
 
   return out;
 }
 
+const GERMANY_PORTAL_FETCHERS = {
+  arbeitsagentur: fetchArbeitsagentur,
+  arbeitnow: fetchArbeitnow,
+  berlinstartupjobs: fetchBerlinStartupJobs,
+  munichstartup: fetchMunichStartup,
+  pegel: fetchPegel,
+  nomado24: fetchNomado24,
+  stepstone: fetchStepstone,
+  xing: fetchXing,
+  kimeta: fetchKimeta,
+  heise: fetchHeise,
+  germantechjobs: fetchGermantechJobs,
+};
+
 export async function fetchGermanyPortal(board, query, opts, market) {
-  if (board === 'arbeitsagentur') return fetchArbeitsagentur(query, opts, market);
-  if (board === 'arbeitnow') return fetchArbeitnow(query, opts, market);
-  if (board === 'berlinstartupjobs') return fetchBerlinStartupJobs(query, opts, market);
-  if (board === 'munichstartup') return fetchMunichStartup(query, opts, market);
-  if (board === 'pegel') return fetchPegel(query, opts, market);
-  if (board === 'nomado24') return fetchNomado24(query, opts, market);
-  if (board === 'stepstone') return fetchStepstone(query, opts, market);
-  if (board === 'xing') return fetchXing(query, opts, market);
-  if (board === 'kimeta') return fetchKimeta(query, opts, market);
-  if (board === 'heise') return fetchHeise(query, opts, market);
-  if (board === 'germantechjobs') return fetchGermantechJobs(query, opts, market);
-  throw new Error(`No Germany portal fetcher for "${board}"`);
+  const fetcher = GERMANY_PORTAL_FETCHERS[board];
+  if (!fetcher) throw new Error(`No Germany portal fetcher for "${board}"`);
+  return fetcher(query, opts, market);
 }

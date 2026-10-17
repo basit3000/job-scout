@@ -13,10 +13,9 @@ import { createHash } from 'node:crypto';
 import { artifactContext } from './artifact-context.mjs';
 import { currentCvTemplateId } from './cv-template-context.mjs';
 
-/** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
-async function safeCopyFile(src, dest) {
+async function withBusyFallback(dest, writeFn) {
   try {
-    await copyFile(src, dest);
+    await writeFn(dest);
     return dest;
   } catch (err) {
     if (err.code === 'EBUSY' || err.code === 'EPERM') {
@@ -24,7 +23,7 @@ async function safeCopyFile(src, dest) {
       const stem = dest.slice(0, dest.length - ext.length);
       for (let n = 2; n <= 9; n++) {
         const alt = `${stem} (${n})${ext}`;
-        try { await copyFile(src, alt); return alt; } catch (e2) {
+        try { await writeFn(alt); return alt; } catch (e2) {
           if (e2.code !== 'EBUSY' && e2.code !== 'EPERM') throw e2;
         }
       }
@@ -33,25 +32,11 @@ async function safeCopyFile(src, dest) {
   }
 }
 
+/** Copy src → dest; if dest is locked (EBUSY/EPERM), try numbered fallbacks. */
+const safeCopyFile = (src, dest) => withBusyFallback(dest, (target) => copyFile(src, target));
+
 /** Write content to dest; if locked, try numbered fallbacks. */
-async function safeWriteFile(dest, content) {
-  try {
-    await writeFile(dest, content);
-    return dest;
-  } catch (err) {
-    if (err.code === 'EBUSY' || err.code === 'EPERM') {
-      const ext = dest.match(/(\.[^.]+)$/)?.[1] || '';
-      const stem = dest.slice(0, dest.length - ext.length);
-      for (let n = 2; n <= 9; n++) {
-        const alt = `${stem} (${n})${ext}`;
-        try { await writeFile(alt, content); return alt; } catch (e2) {
-          if (e2.code !== 'EBUSY' && e2.code !== 'EPERM') throw e2;
-        }
-      }
-    }
-    throw err;
-  }
-}
+const safeWriteFile = (dest, content) => withBusyFallback(dest, (target) => writeFile(target, content));
 
 /** "Ada Lovelace Byron" → "Lovelace Byron" (matches moderncv short name when 3+ parts). */
 export function cvFileBaseName(profileName) {

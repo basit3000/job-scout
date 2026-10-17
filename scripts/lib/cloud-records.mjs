@@ -9,6 +9,8 @@ const TEXT_LIMITS = { title: 128, company: 128, url: 512, board: 128, location: 
 const OBSERVATION_KEYS = ['count', 'relation', 'label', 'source', 'url', 'observedAt'];
 const TERMINAL = new Set(['skipped', 'accepted', 'rejected', 'closed']);
 export const digest = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+export const own = (object, key) => Object.hasOwn(object, key) ? object[key] : undefined;
+export const put = (object, key, value) => Object.defineProperty(object, key, { value, writable: true, enumerable: true, configurable: true });
 
 function text(value, key, limit) {
   if (value === null) return;
